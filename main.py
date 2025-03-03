@@ -171,12 +171,6 @@ class EmployeeRostering:
         print(f"Staff hour utilization = {total_hours / possible_hours * 100:.2f}%")
         print(f"Staff maximum hour utilization = {total_hours / max_possible_shift_hours * 100:.2f}%")
 
-    import os
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    import matplotlib.colors as mcolors
-
     def generate_schedule_image(self, filename="export/shift_schedule.png"):
         # Check if the directory exists, if not, create it
         export_dir = os.path.dirname(filename)
@@ -242,12 +236,12 @@ employees = [
     Employee('Eve', 40, [], ['LateShift']),
     Employee('Frank', 32, ['2024-02-26'], ['NightShift']),
     Employee('Grace', 40, [], ['EarlyShift']),
-    Employee('Peter', 40, [], []),
+    Employee('Peter', 32, [], []),
     Employee('Hannah', 40, ['2024-02-07'], ['LateShift']),
-    Employee('Sven', 32, ['2024-02-04'], ['LateShift']),
-    Employee('Test', 32, ['2024-02-21'], ['LateShift']),
-    Employee('Test1', 32, [], ['LateShift']),
-    Employee('Test2', 32, ['2024-02-14'], ['LateShift']),
+    Employee('Sven', 32, ['2024-02-04'], ['EarlyShift']),
+    Employee('Mike', 32, ['2024-02-21'], ['LateShift']),
+    Employee('Jace', 40, [], ['NightShift']),
+    Employee('Anna', 32, ['2024-02-14'], ['EarlyShift']),
 ]
 
 shift_types = [
