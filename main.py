@@ -171,6 +171,12 @@ class EmployeeRostering:
         print(f"Staff hour utilization = {total_hours / possible_hours * 100:.2f}%")
         print(f"Staff maximum hour utilization = {total_hours / max_possible_shift_hours * 100:.2f}%")
 
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import matplotlib.colors as mcolors
+
     def generate_schedule_image(self, filename="export/shift_schedule.png"):
         # Check if the directory exists, if not, create it
         export_dir = os.path.dirname(filename)
@@ -210,7 +216,9 @@ class EmployeeRostering:
 
         fig, ax = plt.subplots(figsize=(15, len(all_employees) * 0.5))
         sns.heatmap(df_numeric, cmap=mcolors.ListedColormap(colors.values()), cbar=False, ax=ax, linewidths=.5,
-                    linecolor='lightgray')
+                    linecolor='black')
+
+        ax.grid(which="minor", color="black", linestyle='-', linewidth=0.5)
 
         ax.set_yticklabels(all_employees, rotation=0)
         ax.set_xticklabels(all_days, rotation=45, ha='right')
