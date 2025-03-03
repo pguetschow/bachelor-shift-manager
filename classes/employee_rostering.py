@@ -97,8 +97,9 @@ class EmployeeRostering:
                             f"Absence_{employee.name}_{day.date}_{shift.name}"
                         )
 
-        alpha = 0.85
-        beta = 0.15
+        alpha = 0.7
+        beta = 0.5
+        gamma = 0.25
 
         total_hours_worked = lpSum(
             self.variables[(employee.name, day.date, shift.name)] * shift.get_duration()
@@ -109,6 +110,15 @@ class EmployeeRostering:
 
         min_hours = LpVariable("MinHours", 0, cat='Integer')
         max_hours = LpVariable("MaxHours", 100, cat='Integer')
+
+        preferred_shift_score = lpSum(
+            self.variables[(employee.name, day.date, shift.name)]
+            for employee in self.employees
+            for day in self.days
+            for shift in day.shifts
+            if shift.name in employee.preferred_shifts
+        )
+
         for employee in self.employees:
             total_hours = lpSum(
                 self.variables[(employee.name, day.date, shift.name)] * shift.get_duration()
@@ -119,7 +129,7 @@ class EmployeeRostering:
             self.problem += total_hours <= max_hours, f"MaxHoursConstraint_{employee.name}"
 
         fairness = max_hours - min_hours
-        self.problem += -alpha * total_hours_worked + beta * fairness, "WeightedObjective"
+        self.problem += -alpha * total_hours_worked + beta * fairness - gamma * preferred_shift_score, "WeightedObjective"
         self.problem.solve(PULP_CBC_CMD(msg=True))
 
         for employee in self.employees:
@@ -227,45 +237,38 @@ class EmployeeRostering:
         print(f"Schedule image saved as {filename}")
 
     def generate_shift_staffing_image(self, filename="export/shift_staffing.png"):
-        # Prepare the matrix for shift staffing image
         all_days = [day.date for day in self.days]
-        all_shifts = ['EarlyShift', 'LateShift', 'NightShift']
+        all_shifts = [shift.name for shift in shift_types]
 
-        staffing_matrix = []
+        # Create an empty dataframe with shifts as rows and days as columns
+        df = pd.DataFrame(index=all_shifts, columns=all_days)
 
-        for shift in all_shifts:
-            shift_row = []
-            for day in self.days:
+        # Populate the dataframe with employee counts per shift
+        for day in self.days:
+            for shift in day.shifts:
                 assigned_count = sum(
                     1 for employee in self.employees
-                    if self.variables[(employee.name, day.date, shift)].varValue == 1
+                    if (day.date, shift.name) in employee.assigned_shifts
                 )
-                shift_info = self.get_shift_status(assigned_count, shift)
-                shift_row.append(shift_info)
+                df.at[shift.name, day.date] = self.get_shift_status(assigned_count, shift.name)
 
-            staffing_matrix.append(shift_row)
-
-        # Create DataFrame
-        df = pd.DataFrame(staffing_matrix, index=all_shifts, columns=all_days)
-
-        # Define the colors for heatmap
         colors = {
+            'No employees assigned': 'darkred',
+            'Understaffed': 'red',
             'Min staffed': 'orange',
-            'Max staffed': 'green',
             'In between': 'yellow',
-            'No employees assigned': 'red'
+            'Max staffed': 'green'
         }
 
         # Map status to color codes for heatmap
-        color_codes = {state: code for code, state in enumerate(colors.keys(), start=1)}
+        color_codes = {state: idx for idx, state in enumerate(colors.keys())}
         df_numeric = df.replace(color_codes)
 
-        # Set the figure size with a fixed height and a proportional width
-        fig, ax = plt.subplots(figsize=(15, 7))
-        sns.heatmap(df_numeric, cmap=mcolors.ListedColormap(colors.values()), cbar=False, ax=ax, linewidths=.5,
-                    linecolor='black')
+        # Set up the figure size
+        fig, ax = plt.subplots(figsize=(15, 2))
+        sns.heatmap(df_numeric.astype(float), cmap=mcolors.ListedColormap(colors.values()),
+                    cbar=False, ax=ax, linewidths=.5, linecolor='black', annot=True, fmt='')
 
-        ax.grid(which="minor", color="black", linestyle='-', linewidth=0.5)
         ax.set_xticklabels(all_days, rotation=45, ha='right')
         ax.set_yticklabels(all_shifts, rotation=0)
         ax.set_title('Shift Staffing Levels')
@@ -278,19 +281,22 @@ class EmployeeRostering:
         plt.savefig(filename)
         print(f"Shift staffing image saved as {filename}")
 
-    # todo: this doesnt seem to work correctly
     def get_shift_status(self, assigned_count, shift_name):
-        # Determine the status based on staffing levels
-        for shift in shift_types:
-            if shift.name == shift_name:
-                if assigned_count == 0:
-                    return 'No employees assigned'
-                elif assigned_count <= shift.min_staff:
-                    return 'Min staffed'
-                elif assigned_count >= shift.max_staff:
-                    return 'Max staffed'
-                else:
-                    return 'In between'
+        # Get shift constraints
+        shift = next((s for s in shift_types if s.name == shift_name), None)
+        if not shift:
+            return 'No employees assigned'
+
+        if assigned_count == 0:
+            return 'No employees assigned'
+        elif assigned_count < shift.min_staff:
+            return 'Understaffed'
+        elif assigned_count == shift.min_staff:
+            return 'Min staffed'
+        elif assigned_count == shift.max_staff:
+            return 'Max staffed'
+        else:
+            return 'In between'
 
 
 shift_types = [
