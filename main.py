@@ -1,16 +1,14 @@
 from pulp import LpProblem, LpVariable, lpSum, LpMinimize, LpBinary, PULP_CBC_CMD
 from datetime import datetime, timedelta
 
-
 class Employee:
-    def __init__(self, name, max_hours, absences=None, preferred_shifts=None):
+    def __init__(self, name, max_hours_per_week, absences=None, preferred_shifts=None):
         self.name = name
-        self.max_hours = max_hours
+        self.max_hours_per_week = max_hours_per_week
         self.absences = absences if absences else []
-        self.preferred_shifts = preferred_shifts if preferred_shifts else []  # todo: implement later
+        self.preferred_shifts = preferred_shifts if preferred_shifts else []
         self.assigned_shifts = []
-        self.total_hours = 0
-
+        self.weekly_hours = {}
 
 class ShiftType:
     def __init__(self, name, start, end, min_staff, max_staff):
@@ -29,19 +27,10 @@ class ShiftType:
             end_time += 24  # Shift crosses midnight
         return end_time - start_time
 
-    def get_end_time(self):
-        end_hour, end_minute = map(int, self.end.split(':'))
-        end_time = end_hour + end_minute / 60
-        if end_time < 12:  # If end time is less than 12, it crosses midnight
-            end_time += 24
-        return end_time
-
-
 class Day:
     def __init__(self, date, shift_types):
         self.date = date
         self.shifts = shift_types
-
 
 class EmployeeRostering:
     def __init__(self, employees, start_date, num_days):
@@ -51,7 +40,6 @@ class EmployeeRostering:
         self.variables = {}
 
     def generate_schedule(self):
-        # Create decision variables
         for employee in self.employees:
             for day in self.days:
                 for shift in day.shifts:
@@ -59,18 +47,18 @@ class EmployeeRostering:
                         f"x_{employee.name}_{day.date}_{shift.name}", 0, 1, LpBinary
                     )
 
-        # Constraint: Employees cannot exceed max allowed hours for planning horizon
         for employee in self.employees:
-            self.problem += (
-                lpSum(
-                    self.variables[(employee.name, day.date, shift.name)] * shift.get_duration()
-                    for day in self.days
-                    for shift in day.shifts
-                ) <= employee.max_hours,
-                f"MaxHours_{employee.name}"
-            )
+            for week_start in range(0, len(self.days), 7):
+                week_days = self.days[week_start:week_start + 7]
+                self.problem += (
+                    lpSum(
+                        self.variables[(employee.name, day.date, shift.name)] * shift.get_duration()
+                        for day in week_days
+                        for shift in day.shifts
+                    ) <= employee.max_hours_per_week,
+                    f"MaxWeeklyHours_{employee.name}_week_{week_start // 7}"
+                )
 
-        # Constraint: Each shift must have at least min_staff and at most max_staff employees
         for day in self.days:
             for shift in day.shifts:
                 self.problem += (
@@ -84,7 +72,6 @@ class EmployeeRostering:
                     f"MaxStaff_{day.date}_{shift.name}"
                 )
 
-        # Constraint: Each employee can work at most one shift per day
         for employee in self.employees:
             for day in self.days:
                 self.problem += (
@@ -92,7 +79,6 @@ class EmployeeRostering:
                     f"OneShiftPerDay_{employee.name}_{day.date}"
                 )
 
-        # Constraint: Employees who are absent cannot be assigned shifts
         for employee in self.employees:
             for day in self.days:
                 if day.date in employee.absences:
@@ -102,22 +88,8 @@ class EmployeeRostering:
                             f"Absence_{employee.name}_{day.date}_{shift.name}"
                         )
 
-        # Constraint: At least 11 hours between shifts
-        for employee in self.employees:
-            for i, day in enumerate(self.days[:-1]):
-                next_day = self.days[i + 1]
-                for shift in day.shifts:
-                    for next_shift in next_day.shifts:
-                        if next_shift.get_end_time() - shift.get_end_time() < 11:
-                            self.problem += (
-                                self.variables[(employee.name, day.date, shift.name)] +
-                                self.variables[(employee.name, next_day.date, next_shift.name)] <= 1,
-                                f"RestTime_{employee.name}_{day.date}_{shift.name}_{next_day.date}_{next_shift.name}"
-                            )
-
-        # Objective: Weighted combination of maximizing total hours worked and minimizing difference in hours worked
-        alpha = 0.15  # Weight for maximizing hours worked
-        beta = 0.85  # Weight for fairness in hour distribution
+        alpha = 0.85
+        beta = 0.15
 
         total_hours_worked = lpSum(
             self.variables[(employee.name, day.date, shift.name)] * shift.get_duration()
@@ -138,13 +110,9 @@ class EmployeeRostering:
             self.problem += total_hours <= max_hours, f"MaxHoursConstraint_{employee.name}"
 
         fairness = max_hours - min_hours
-
         self.problem += -alpha * total_hours_worked + beta * fairness, "WeightedObjective"
-
-        # solve the problem
         self.problem.solve(PULP_CBC_CMD(msg=True))
 
-        # Track assigned shifts for each employee
         for employee in self.employees:
             for day in self.days:
                 for shift in day.shifts:
@@ -160,14 +128,17 @@ class EmployeeRostering:
                     for employee in self.employees
                     if self.variables[(employee.name, day.date, shift.name)].varValue == 1
                 ]
-                print(
-                    f"{shift.name} - Employees: {', '.join(assigned_employees) if assigned_employees else 'No employees available'}"
-                )
+                print(f"{shift.name} - Employees: {', '.join(assigned_employees) if assigned_employees else 'No employees available'}")
             print("------")
 
     def count_total_hours(self):
         total_hours = 0
         possible_hours = 0
+        max_possible_shift_hours = sum(
+            shift.get_duration() * shift.max_staff * len(self.days)
+            for shift in shift_types
+        )
+
         for employee in self.employees:
             hours_worked = sum(
                 shift.get_duration()
@@ -175,18 +146,21 @@ class EmployeeRostering:
                 for shift in day.shifts
                 if (day.date, shift.name) in employee.assigned_shifts
             )
+            max_employee_hours = employee.max_hours_per_week * (len(self.days) / 7)
             total_hours += hours_worked
-            possible_hours += employee.max_hours
-            print(f"{employee.name}: hours worked = {hours_worked}")
+            possible_hours += max_employee_hours
+            utilization = (hours_worked / max_employee_hours * 100) if max_employee_hours > 0 else 0
+            print(f"{employee.name}: hours worked = {hours_worked}, utilization = {utilization:.2f}%")
 
         print(f"\nTotal hours worked = {total_hours}")
-        print(f"\nTotal possible hours = {possible_hours}")
-        print(f"\nStaff hour utilization = {total_hours/possible_hours*100}%")
+        print(f"Total possible hours = {possible_hours}")
+        print(f"Max possible shift hours = {max_possible_shift_hours}")
+        print(f"Staff hour utilization = {total_hours / possible_hours * 100:.2f}%")
+        print(f"Staff maximum hour utilization = {total_hours / max_possible_shift_hours * 100:.2f}%")
 
 
-
-start_date = datetime.strptime('2024-02-23', '%Y-%m-%d')
-num_days = 6
+start_date = datetime.strptime('2024-03-01', '%Y-%m-%d')
+num_days = 28  # Monthly schedule
 employees = [
     Employee('Alice', 40, ['2024-02-25', '2024-02-27'], ['EarlyShift']),
     Employee('Bob', 40, ['2024-02-28'], ['NightShift']),
@@ -198,6 +172,9 @@ employees = [
     Employee('Peter', 40, [], []),
     Employee('Hannah', 40, ['2024-02-27'], ['LateShift']),
     Employee('Sven', 32, ['2024-02-24'], ['LateShift']),
+    Employee('Test', 32, ['2024-02-24'], ['LateShift']),
+    Employee('Test1', 32, ['2024-02-24'], ['LateShift']),
+    Employee('Test2', 32, ['2024-02-24'], ['LateShift']),
 ]
 
 shift_types = [
