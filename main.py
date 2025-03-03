@@ -1,5 +1,12 @@
+import csv
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import os
+import pandas as pd
+import seaborn as sns
 from pulp import LpProblem, LpVariable, lpSum, LpMinimize, LpBinary, PULP_CBC_CMD
 from datetime import datetime, timedelta
+
 
 class Employee:
     def __init__(self, name, max_hours_per_week, absences=None, preferred_shifts=None):
@@ -9,6 +16,7 @@ class Employee:
         self.preferred_shifts = preferred_shifts if preferred_shifts else []
         self.assigned_shifts = []
         self.weekly_hours = {}
+
 
 class ShiftType:
     def __init__(self, name, start, end, min_staff, max_staff):
@@ -27,10 +35,12 @@ class ShiftType:
             end_time += 24  # Shift crosses midnight
         return end_time - start_time
 
+
 class Day:
     def __init__(self, date, shift_types):
         self.date = date
         self.shifts = shift_types
+
 
 class EmployeeRostering:
     def __init__(self, employees, start_date, num_days):
@@ -128,7 +138,8 @@ class EmployeeRostering:
                     for employee in self.employees
                     if self.variables[(employee.name, day.date, shift.name)].varValue == 1
                 ]
-                print(f"{shift.name} - Employees: {', '.join(assigned_employees) if assigned_employees else 'No employees available'}")
+                print(
+                    f"{shift.name} - Employees: {', '.join(assigned_employees) if assigned_employees else 'No employees available'}")
             print("------")
 
     def count_total_hours(self):
@@ -139,24 +150,62 @@ class EmployeeRostering:
             for shift in shift_types
         )
 
-        for employee in self.employees:
-            hours_worked = sum(
-                shift.get_duration()
-                for day in self.days
-                for shift in day.shifts
-                if (day.date, shift.name) in employee.assigned_shifts
-            )
-            max_employee_hours = employee.max_hours_per_week * (len(self.days) / 7)
-            total_hours += hours_worked
-            possible_hours += max_employee_hours
-            utilization = (hours_worked / max_employee_hours * 100) if max_employee_hours > 0 else 0
-            print(f"{employee.name}: hours worked = {hours_worked}, utilization = {utilization:.2f}%")
+    def export_schedule_to_csv(self, filename="export/shift_schedule.csv"):
+        # Check if the directory exists, if not, create it
+        export_dir = os.path.dirname(filename)
+        if not os.path.exists(export_dir):
+            os.makedirs(export_dir)
+        with open(filename, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["Date", "Shift", "Employee"])
+            for day in self.days:
+                for shift in day.shifts:
+                    assigned_employees = [
+                        employee.name
+                        for employee in self.employees
+                        if self.variables[(employee.name, day.date, shift.name)].varValue == 1
+                    ]
+                    for employee in assigned_employees:
+                        writer.writerow([day.date, shift.name, employee])
+        print(f"Schedule exported to {filename}")
 
-        print(f"\nTotal hours worked = {total_hours}")
-        print(f"Total possible hours = {possible_hours}")
-        print(f"Max possible shift hours = {max_possible_shift_hours}")
-        print(f"Staff hour utilization = {total_hours / possible_hours * 100:.2f}%")
-        print(f"Staff maximum hour utilization = {total_hours / max_possible_shift_hours * 100:.2f}%")
+    def generate_schedule_image(self, filename="export/shift_schedule.png"):
+        # Check if the directory exists, if not, create it
+        export_dir = os.path.dirname(filename)
+        if not os.path.exists(export_dir):
+            os.makedirs(export_dir)
+        data = []
+        for employee in self.employees:
+            for day in self.days:
+                shift_assigned = next(
+                    (shift.name for shift in day.shifts if (day.date, shift.name) in employee.assigned_shifts), "Off")
+                if day.date in employee.absences:
+                    shift_assigned = "Absent"
+                data.append([day.date, employee.name, shift_assigned])
+
+        df = pd.DataFrame(data, columns=["Date", "Employee", "Shift"])
+        df['Date'] = pd.to_datetime(df['Date'])
+
+        plt.figure(figsize=(12, 6))
+        sns.scatterplot(data=df, x='Date', y='Employee', hue='Shift', style='Shift', s=100)
+
+        # Set the x-axis to display all dates
+        plt.xticks(rotation=45, ha='right')  # Adjust the alignment of the x-axis labels
+
+        # Use DateLocator to show every day
+        plt.gca().xaxis.set_major_locator(mdates.DayLocator())  # Set major ticks to show each day
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))  # Format the date labels
+
+        plt.title("Shift Schedule Overview")
+        plt.xlabel("Date")
+        plt.ylabel("Employee")
+
+        # Place the legend outside the graph
+        plt.legend(title="Shift Type", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+        plt.tight_layout()  # Adjust layout to make space for the legend
+        plt.savefig(filename)
+        print(f"Schedule image saved as {filename}")
 
 
 start_date = datetime.strptime('2024-03-01', '%Y-%m-%d')
@@ -187,3 +236,5 @@ rostering = EmployeeRostering(employees, start_date, num_days)
 rostering.generate_schedule()
 rostering.print_schedule()
 rostering.count_total_hours()
+rostering.export_schedule_to_csv()
+rostering.generate_schedule_image()
