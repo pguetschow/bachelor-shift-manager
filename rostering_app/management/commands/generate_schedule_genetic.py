@@ -5,37 +5,45 @@ import random
 import copy
 
 class Command(BaseCommand):
-    help = "Generate employee schedule using a genetic algorithm heuristic approach"
+    help = "Generate schedule using a genetic algorithm heuristic approach"
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--population_size',
+            type=int,
+            default=20,
+            help="Population size for the genetic algorithm (default: 20)"
+        )
+        parser.add_argument(
+            '--generations',
+            type=int,
+            default=50,
+            help="Number of generations (default: 50)"
+        )
+        parser.add_argument(
+            '--mutation_rate',
+            type=float,
+            default=0.1,
+            help="Mutation rate (default: 0.1)"
+        )
 
     def handle(self, *args, **options):
-        self.stdout.write("Generating schedule using genetic algorithm approach...")
-        # Archive previous (non-archived) schedule entries.
-        ScheduleEntry.objects.filter(archived=False).update(archived=True)
+        population_size = options.get('population_size')
+        generations = options.get('generations')
+        mutation_rate = options.get('mutation_rate')
+        self.stdout.write(
+            f"Running GA with population_size={population_size}, generations={generations}, mutation_rate={mutation_rate}")
 
-        # Retrieve employees, shift types and define the scheduling period.
         employees = list(Employee.objects.all())
         shift_types = list(ShiftType.objects.all())
-        # Define the fixture scheduling period: 28 days starting on 2024-02-01.
+        # Define scheduling period: 28 days starting from 2024-02-01.
         days = [date(2024, 2, 1) + timedelta(days=i) for i in range(28)]
 
-        # Genetic algorithm parameters
-        population_size = 40
-        generations = 500
-        mutation_rate = 0.1
-
-        # Initialize population
         population = [self.create_candidate(days, shift_types, employees) for _ in range(population_size)]
-
-        # Evolve over a number of generations
         for gen in range(generations):
-            # Evaluate fitness for each candidate
             scored = [(self.fitness(candidate, days, shift_types, employees), candidate) for candidate in population]
             scored.sort(key=lambda x: x[0])
-            best_fitness = scored[0][0]
-            self.stdout.write(f"Generation {gen+1}: Best fitness = {best_fitness}")
-            # Select the top half of the population as survivors
-            survivors = [candidate for (score, candidate) in scored[:population_size//2]]
-            # Generate new candidates through crossover and mutation until the population is replenished
+            survivors = [candidate for (score, candidate) in scored[:population_size // 2]]
             new_population = survivors.copy()
             while len(new_population) < population_size:
                 parent1 = random.choice(survivors)
@@ -46,12 +54,9 @@ class Command(BaseCommand):
                 new_population.append(child)
             population = new_population
 
-        # Choose the best candidate from the final population
         final_scored = [(self.fitness(candidate, days, shift_types, employees), candidate) for candidate in population]
         final_scored.sort(key=lambda x: x[0])
         best_candidate = final_scored[0][1]
-
-        # Save the best candidate solution to the database
         for day in days:
             for shift in shift_types:
                 key = (day, shift.id)
