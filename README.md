@@ -26,9 +26,6 @@ Load the employee data
 
 `python manage.py loaddata shift_types.json`
 
-## Create Shift Types:
-Either use the Django admin or create a data migration / fixture to add the three shift types (EarlyShift, LateShift, NightShift) with their start/end times and staff constraints.
-
 ## Generate Schedule:
 Run the management command to archive any previous schedule and generate a new one
 
