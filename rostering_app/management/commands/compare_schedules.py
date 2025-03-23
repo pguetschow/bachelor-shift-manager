@@ -1,13 +1,17 @@
+import json
+import os
 import time
 from datetime import date, timedelta
 
+import matplotlib.pyplot as plt
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
+
 from rostering_app.models import ScheduleEntry, Employee, ShiftType
 
 
 class Command(BaseCommand):
-    help = "Compare scheduling approaches by running existing scheduling commands and computing KPIs."
+    help = "Compare scheduling approaches by running existing scheduling commands, computing KPIs, saving results as JSON, and generating graphs."
 
     def handle(self, *args, **options):
         methods = {
@@ -23,7 +27,7 @@ class Command(BaseCommand):
             ScheduleEntry.objects.all().delete()
 
             start_time = time.time()
-            # Run the scheduling command (each exists in its own file)
+            # Call the scheduling command (each command exists in its own file)
             call_command(command_name, verbosity=0)
             runtime = time.time() - start_time
 
@@ -31,6 +35,7 @@ class Command(BaseCommand):
             results[method_name] = {'runtime': runtime, 'kpis': kpis}
             self.stdout.write(self.style.SUCCESS(f"{method_name} method completed in {runtime:.2f} seconds.\n"))
 
+        # Print comparison results.
         self.stdout.write("\n===== Comparison Results =====\n")
         for method, data in results.items():
             self.stdout.write(f"Method: {method}")
@@ -48,6 +53,19 @@ class Command(BaseCommand):
                     f"Utilization = {emp_data['utilization']:.2f}%"
                 )
             self.stdout.write("\n")
+
+        # Save the results as JSON.
+        export_dir = 'export'
+        if not os.path.exists(export_dir):
+            os.makedirs(export_dir)
+        json_file = os.path.join(export_dir, 'schedule_comparison.json')
+        with open(json_file, 'w') as f:
+            json.dump(results, f, indent=4, default=str)
+        self.stdout.write(self.style.SUCCESS(f"Comparison results saved as JSON to {json_file}"))
+
+        # Generate graphs.
+        self.generate_graphs(results, export_dir)
+        self.stdout.write(self.style.SUCCESS("Graphs generated successfully."))
 
     def compute_kpis(self):
         """
@@ -105,3 +123,43 @@ class Command(BaseCommand):
             'staff_max_utilization': staff_max_utilization,
             'employees': employee_kpis,
         }
+
+    def generate_graphs(self, results, export_dir):
+        methods = list(results.keys())
+
+        # Graph 1: Runtime Comparison.
+        runtimes = [results[m]['runtime'] for m in methods]
+        plt.figure(figsize=(8, 6))
+        plt.bar(methods, runtimes, color=['blue', 'green', 'orange'])
+        plt.title("Runtime Comparison")
+        plt.xlabel("Method")
+        plt.ylabel("Runtime (seconds)")
+        plt.savefig(os.path.join(export_dir, 'runtime_comparison.png'))
+        plt.close()
+
+        # Graph 2: Total Hours Worked Comparison.
+        total_hours = [results[m]['kpis']['total_hours_worked'] for m in methods]
+        plt.figure(figsize=(8, 6))
+        plt.bar(methods, total_hours, color=['blue', 'green', 'orange'])
+        plt.title("Total Hours Worked Comparison")
+        plt.xlabel("Method")
+        plt.ylabel("Total Hours Worked")
+        plt.savefig(os.path.join(export_dir, 'total_hours_worked.png'))
+        plt.close()
+
+        # Graph 3: Staff Utilization Comparison.
+        staff_util = [results[m]['kpis']['staff_hour_utilization'] for m in methods]
+        staff_max_util = [results[m]['kpis']['staff_max_utilization'] for m in methods]
+        x = range(len(methods))
+        width = 0.35
+        plt.figure(figsize=(8, 6))
+        plt.bar([i - width / 2 for i in x], staff_util, width=width, label='Staff Hour Utilization', color='blue')
+        plt.bar([i + width / 2 for i in x], staff_max_util, width=width, label='Staff Max Hour Utilization',
+                color='green')
+        plt.xticks(x, methods)
+        plt.title("Staff Utilization Comparison")
+        plt.xlabel("Method")
+        plt.ylabel("Utilization (%)")
+        plt.legend()
+        plt.savefig(os.path.join(export_dir, 'staff_utilization.png'))
+        plt.close()
