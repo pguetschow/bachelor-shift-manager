@@ -6,7 +6,7 @@
       "name": "Alice",
       "max_hours_per_week": 40,
       "absences": ["2024-02-05", "2024-02-12"],
-      "preferred_shifts": ["EarlyShift"]
+      "preferred_shifts": ["EarlyShift", "NightShift"]
     }
   },
   {

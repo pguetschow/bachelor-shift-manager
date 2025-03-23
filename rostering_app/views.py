@@ -1,4 +1,5 @@
 import datetime
+import calendar
 from django.shortcuts import render
 from rostering_app.models import ScheduleEntry, Employee
 
@@ -46,37 +47,74 @@ def start_page(request):
 
 
 def schedule_view(request):
-    """
-    Display the full schedule (non-archived entries) ordered by date in a matrix format.
-    """
-    # Retrieve all non-archived schedule entries
-    entries = ScheduleEntry.objects.filter(archived=False)
+    # Determine selected month from query parameter, default to current month
+    month_param = request.GET.get('month')
+    if month_param:
+        try:
+            year, month = map(int, month_param.split('-'))
+        except ValueError:
+            today = datetime.date.today()
+            year, month = today.year, today.month
+    else:
+        today = datetime.date.today()
+        year, month = today.year, today.month
 
-    # Get a sorted list of unique dates (as strings) from schedule entries
+    # Calculate first and last day of the selected month
+    start_date = datetime.date(year, month, 1)
+    last_day = calendar.monthrange(year, month)[1]
+    end_date = datetime.date(year, month, last_day)
+
+    # Filter schedule entries for the selected month
+    entries = ScheduleEntry.objects.filter(date__gte=start_date, date__lte=end_date, archived=False)
+
+    # Get a sorted list of unique dates (as strings) within the selected month from schedule entries
     dates = sorted({entry.date.strftime('%Y-%m-%d') for entry in entries})
 
     # Get all employees (sorted by name)
     employees = Employee.objects.all().order_by('name')
 
-    # Build a matrix where each row is: {"employee": employee_name, "schedule": [shift for each date]}
+    # Build a schedule matrix for employees for the selected month
     matrix = []
     for emp in employees:
         row = {"employee": emp.name, "schedule": []}
         for d in dates:
-            # Convert d (a date string) to a date object using datetime.datetime.strptime
             date_obj = datetime.datetime.strptime(d, '%Y-%m-%d').date()
-            # Try to get the schedule entry for this employee and date
             entry = entries.filter(employee=emp, date=date_obj).first()
             if entry:
                 row["schedule"].append(entry.shift_type.name)
-            elif d in emp.absences:  # Check if the employee is absent on that day
+            elif d in emp.absences:  # Assuming emp.absences is iterable with date strings
                 row["schedule"].append("Absent")
             else:
                 row["schedule"].append("Off")
         matrix.append(row)
 
+    # Calculate previous and next month values
+    prev_month = month - 1
+    prev_year = year
+    if prev_month < 1:
+        prev_month = 12
+        prev_year -= 1
+    next_month = month + 1
+    next_year = year
+    if next_month > 12:
+        next_month = 1
+        next_year += 1
+
+    prev_month_param = f"{prev_year}-{prev_month:02d}"
+    next_month_param = f"{next_year}-{next_month:02d}"
+    current_month_value = f"{year}-{month:02d}"
+
+    # Build month overview: list unique months with schedule entries (e.g., "2024-02")
+    all_entries = ScheduleEntry.objects.filter(archived=False)
+    month_overview = sorted({entry.date.strftime('%Y-%m') for entry in all_entries})
+
     context = {
         "dates": dates,
-        "matrix": matrix
+        "matrix": matrix,
+        "prev_month": prev_month_param,
+        "next_month": next_month_param,
+        "current_month": datetime.date(year, month, 1).strftime('%B %Y'),
+        "current_month_value": current_month_value,
+        "month_overview": month_overview,
     }
     return render(request, 'rostering_app/schedule.html', context)
