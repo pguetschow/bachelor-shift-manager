@@ -17,7 +17,8 @@ class Command(BaseCommand):
         methods = {
             'Linear': 'generate_schedule_linear',
             'Heuristic': 'generate_schedule_heuristic',
-            'Genetic Algorithm': 'generate_schedule_genetic'
+            'Genetic Algorithm': 'generate_schedule_genetic',
+            'Genetic Algorithm optimized': 'optimize_genetic'
         }
         results = {}
         self.stdout.write("Comparing scheduling approaches for a 28-day period (2024-02-01 to 2024-02-28)...\n")
