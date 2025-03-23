@@ -5,7 +5,7 @@ import random
 import copy
 
 class Command(BaseCommand):
-    help = "Generate schedule using a genetic algorithm heuristic approach"
+    help = "Generate schedule using a genetic algorithm heuristic approach for a full year with weekly constraints"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -36,8 +36,11 @@ class Command(BaseCommand):
 
         employees = list(Employee.objects.all())
         shift_types = list(ShiftType.objects.all())
-        # Define scheduling period: 28 days starting from 2024-02-01.
-        days = [date(2024, 2, 1) + timedelta(days=i) for i in range(28)]
+        # Define scheduling period: full year from 2024-01-01 to 2024-12-31.
+        start_date = date(2024, 1, 1)
+        end_date = date(2024, 12, 31)
+        num_days = (end_date - start_date).days + 1
+        days = [start_date + timedelta(days=i) for i in range(num_days)]
 
         population = [self.create_candidate(days, shift_types, employees) for _ in range(population_size)]
         for gen in range(generations):
@@ -70,7 +73,7 @@ class Command(BaseCommand):
                             shift_type=shift,
                             archived=False
                         )
-        self.stdout.write(self.style.SUCCESS("Genetic algorithm schedule generated successfully."))
+        self.stdout.write(self.style.SUCCESS("Genetic algorithm yearly schedule generated successfully."))
 
     def create_candidate(self, days, shift_types, employees):
         """
@@ -103,10 +106,15 @@ class Command(BaseCommand):
           - For each shift, if the number exceeds max_staff, penalty = 1000 per extra employee.
           - For each employee assigned to more than one shift per day, penalty = 500 per duplicate.
           - For each employee assigned on a day when they are absent, penalty = 1000 per violation.
+          - For each employee exceeding weekly hours (based on shift.get_duration()), penalty = 1000 per extra hour.
         """
         penalty = 0
         daily_assignments = {}
+        # Accumulate weekly hours per employee: key = (employee.id, (iso_year, iso_week))
+        weekly_hours = {}
+
         for day in days:
+            week_key = day.isocalendar()[:2]  # (iso_year, iso_week)
             day_assignments = {}
             for shift in shift_types:
                 key = (day, shift.id)
@@ -122,13 +130,22 @@ class Command(BaseCommand):
                         penalty += 1000
                     day_assignments.setdefault(emp_id, 0)
                     day_assignments[emp_id] += 1
+                    # Accumulate weekly hours.
+                    weekly_hours[(emp_id, week_key)] = weekly_hours.get((emp_id, week_key), 0) + shift.get_duration()
                     daily_assignments.setdefault(emp_id, 0)
                     daily_assignments[emp_id] += 1
             # Penalize duplicate assignments on the same day.
             for emp_id, count in day_assignments.items():
                 if count > 1:
                     penalty += (count - 1) * 500
-            # Extra term: penalize large differences in total shifts assigned per employee.
+
+        # Penalize employees who exceed their weekly hours.
+        for (emp_id, week_key), hours in weekly_hours.items():
+            emp = next((e for e in employees if e.id == emp_id), None)
+            if emp and hours > emp.max_hours_per_week:
+                penalty += (hours - emp.max_hours_per_week) * 1000
+
+        # Extra term: penalize large differences in total shifts assigned per employee.
         if daily_assignments:
             avg_shifts = sum(daily_assignments.values()) / len(daily_assignments)
             for emp_id, count in daily_assignments.items():

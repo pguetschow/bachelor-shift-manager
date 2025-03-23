@@ -158,5 +158,65 @@
       "absences": ["2024-02-20"],
       "preferred_shifts": ["LateShift"]
     }
+  },
+  {
+    "model": "rostering_app.employee",
+    "pk": 17,
+    "fields": {
+      "name": "Ivy",
+      "max_hours_per_week": 40,
+      "absences": ["2024-03-01"],
+      "preferred_shifts": ["NightShift"]
+    }
+  },
+  {
+    "model": "rostering_app.employee",
+    "pk": 18,
+    "fields": {
+      "name": "Jack",
+      "max_hours_per_week": 40,
+      "absences": [],
+      "preferred_shifts": ["EarlyShift"]
+    }
+  },
+  {
+    "model": "rostering_app.employee",
+    "pk": 19,
+    "fields": {
+      "name": "Karen",
+      "max_hours_per_week": 32,
+      "absences": ["2024-03-15"],
+      "preferred_shifts": ["LateShift"]
+    }
+  },
+  {
+    "model": "rostering_app.employee",
+    "pk": 20,
+    "fields": {
+      "name": "Leo",
+      "max_hours_per_week": 40,
+      "absences": [],
+      "preferred_shifts": []
+    }
+  },
+  {
+    "model": "rostering_app.employee",
+    "pk": 21,
+    "fields": {
+      "name": "Mona",
+      "max_hours_per_week": 32,
+      "absences": ["2024-03-10"],
+      "preferred_shifts": ["EarlyShift"]
+    }
+  },
+  {
+    "model": "rostering_app.employee",
+    "pk": 22,
+    "fields": {
+      "name": "Nina",
+      "max_hours_per_week": 40,
+      "absences": [],
+      "preferred_shifts": ["NightShift"]
+    }
   }
 ]
