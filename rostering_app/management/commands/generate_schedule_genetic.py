@@ -19,8 +19,8 @@ class Command(BaseCommand):
         days = [date(2024, 2, 1) + timedelta(days=i) for i in range(28)]
 
         # Genetic algorithm parameters
-        population_size = 20
-        generations = 50
+        population_size = 40
+        generations = 500
         mutation_rate = 0.1
 
         # Initialize population

@@ -1,15 +1,13 @@
 from datetime import date, timedelta
-
 from django.core.management.base import BaseCommand
-
 from rostering_app.models import Employee, ShiftType, ScheduleEntry
-
+import random
 
 class Command(BaseCommand):
-    help = "Generate employee schedule using a heuristic (greedy) approach"
+    help = "Generate employee schedule using a balanced heuristic (greedy) approach"
 
     def handle(self, *args, **options):
-        self.stdout.write("Generating schedule using heuristic approach...")
+        self.stdout.write("Generating schedule using balanced heuristic approach...")
         # Archive previous (non-archived) schedule entries.
         ScheduleEntry.objects.filter(archived=False).update(archived=True)
 
@@ -21,40 +19,41 @@ class Command(BaseCommand):
         num_days = 28
         days = [start_date + timedelta(days=i) for i in range(num_days)]
 
-        # For each day and for each shift, assign employees using a two-pass heuristic.
+        # For each day, assign shifts in a balanced manner.
         for day in days:
-            for shift in shift_types:
-                assigned = 0
-                # First pass: assign employees until the minimum staffing is reached.
-                for emp in employees:
-                    # Skip if employee is absent on that day.
-                    if day.isoformat() in emp.absences:
-                        continue
-                    # Skip if employee already has an assignment for this day.
-                    if ScheduleEntry.objects.filter(employee=emp, date=day, archived=False).exists():
-                        continue
-                    if assigned < shift.min_staff:
-                        ScheduleEntry.objects.create(
-                            employee=emp,
-                            date=day,
-                            shift_type=shift,
-                            archived=False
-                        )
-                        assigned += 1
-                # Second pass: assign additional employees until reaching maximum staffing.
-                for emp in employees:
-                    if assigned >= shift.max_staff:
-                        break
-                    if day.isoformat() in emp.absences:
-                        continue
-                    if ScheduleEntry.objects.filter(employee=emp, date=day, archived=False).exists():
-                        continue
+            # Get all employees available on this day (i.e. not absent)
+            available_employees = [emp for emp in employees if day.isoformat() not in emp.absences]
+            # Keep track of which employees have been assigned already for the day.
+            assigned_employees = set()
+
+            # Shuffle the shifts to randomize assignment order.
+            shifts = shift_types.copy()
+            random.shuffle(shifts)
+
+            for shift in shifts:
+                # Determine the pool of employees for this shift (available and not yet assigned)
+                pool = [emp for emp in available_employees if emp.id not in assigned_employees]
+                if not pool:
+                    # No one left available to assign for this shift.
+                    continue
+
+                # Determine how many employees to assign:
+                max_possible = min(shift.max_staff, len(pool))
+                if len(pool) < shift.min_staff:
+                    # If not enough employees available to meet minimum, assign as many as possible.
+                    num_to_assign = len(pool)
+                else:
+                    num_to_assign = random.randint(shift.min_staff, max_possible)
+
+                # Randomly choose employees from the pool.
+                chosen = random.sample(pool, num_to_assign)
+                for emp in chosen:
                     ScheduleEntry.objects.create(
                         employee=emp,
                         date=day,
                         shift_type=shift,
                         archived=False
                     )
-                    assigned += 1
+                    assigned_employees.add(emp.id)
 
-        self.stdout.write(self.style.SUCCESS("Schedule generated successfully."))
+        self.stdout.write(self.style.SUCCESS("Balanced heuristic schedule generated successfully."))
