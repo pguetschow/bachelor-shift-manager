@@ -16,6 +16,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         methods = {
             'Linear': 'generate_schedule_linear',
+            'Linear Better': 'generate_schedule_linear_better',
             'Heuristic (Greedy)': 'generate_schedule_heuristic',
             'Genetic Algorithm': 'generate_schedule_genetic',
         }
