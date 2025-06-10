@@ -8,7 +8,7 @@ from rostering_app.models import Employee, ShiftType, ScheduleEntry
 
 
 class Command(BaseCommand):
-    help = ("Erstellt einen Jahresdienstplan in 12 monatlichen Durchgängen. "
+    help = ("Erstellt einen Jahresdienstplan in monatlichen Durchgängen. "
             "Dabei werden harte Constraints (Mindestbesetzung, max. eine Schicht pro Tag, "
             "11-Stunden-Pause, Abwesenheiten, vertragliche Wochenarbeitszeit) und weiche Ziele "
             "(Vollbesetzung, Fairness, bevorzugte Schichten) berücksichtigt. "
@@ -22,9 +22,9 @@ class Command(BaseCommand):
         employees = list(Employee.objects.all())
         shift_types = list(ShiftType.objects.all())
 
-        # Jahreszeitraum: 2024-01-01 bis 2024-12-31
-        start_date = datetime.strptime('2024-01-01', '%Y-%m-%d').date()
-        end_date = datetime.strptime('2024-12-31', '%Y-%m-%d').date()
+        # Jahreszeitraum: 2025-01-01 bis 2025-12-31
+        start_date = datetime.strptime('2025-01-01', '%Y-%m-%d').date()
+        end_date = datetime.strptime('2025-12-31', '%Y-%m-%d').date()
         num_days = (end_date - start_date).days + 1
 
         # Erzeuge Liste aller Tage: Jeder Tag enthält alle verfügbaren ShiftTypes.

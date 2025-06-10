@@ -7,7 +7,7 @@ from rostering_app.models import ScheduleEntry, Employee
 def start_page(request):
     """
     Display the schedule for the current day, grouped by shift.
-    If no schedule exists for today, fall back to the fixture month (February 2024).
+    If no schedule exists for today, fall back to the fixture month (February 2025).
     """
     today = datetime.date.today()
     # Query schedule entries for today's date
@@ -15,9 +15,9 @@ def start_page(request):
     fallback_used = False
 
     if not entries.exists():
-        # If there are no entries for today, use fixture month (February 2024)
+        # If there are no entries for today, use fixture month (February 2025)
         day_num = today.day if today.day <= 28 else 28
-        fixture_date = datetime.date(2024, 2, day_num)
+        fixture_date = datetime.date(2025, 2, day_num)
         entries = ScheduleEntry.objects.filter(date=fixture_date, archived=False)
         fallback_used = True
         display_date = fixture_date
@@ -104,7 +104,7 @@ def schedule_view(request):
     next_month_param = f"{next_year}-{next_month:02d}"
     current_month_value = f"{year}-{month:02d}"
 
-    # Build month overview: list unique months with schedule entries (e.g., "2024-02")
+    # Build month overview: list unique months with schedule entries (e.g., "2025-02")
     all_entries = ScheduleEntry.objects.filter(archived=False)
     month_overview = sorted({entry.date.strftime('%Y-%m') for entry in all_entries})
 

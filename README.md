@@ -47,7 +47,7 @@ Start the Django development server and navigate to http://127.0.0.1:8000/schedu
 Each candidate is a dictionary mapping a tuple (day, shift_id) to a list of employee IDs assigned to that shift.
 
 ### Population Initialization:
-The create_candidate function generates a candidate by iterating over the fixture month days (28 days starting 2024‑02‑01) and, for each shift, randomly selecting a number of employees (while avoiding employees who are absent on that day or already assigned).
+The create_candidate function generates a candidate by iterating over the fixture month days (28 days starting 2025‑02‑01) and, for each shift, randomly selecting a number of employees (while avoiding employees who are absent on that day or already assigned).
 
 ### Fitness Function:
 The fitness function assigns penalties for:

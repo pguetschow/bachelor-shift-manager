@@ -4,7 +4,7 @@ from django.db.models import JSONField  # Use JSONField (available in Django 3.1
 class Employee(models.Model):
     name = models.CharField(max_length=100)
     max_hours_per_week = models.IntegerField()
-    # List of ISO date strings (e.g., ["2024-02-05", "2024-02-12"])
+    # List of ISO date strings (e.g., ["2025-02-05", "2025-02-12"])
     absences = JSONField(default=list, blank=True)
     # List of preferred shift names (e.g., ["EarlyShift"])
     preferred_shifts = JSONField(default=list, blank=True)

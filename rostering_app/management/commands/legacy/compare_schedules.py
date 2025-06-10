@@ -16,9 +16,12 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         methods = {
             'Linear': 'generate_schedule_linear',
-            'Linear Better': 'generate_schedule_linear_better',
-            'Heuristic (Greedy)': 'generate_schedule_heuristic',
-            'Genetic Algorithm': 'generate_schedule_genetic',
+            'Linear Claude': 'shift_scheduling_ilp',
+            # 'Linear Better': 'generate_schedule_linear_better',
+            # 'Heuristic (Greedy)': 'generate_schedule_heuristic',
+            # 'Genetic Algorithm': 'generate_schedule_genetic',
+            'genetic_algorithm_scheduler' : 'genetic_algorithm_scheduler',
+            'simulated_annealing_scheduler' : 'simulated_annealing_scheduler',
         }
         results = {}
         self.stdout.write("Comparing scheduling approaches...\n")
@@ -72,7 +75,7 @@ class Command(BaseCommand):
 
     def compute_kpis(self):
         """
-        Compute KPIs for the schedule over the full year 2024 (2024-01-01 to 2024-12-31).
+        Compute KPIs for the schedule over the full year 2025 (2025-01-01 to 2025-12-31).
         For each employee:
           - Hours worked = sum(shift duration for each assignment)
           - Utilization = (hours worked / (max_hours_per_week * number_of_weeks)) * 100
@@ -87,8 +90,8 @@ class Command(BaseCommand):
         """
         employees = list(Employee.objects.all())
         shift_types = list(ShiftType.objects.all())
-        start_date = date(2024, 1, 1)
-        end_date = date(2024, 12, 31)
+        start_date = date(2025, 1, 1)
+        end_date = date(2025, 12, 31)
         num_days = (end_date - start_date).days + 1
         days = [start_date + timedelta(days=i) for i in range(num_days)]
 
@@ -104,8 +107,8 @@ class Command(BaseCommand):
             min_possible_shift_hours += shift.get_duration() * shift.min_staff * num_days
 
         # Total number of weeks in the period.
-        weeks = num_days / 7.0
-
+        # weeks = round(num_days / 7.0)
+        weeks = 52
         for emp in employees:
             hours_worked = 0
             # Maximum hours available for the employee for the full year.

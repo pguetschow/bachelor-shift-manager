@@ -36,9 +36,9 @@ class Command(BaseCommand):
 
         employees = list(Employee.objects.all())
         shift_types = list(ShiftType.objects.all())
-        # Define scheduling period: full year from 2024-01-01 to 2024-12-31.
-        start_date = date(2024, 1, 1)
-        end_date = date(2024, 12, 31)
+        # Define scheduling period: full year from 2025-01-01 to 2025-12-31.
+        start_date = date(2025, 1, 1)
+        end_date = date(2025, 12, 31)
         num_days = (end_date - start_date).days + 1
         days = [start_date + timedelta(days=i) for i in range(num_days)]
 

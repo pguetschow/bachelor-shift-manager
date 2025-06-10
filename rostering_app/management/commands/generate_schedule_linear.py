@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from collections import defaultdict
+import json
 
 from django.core.management.base import BaseCommand
 from pulp import LpProblem, LpVariable, lpSum, LpMinimize, LpBinary, PULP_CBC_CMD
@@ -8,7 +9,7 @@ from rostering_app.models import Employee, ShiftType, ScheduleEntry
 
 
 class Command(BaseCommand):
-    help = 'Generate employee rostering schedule for a full year with weekly constraints and compute KPIs'
+    help = 'Generate employee rostering schedule for a full year with weekly constraints and compute KPIs and export to JSON'
 
     def handle(self, *args, **kwargs):
         # Archive previous schedule entries.
@@ -17,9 +18,9 @@ class Command(BaseCommand):
         employees = list(Employee.objects.all())
         shift_types = list(ShiftType.objects.all())
 
-        # Define scheduling period: full year from 2024-01-01 to 2024-12-31.
-        start_date = datetime.strptime('2024-01-01', '%Y-%m-%d').date()
-        end_date = datetime.strptime('2024-12-31', '%Y-%m-%d').date()
+        # Define scheduling period: full year from 2025-01-01 to 2025-12-31.
+        start_date = datetime.strptime('2025-01-01', '%Y-%m-%d').date()
+        end_date = datetime.strptime('2025-12-31', '%Y-%m-%d').date()
         num_days = (end_date - start_date).days + 1
 
         # Build list of days (each day offers all shift types).
@@ -88,8 +89,7 @@ class Command(BaseCommand):
         )
 
         # Preferred shift bonus: reward assignments where the shift's name is in employee.preferred_shifts.
-        # Adjust the weight (alpha) to change the importance of preferred shifts.
-        alpha = 0.15
+        alpha = 0.05
         preferred_reward = lpSum(
             variables[(employee.id, day['date'], shift.id)]
             for employee in employees
@@ -99,23 +99,41 @@ class Command(BaseCommand):
         )
 
         # Objective: maximize total assigned hours and reward preferred shift assignments.
-        # We minimize the negative total plus a penalty term (negative reward).
         problem += -total_hours_worked - alpha * preferred_reward, "Objective"
 
         # Solve the problem.
         problem.solve(PULP_CBC_CMD(msg=True))
 
-        # Save new schedule entries to the database.
+        # Prepare JSON output list
+        schedule_json = []
+
+        # Save new schedule entries to the database and JSON list.
         for employee in employees:
             for day in days:
                 for shift in day['shifts']:
                     var = variables[(employee.id, day['date'], shift.id)]
                     if var.varValue == 1:
+                        # DB entry
                         ScheduleEntry.objects.create(
                             employee=employee,
                             date=day['date'],
                             shift_type=shift,
                             archived=False
                         )
+                        # JSON record
+                        schedule_json.append({
+                            "employee_id": employee.id,
+                            "employee_name":employee.name,
+                            "date": day['date'].isoformat(),
+                            "shift_id": shift.id,
+                            "shift_name": shift.name
+                        })
 
-        self.stdout.write(self.style.SUCCESS("Yearly schedule generated successfully with preferred shift bonus."))
+        # Write JSON to file
+        output_path = 'yearly_schedule.json'
+        with open(output_path, 'w') as json_file:
+            json.dump(schedule_json, json_file, indent=4)
+
+        self.stdout.write(self.style.SUCCESS(
+            f"Yearly schedule generated successfully with preferred shift bonus and exported to {output_path}."
+        ))

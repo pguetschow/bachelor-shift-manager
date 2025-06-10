@@ -108,7 +108,7 @@ class Command(BaseCommand):
 
     def compute_kpis(self):
         """
-        Compute KPIs for a 28-day schedule starting on 2024-02-01.
+        Compute KPIs for a 28-day schedule starting on 2025-01-01.
         For each employee:
           - Hours worked: sum(shift duration for each assignment)
           - Utilization: (hours worked / (max_hours_per_week * 4)) * 100
@@ -121,7 +121,7 @@ class Command(BaseCommand):
         """
         employees = list(Employee.objects.all())
         shift_types = list(ShiftType.objects.all())
-        start_date = date(2024, 2, 1)
+        start_date = date(2025, 1, 1)
         num_days = 28
         days = [start_date + timedelta(days=i) for i in range(num_days)]
 
