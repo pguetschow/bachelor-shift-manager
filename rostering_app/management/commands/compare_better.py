@@ -17,11 +17,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         methods = {
-            'Linear monatlich rollierend': 'generate_schedule_linear_rolling',
-            'Linear Jahresplan': 'generate_schedule_linear',
+            # 'Linear monatlich rollierend': 'generate_schedule_linear_rolling',
+            # 'Linear Jahresplan': 'generate_schedule_linear',
             'Linear Jahresplan v2': 'shift_scheduling_ilp',
-            'Genetischer Algortihmus' : 'genetic_algorithm_scheduler',
-            'Simulated Annealing' : 'simulated_annealing_scheduler',
+            # 'Genetischer Algortihmus' : 'genetic_algorithm_scheduler',
+            'Simulated Annealing Exp' : 'simulated_annealing_scheduler_exp',
+            'Simulated Annealing Lin' : 'simulated_annealing_scheduler_lin',
+            'Simulated Annealing Log' : 'simulated_annealing_scheduler_log',
             # 'Heuristic (Greedy)': 'generate_schedule_heuristic',
             # 'Genetic Algorithm': 'generate_schedule_genetic',
         }
