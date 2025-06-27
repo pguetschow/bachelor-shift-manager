@@ -10,17 +10,6 @@
             <h1>
                 <i class="bi bi-calendar-day"></i> {{ date|date:"l, j. F Y" }}
             </h1>
-            {% if available_algorithms %}
-            <form method="get" action="" class="d-inline-block ms-3" id="algorithm-form">
-                <input type="hidden" name="date" value="{{ date|date:'Y-m-d' }}">
-                <select name="algorithm" class="form-select form-select-sm d-inline-block w-auto" onchange="document.getElementById('algorithm-form').submit();">
-                    <option value="">Alle Algorithmen</option>
-                    {% for alg in available_algorithms %}
-                        <option value="{{ alg }}" {% if alg == selected_algorithm %}selected{% endif %}>{{ alg }}</option>
-                    {% endfor %}
-                </select>
-            </form>
-            {% endif %}
             <div class="btn-group">
                 <a href="{% url 'day_view' company.id prev_date %}" 
                    class="btn btn-outline-secondary">

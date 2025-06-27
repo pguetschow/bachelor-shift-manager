@@ -163,13 +163,13 @@
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if request.resolver_match.url_name == 'month_view' %}active{% endif %}" 
-                           href="{% url 'month_view' company.id %}">
+                           href="{% url 'month_view' company.id %}?year={{ year }}&month={{ month }}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}">
                             <i class="bi bi-calendar-month"></i> Monatsansicht
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if request.resolver_match.url_name == 'analytics_view' %}active{% endif %}" 
-                           href="{% url 'analytics_view' company.id %}">
+                           href="{% url 'analytics_view' company.id %}?year={{ year }}&month={{ month }}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}">
                             <i class="bi bi-graph-up"></i> Analysen
                         </a>
                     </li>

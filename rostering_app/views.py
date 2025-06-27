@@ -244,35 +244,43 @@ def employee_view(request, company_id, employee_id):
     """View for individual employee schedule."""
     company = get_object_or_404(Company, pk=company_id)
     load_company_fixtures(company)
-    
     employee = get_object_or_404(Employee, pk=employee_id, company=company)
-    
+
     # Get current month or from query
     today = datetime.date.today()
     year = int(request.GET.get('year', today.year))
     month = int(request.GET.get('month', today.month))
-    
     first_day = datetime.date(year, month, 1)
     last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
-    
+
+    # Algorithm filter
+    available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
+    available_algorithms = sorted([alg for alg in available_algorithms if alg])
+    selected_algorithm = request.GET.get('algorithm', '')
+    if not selected_algorithm and 'Linear Programming (ILP)' in available_algorithms:
+        selected_algorithm = 'Linear Programming (ILP)'
+
     # Get employee's schedule
-    entries = ScheduleEntry.objects.filter(
-        employee=employee,
-        date__gte=first_day,
-        date__lte=last_day,
-        archived=False
-    ).order_by('date')
-    
+    entry_filter = {
+        'employee': employee,
+        'date__gte': first_day,
+        'date__lte': last_day,
+        'archived': False
+    }
+    if selected_algorithm:
+        entry_filter['algorithm'] = selected_algorithm
+    entries = ScheduleEntry.objects.filter(**entry_filter).order_by('date')
+
     # Calculate statistics
     total_hours = sum(entry.shift.get_duration() for entry in entries)
     shifts_by_type = {}
     for shift in Shift.objects.filter(company=company):
         count = entries.filter(shift=shift).count()
         shifts_by_type[shift.name] = count
-    
+
     # Build calendar
     cal_data = build_employee_calendar(year, month, entries, employee.absences)
-    
+
     context = {
         'company': company,
         'company_name': company.name,
@@ -284,8 +292,9 @@ def employee_view(request, company_id, employee_id):
         'shifts_by_type': shifts_by_type,
         'calendar_data': cal_data,
         'max_hours_per_week': employee.max_hours_per_week,
+        'available_algorithms': available_algorithms,
+        'selected_algorithm': selected_algorithm,
     }
-    
     return render(request, 'rostering_app/employee_view.html', context)
 
 
@@ -293,11 +302,16 @@ def analytics_view(request, company_id):
     """Analytics and statistics view."""
     company = get_object_or_404(Company, pk=company_id)
     load_company_fixtures(company)
-    
-    # Get date range
-    end_date = datetime.date.today()
-    start_date = end_date - datetime.timedelta(days=30)
-    
+
+    # Use month-based date range
+    today = datetime.date.today()
+    year = int(request.GET.get('year', today.year))
+    month = int(request.GET.get('month', today.month))
+    first_day = datetime.date(year, month, 1)
+    last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    prev_month = first_day - datetime.timedelta(days=1)
+    next_month = last_day + datetime.timedelta(days=1)
+
     # Algorithm filter
     available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
     available_algorithms = sorted([alg for alg in available_algorithms if alg])
@@ -305,26 +319,22 @@ def analytics_view(request, company_id):
     if not selected_algorithm and 'Linear Programming (ILP)' in available_algorithms:
         selected_algorithm = 'Linear Programming (ILP)'
 
-    # Get all entries in range
     entry_filter = {
-        'date__gte': start_date,
-        'date__lte': end_date,
+        'date__gte': first_day,
+        'date__lte': last_day,
         'archived': False,
         'company': company
     }
     if selected_algorithm:
         entry_filter['algorithm'] = selected_algorithm
     entries = ScheduleEntry.objects.filter(**entry_filter)
-    
-    # Calculate various statistics
+
     stats = {
         'total_shifts': entries.count(),
         'coverage_by_shift': {},
         'employee_distribution': {},
         'weekly_patterns': {},
     }
-    
-    # Coverage by shift type
     for shift in Shift.objects.filter(company=company):
         shift_entries = entries.filter(shift=shift)
         dates = shift_entries.values('date').distinct().count()
@@ -336,8 +346,6 @@ def analytics_view(request, company_id):
                 'max': shift.max_staff,
                 'percentage': round((avg_coverage / shift.max_staff) * 100, 1)
             }
-    
-    # Employee distribution
     employee_stats = []
     for employee in Employee.objects.filter(company=company):
         emp_entries = entries.filter(employee=employee)
@@ -348,21 +356,23 @@ def analytics_view(request, company_id):
             'hours': hours,
             'utilization': round((hours / (employee.max_hours_per_week * 4)) * 100, 1)
         })
-    
-    stats['employee_distribution'] = sorted(employee_stats, 
-                                          key=lambda x: x['hours'], 
-                                          reverse=True)[:10]
-    
+    stats['employee_distribution'] = sorted(employee_stats, key=lambda x: x['hours'], reverse=True)[:10]
     context = {
         'company': company,
         'company_name': company.name,
         'stats': stats,
-        'start_date': start_date,
-        'end_date': end_date,
+        'start_date': first_day,
+        'end_date': last_day,
         'available_algorithms': available_algorithms,
         'selected_algorithm': selected_algorithm,
+        'year': year,
+        'month': month,
+        'month_name': calendar.month_name[month],
+        'prev_year': prev_month.year,
+        'prev_month': prev_month.month,
+        'next_year': next_month.year,
+        'next_month': next_month.month,
     }
-    
     return render(request, 'rostering_app/analytics.html', context)
 
 
