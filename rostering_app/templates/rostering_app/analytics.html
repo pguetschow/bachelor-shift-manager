@@ -1,0 +1,244 @@
+{% extends 'rostering_app/base.html' %}
+
+{% block title %}Analysen{% endblock %}
+
+{% block extra_css %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h1>
+                <i class="bi bi-graph-up"></i> Analysen & Statistiken
+                <small class="text-muted">{{ start_date|date:"j. F" }} - {{ end_date|date:"j. F Y" }}</small>
+            </h1>
+            <a href="{% url 'schedule_dashboard' company_size %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Zurück zum Dashboard
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Key Metrics -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card">
+            <div class="card-body">
+                <h6 class="text-muted">Gesamtschichten</h6>
+                <h2>{{ stats.total_shifts }}</h2>
+                <small class="text-muted">in 30 Tagen</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card success">
+            <div class="card-body">
+                <h6 class="text-muted">Durchschn. Auslastung</h6>
+                <h2>
+                    {% for shift, data in stats.coverage_by_shift.items %}
+                        {{ data.percentage }}%
+                        {% if not forloop.last %}/{% endif %}
+                    {% endfor %}
+                </h2>
+                <small class="text-muted">nach Schichttyp</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card warning">
+            <div class="card-body">
+                <h6 class="text-muted">Mitarbeiter gesamt</h6>
+                <h2>{{ stats.employee_distribution|length }}</h2>
+                <small class="text-muted">aktiv im Zeitraum</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card danger">
+            <div class="card-body">
+                <h6 class="text-muted">Ø Stunden/Mitarbeiter</h6>
+                <h2>
+                    {% with total_hours=0 %}
+                    {% for emp in stats.employee_distribution %}
+                        {% if forloop.first %}{{ emp.hours|floatformat:1 }}{% endif %}
+                    {% endfor %}
+                    </h2>
+                <small class="text-muted">Top-Performer</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Schichtabdeckung nach Typ</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="coverageChart" height="150"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-pie-chart"></i> Stundenverteilung Top 10</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="distributionChart" height="150"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Detailed Tables -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-table"></i> Schichtabdeckung Details</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Schichttyp</th>
+                                <th>Ø Besetzung</th>
+                                <th>Min/Max</th>
+                                <th>Auslastung</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for shift_name, data in stats.coverage_by_shift.items %}
+                            <tr>
+                                <td>
+                                    <span class="shift-badge shift-{{ shift_name|lower|slice:":5" }} small">
+                                        {{ shift_name }}
+                                    </span>
+                                </td>
+                                <td>{{ data.average }}</td>
+                                <td>{{ data.min }}/{{ data.max }}</td>
+                                <td>
+                                    <div class="progress" style="height: 15px;">
+                                        <div class="progress-bar {% if data.percentage < 80 %}bg-danger{% elif data.percentage < 95 %}bg-warning{% else %}bg-success{% endif %}" 
+                                             style="width: {{ data.percentage }}%">
+                                            {{ data.percentage }}%
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-people"></i> Mitarbeiter-Ranking</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Name</th>
+                                <th>Schichten</th>
+                                <th>Stunden</th>
+                                <th>Auslastung</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for emp in stats.employee_distribution %}
+                            <tr>
+                                <td>{{ forloop.counter }}</td>
+                                <td>{{ emp.name }}</td>
+                                <td>{{ emp.shifts }}</td>
+                                <td>{{ emp.hours|floatformat:1 }}h</td>
+                                <td>
+                                    <div class="progress" style="height: 15px;">
+                                        <div class="progress-bar" style="width: {{ emp.utilization }}%">
+                                            {{ emp.utilization }}%
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Coverage Chart
+const coverageCtx = document.getElementById('coverageChart').getContext('2d');
+const coverageData = {
+    labels: [{% for shift_name, data in stats.coverage_by_shift.items %}'{{ shift_name }}'{% if not forloop.last %},{% endif %}{% endfor %}],
+    datasets: [{
+        label: 'Durchschnittliche Besetzung',
+        data: [{% for shift_name, data in stats.coverage_by_shift.items %}{{ data.average }}{% if not forloop.last %},{% endif %}{% endfor %}],
+        backgroundColor: ['#3498db', '#27ae60', '#34495e'],
+        borderWidth: 1
+    }]
+};
+
+new Chart(coverageCtx, {
+    type: 'bar',
+    data: coverageData,
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true
+            }
+        }
+    }
+});
+
+// Distribution Chart
+const distributionCtx = document.getElementById('distributionChart').getContext('2d');
+const distributionData = {
+    labels: [{% for emp in stats.employee_distribution|slice:":5" %}'{{ emp.name }}'{% if not forloop.last %},{% endif %}{% endfor %}],
+    datasets: [{
+        data: [{% for emp in stats.employee_distribution|slice:":5" %}{{ emp.hours }}{% if not forloop.last %},{% endif %}{% endfor %}],
+        backgroundColor: [
+            '#3498db',
+            '#27ae60',
+            '#f39c12',
+            '#e74c3c',
+            '#9b59b6'
+        ]
+    }]
+};
+
+new Chart(distributionCtx, {
+    type: 'doughnut',
+    data: distributionData,
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'right'
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

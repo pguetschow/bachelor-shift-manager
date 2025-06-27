@@ -1,0 +1,211 @@
+{% extends 'rostering_app/base.html' %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h1>
+                <i class="bi bi-speedometer2"></i> Dashboard
+                <small class="text-muted">{{ current_month|date:"F Y" }}</small>
+            </h1>
+            <div class="btn-group">
+                <a href="?year={{ prev_month|slice:":4" }}&month={{ prev_month|slice:"5:" }}" 
+                   class="btn btn-outline-secondary">
+                    <i class="bi bi-chevron-left"></i> Vorheriger Monat
+                </a>
+                <a href="{% url 'month_view' company_size %}?year={{ year }}&month={{ month }}" 
+                   class="btn btn-outline-primary">
+                    <i class="bi bi-calendar-month"></i> Monatsansicht
+                </a>
+                <a href="?year={{ next_month|slice:":4" }}&month={{ next_month|slice:"5:" }}" 
+                   class="btn btn-outline-secondary">
+                    Nächster Monat <i class="bi bi-chevron-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-muted mb-1">Mitarbeiter</h6>
+                        <h2 class="mb-0">{{ total_employees }}</h2>
+                    </div>
+                    <div class="text-primary">
+                        <i class="bi bi-people-fill display-6"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card stat-card success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-muted mb-1">Schichttypen</h6>
+                        <h2 class="mb-0">{{ total_shifts }}</h2>
+                    </div>
+                    <div class="text-success">
+                        <i class="bi bi-clock-fill display-6"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card stat-card warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-muted mb-1">Heutiges Datum</h6>
+                        <h4 class="mb-0">{{ current_date|date:"j. F" }}</h4>
+                    </div>
+                    <div class="text-warning">
+                        <i class="bi bi-calendar-check display-6"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card stat-card danger">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-muted mb-1">Aktiver Monat</h6>
+                        <h4 class="mb-0">{{ current_month|date:"F Y" }}</h4>
+                    </div>
+                    <div class="text-danger">
+                        <i class="bi bi-calendar3 display-6"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Coverage Statistics -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Schichtabdeckung</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Schichttyp</th>
+                                <th>Zeit</th>
+                                <th>Min/Max Personal</th>
+                                <th>Durchschn. Besetzung</th>
+                                <th>Abdeckung</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stat in coverage_stats %}
+                            <tr>
+                                <td>
+                                    <span class="shift-badge shift-{{ stat.shift.name|lower|slice:":5" }}">
+                                        {{ stat.shift.name }}
+                                    </span>
+                                </td>
+                                <td>{{ stat.shift.start|time:"H:i" }} - {{ stat.shift.end|time:"H:i" }}</td>
+                                <td>{{ stat.shift.min_staff }} / {{ stat.shift.max_staff }}</td>
+                                <td>{{ stat.avg_staff }}</td>
+                                <td>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar {% if stat.coverage_percentage < 80 %}bg-danger{% elif stat.coverage_percentage < 95 %}bg-warning{% else %}bg-success{% endif %}" 
+                                             role="progressbar" 
+                                             style="width: {{ stat.coverage_percentage }}%">
+                                            {{ stat.coverage_percentage }}%
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge bg-{% if stat.status == 'ok' %}success{% elif stat.status == 'understaffed' %}danger{% elif stat.status == 'overstaffed' %}warning{% else %}primary{% endif %}">
+                                        {% if stat.status == 'ok' %}OK{% elif stat.status == 'understaffed' %}Unterbesetzt{% elif stat.status == 'overstaffed' %}Überbesetzt{% else %}Voll{% endif %}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-trophy"></i> Top Mitarbeiter (Stunden)</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group list-group-flush">
+                    {% for employee, hours in top_employees %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="bi bi-person-circle"></i> {{ employee }}
+                        </div>
+                        <span class="badge bg-primary rounded-pill">{{ hours|floatformat:1 }}h</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightning"></i> Schnellzugriff</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <a href="{% url 'day_view' company_size current_date|date:'Y-m-d' %}" 
+                           class="btn btn-outline-primary w-100">
+                            <i class="bi bi-calendar-day"></i> Heutige Schichten
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{% url 'month_view' company_size %}" 
+                           class="btn btn-outline-secondary w-100">
+                            <i class="bi bi-calendar-month"></i> Vollständiger Kalender
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{% url 'analytics_view' company_size %}" 
+                           class="btn btn-outline-info w-100">
+                            <i class="bi bi-graph-up"></i> Detaillierte Analysen
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{% url 'company_selection' %}" 
+                           class="btn btn-outline-warning w-100">
+                            <i class="bi bi-building"></i> Unternehmen wechseln
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} '

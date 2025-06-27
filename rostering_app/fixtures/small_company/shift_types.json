@@ -1,0 +1,24 @@
+[
+  {
+    "model": "rostering_app.shifttype",
+    "pk": 1,
+    "fields": {
+      "name": "EarlyShift",
+      "start": "06:00:00",
+      "end": "14:00:00",
+      "min_staff": 2,
+      "max_staff": 3
+    }
+  },
+  {
+    "model": "rostering_app.shifttype",
+    "pk": 2,
+    "fields": {
+      "name": "LateShift",
+      "start": "14:00:00",
+      "end": "22:00:00",
+      "min_staff": 2,
+      "max_staff": 3
+    }
+  }
+]
