@@ -15,7 +15,7 @@
                    class="btn btn-outline-secondary">
                     <i class="bi bi-chevron-left"></i> Vorheriger Monat
                 </a>
-                <a href="{% url 'month_view' company_size %}?year={{ year }}&month={{ month }}" 
+                <a href="{% url 'month_view' company.id %}?year={{ year }}&month={{ month }}" 
                    class="btn btn-outline-primary">
                     <i class="bi bi-calendar-month"></i> Monatsansicht
                 </a>
@@ -180,19 +180,19 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-md-3">
-                        <a href="{% url 'day_view' company_size current_date|date:'Y-m-d' %}" 
+                        <a href="{% url 'day_view' company.id current_date|date:'Y-m-d' %}" 
                            class="btn btn-outline-primary w-100">
                             <i class="bi bi-calendar-day"></i> Heutige Schichten
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'month_view' company_size %}" 
+                        <a href="{% url 'month_view' company.id %}" 
                            class="btn btn-outline-secondary w-100">
                             <i class="bi bi-calendar-month"></i> Vollständiger Kalender
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'analytics_view' company_size %}" 
+                        <a href="{% url 'analytics_view' company.id %}" 
                            class="btn btn-outline-info w-100">
                             <i class="bi bi-graph-up"></i> Detaillierte Analysen
                         </a>
@@ -208,4 +208,4 @@
         </div>
     </div>
 </div>
-{% endblock %} '
+{% endblock %}

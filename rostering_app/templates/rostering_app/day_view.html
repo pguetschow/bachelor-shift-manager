@@ -11,15 +11,15 @@
                 <i class="bi bi-calendar-day"></i> {{ date|date:"l, j. F Y" }}
             </h1>
             <div class="btn-group">
-                <a href="{% url 'day_view' company_size prev_date %}" 
+                <a href="{% url 'day_view' company.id prev_date %}" 
                    class="btn btn-outline-secondary">
                     <i class="bi bi-chevron-left"></i> Vorheriger Tag
                 </a>
-                <a href="{% url 'month_view' company_size %}?year={{ date.year }}&month={{ date.month }}" 
+                <a href="{% url 'month_view' company.id %}?year={{ date.year }}&month={{ date.month }}" 
                    class="btn btn-outline-primary">
                     <i class="bi bi-calendar-month"></i> Monatsansicht
                 </a>
-                <a href="{% url 'day_view' company_size next_date %}" 
+                <a href="{% url 'day_view' company.id next_date %}" 
                    class="btn btn-outline-secondary">
                     Nächster Tag <i class="bi bi-chevron-right"></i>
                 </a>
@@ -59,7 +59,7 @@
                 {% if shift_data.employees %}
                 <div class="list-group list-group-flush mb-3">
                     {% for employee in shift_data.employees %}
-                    <a href="{% url 'employee_view' company_size employee.id %}" 
+                    <a href="{% url 'employee_view' company.id employee.id %}" 
                        class="list-group-item list-group-item-action">
                         <i class="bi bi-person"></i> {{ employee.name }}
                         {% if employee.max_hours_per_week < 40 %}

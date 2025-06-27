@@ -4,54 +4,27 @@ import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
 from django.db.models import Count, Q
-from rostering_app.models import ScheduleEntry, Employee, ShiftType
+from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 
 
-def load_company_fixtures(company_size):
-    """Load fixtures for the specified company size."""
-    valid_sizes = ['small', 'medium', 'large']
-    if company_size not in valid_sizes:
-        raise Http404("Invalid company size")
-    
-    # In a real application, you would load the appropriate fixtures here
-    # For now, we'll just use whatever is in the database
+def load_company_fixtures(company):
+    """Load fixtures for the specified company."""
+    # Placeholder for loading fixtures for the specified company
     return True
 
 
 def company_selection(request):
     """Landing page for selecting company size."""
-    companies = [
-        {
-            'size': 'small',
-            'name': 'Kleines Unternehmen',
-            'description': '10 Mitarbeiter, 2 Schichten',
-            'icon': '🏪',
-            'color': 'primary'
-        },
-        {
-            'size': 'medium',
-            'name': 'Mittleres Unternehmen',
-            'description': '30 Mitarbeiter, 3 Schichten',
-            'icon': '🏥',
-            'color': 'success'
-        },
-        {
-            'size': 'large',
-            'name': 'Großes Unternehmen',
-            'description': '100 Mitarbeiter, 3 Schichten',
-            'icon': '🏭',
-            'color': 'warning'
-        }
-    ]
-    
+    companies = Company.objects.all()
     return render(request, 'rostering_app/company_selection.html', {
         'companies': companies
     })
 
 
-def schedule_dashboard(request, company_size):
+def schedule_dashboard(request, company_id):
     """Main dashboard showing current month overview."""
-    load_company_fixtures(company_size)
+    company = get_object_or_404(Company, pk=company_id)
+    load_company_fixtures(company)
     
     # Get current date or from query params
     today = datetime.date.today()
@@ -63,26 +36,27 @@ def schedule_dashboard(request, company_size):
     last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
     
     # Get statistics
-    total_employees = Employee.objects.count()
-    total_shifts = ShiftType.objects.count()
+    total_employees = Employee.objects.filter(company=company).count()
+    total_shifts = Shift.objects.filter(company=company).count()
     
     # Get schedule entries for the month
     entries = ScheduleEntry.objects.filter(
+        employee__company=company,
         date__gte=first_day,
         date__lte=last_day,
         archived=False
     )
     
     # Calculate coverage statistics
-    coverage_stats = calculate_coverage_stats(entries, first_day, last_day)
+    coverage_stats = calculate_coverage_stats(entries, first_day, last_day, company)
     
     # Get employees with most/least hours
     employee_hours = calculate_employee_hours(entries)
     top_employees = sorted(employee_hours.items(), key=lambda x: x[1], reverse=True)[:5]
     
     context = {
-        'company_size': company_size,
-        'company_name': get_company_name(company_size),
+        'company': company,
+        'company_name': company.name,
         'current_date': today,
         'current_month': first_day,
         'year': year,
@@ -98,71 +72,10 @@ def schedule_dashboard(request, company_size):
     return render(request, 'rostering_app/dashboard.html', context)
 
 
-# def month_view(request, company_size):
-#     """Full month calendar view."""
-#     load_company_fixtures(company_size)
-#
-#     # Get date parameters
-#     year = int(request.GET.get('year', datetime.date.today().year))
-#     month = int(request.GET.get('month', datetime.date.today().month))
-#
-#     # Build calendar data
-#     cal = calendar.monthcalendar(year, month)
-#     month_data = []
-#
-#     for week in cal:
-#         week_data = []
-#         for day in week:
-#             if day == 0:
-#                 week_data.append(None)
-#             else:
-#                 date = datetime.date(year, month, day)
-#                 entries = ScheduleEntry.objects.filter(date=date, archived=False)
-#
-#                 shifts_data = {}
-#                 for shift_type in ShiftType.objects.all():
-#                     shift_entries = entries.filter(shift_type=shift_type)
-#                     shifts_data[shift_type.name] = {
-#                         'count': shift_entries.count(),
-#                         'min_staff': shift_type.min_staff,
-#                         'max_staff': shift_type.max_staff,
-#                         'status': get_shift_status(shift_entries.count(),
-#                                                  shift_type.min_staff,
-#                                                  shift_type.max_staff)
-#                     }
-#
-#                 week_data.append({
-#                     'day': day,
-#                     'date': date,
-#                     'shifts': shifts_data,
-#                     'is_today': date == datetime.date.today()
-#                 })
-#         month_data.append(week_data)
-#
-#     # Navigation
-#     first_day = datetime.date(year, month, 1)
-#     last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
-#     prev_month = first_day - datetime.timedelta(days=1)
-#     next_month = last_day + datetime.timedelta(days=1)
-#
-#     context = {
-#         'company_size': company_size,
-#         'company_name': get_company_name(company_size),
-#         'year': year,
-#         'month': month,
-#         'month_name': calendar.month_name[month],
-#         'month_data': month_data,
-#         'shift_types': ShiftType.objects.all(),
-#         'prev_year': prev_month.year,
-#         'prev_month': prev_month.month,
-#         'next_year': next_month.year,
-#         'next_month': next_month.month,
-#     }
-#
-#     return render(request, 'rostering_app/month_view.html', context)
-def month_view(request, company_size):
+def month_view(request, company_id):
     """Full month calendar view."""
-    load_company_fixtures(company_size)
+    company = get_object_or_404(Company, pk=company_id)
+    load_company_fixtures(company)
 
     # Get date parameters
     year = int(request.GET.get('year', datetime.date.today().year))
@@ -183,19 +96,19 @@ def month_view(request, company_size):
                 week_data.append(None)
             else:
                 date = datetime.date(year, month, day)
-                entries = ScheduleEntry.objects.filter(date=date, archived=False)
+                entries = ScheduleEntry.objects.filter(date=date, archived=False, employee__company=company)
 
                 shifts_data = {}
-                for shift_type in ShiftType.objects.all():
-                    shift_entries = entries.filter(shift_type=shift_type)
-                    shifts_data[shift_type.name] = {
+                for shift in Shift.objects.filter(company=company):
+                    shift_entries = entries.filter(shift=shift)
+                    shifts_data[shift.name] = {
                         'count': shift_entries.count(),
-                        'min_staff': shift_type.min_staff,
-                        'max_staff': shift_type.max_staff,
+                        'min_staff': shift.min_staff,
+                        'max_staff': shift.max_staff,
                         'status': get_shift_status(
                             shift_entries.count(),
-                            shift_type.min_staff,
-                            shift_type.max_staff
+                            shift.min_staff,
+                            shift.max_staff
                         )
                     }
 
@@ -208,11 +121,11 @@ def month_view(request, company_size):
         month_data.append(week_data)
 
     # Zusatzberechnungen
-    shift_types = ShiftType.objects.all()
+    shifts = Shift.objects.filter(company=company)
     days_per_week = 7
     total_workdays = week_count * days_per_week - 2
     total_weekends = week_count * 2
-    shifts_per_day = shift_types.count()
+    shifts_per_day = shifts.count()
     total_shifts = week_count * days_per_week * shifts_per_day
 
     # Navigation
@@ -222,13 +135,13 @@ def month_view(request, company_size):
     next_month = last_day + datetime.timedelta(days=1)
 
     context = {
-        'company_size': company_size,
-        'company_name': get_company_name(company_size),
+        'company': company,
+        'company_name': company.name,
         'year': year,
         'month': month,
         'month_name': calendar.month_name[month],
         'month_data': month_data,
-        'shift_types': shift_types,
+        'shifts': shifts,
         'prev_year': prev_month.year,
         'prev_month': prev_month.month,
         'next_year': next_month.year,
@@ -243,9 +156,10 @@ def month_view(request, company_size):
     return render(request, 'rostering_app/month_view.html', context)
 
 
-def day_view(request, company_size, date):
+def day_view(request, company_id, date):
     """Detailed view for a specific day."""
-    load_company_fixtures(company_size)
+    company = get_object_or_404(Company, pk=company_id)
+    load_company_fixtures(company)
     
     try:
         date_obj = datetime.datetime.strptime(date, '%Y-%m-%d').date()
@@ -254,30 +168,32 @@ def day_view(request, company_size, date):
     
     # Get all shifts for this day
     shifts_data = []
-    for shift_type in ShiftType.objects.all():
+    for shift in Shift.objects.filter(company=company):
         entries = ScheduleEntry.objects.filter(
             date=date_obj,
-            shift_type=shift_type,
-            archived=False
+            shift=shift,
+            archived=False,
+            employee__company=company
         ).select_related('employee')
         
         shifts_data.append({
-            'shift': shift_type,
+            'shift': shift,
             'employees': [entry.employee for entry in entries],
             'count': entries.count(),
             'status': get_shift_status(entries.count(), 
-                                     shift_type.min_staff, 
-                                     shift_type.max_staff)
+                                     shift.min_staff, 
+                                     shift.max_staff)
         })
     
     # Get available employees for each shift
-    all_employees = Employee.objects.all()
+    all_employees = Employee.objects.filter(company=company)
     available_by_shift = {}
     
-    for shift_type in ShiftType.objects.all():
+    for shift in Shift.objects.filter(company=company):
         assigned = ScheduleEntry.objects.filter(
             date=date_obj,
-            archived=False
+            archived=False,
+            employee__company=company
         ).values_list('employee_id', flat=True)
         
         available = []
@@ -285,11 +201,11 @@ def day_view(request, company_size, date):
             if emp.id not in assigned and date not in emp.absences:
                 available.append(emp)
         
-        available_by_shift[shift_type.id] = available
+        available_by_shift[shift.id] = available
     
     context = {
-        'company_size': company_size,
-        'company_name': get_company_name(company_size),
+        'company': company,
+        'company_name': company.name,
         'date': date_obj,
         'shifts_data': shifts_data,
         'available_by_shift': available_by_shift,
@@ -300,11 +216,12 @@ def day_view(request, company_size, date):
     return render(request, 'rostering_app/day_view.html', context)
 
 
-def employee_view(request, company_size, employee_id):
+def employee_view(request, company_id, employee_id):
     """View for individual employee schedule."""
-    load_company_fixtures(company_size)
+    company = get_object_or_404(Company, pk=company_id)
+    load_company_fixtures(company)
     
-    employee = get_object_or_404(Employee, pk=employee_id)
+    employee = get_object_or_404(Employee, pk=employee_id, company=company)
     
     # Get current month or from query
     today = datetime.date.today()
@@ -323,18 +240,18 @@ def employee_view(request, company_size, employee_id):
     ).order_by('date')
     
     # Calculate statistics
-    total_hours = sum(entry.shift_type.get_duration() for entry in entries)
+    total_hours = sum(entry.shift.get_duration() for entry in entries)
     shifts_by_type = {}
-    for shift_type in ShiftType.objects.all():
-        count = entries.filter(shift_type=shift_type).count()
-        shifts_by_type[shift_type.name] = count
+    for shift in Shift.objects.filter(company=company):
+        count = entries.filter(shift=shift).count()
+        shifts_by_type[shift.name] = count
     
     # Build calendar
     cal_data = build_employee_calendar(year, month, entries, employee.absences)
     
     context = {
-        'company_size': company_size,
-        'company_name': get_company_name(company_size),
+        'company': company,
+        'company_name': company.name,
         'employee': employee,
         'year': year,
         'month': month,
@@ -348,9 +265,10 @@ def employee_view(request, company_size, employee_id):
     return render(request, 'rostering_app/employee_view.html', context)
 
 
-def analytics_view(request, company_size):
+def analytics_view(request, company_id):
     """Analytics and statistics view."""
-    load_company_fixtures(company_size)
+    company = get_object_or_404(Company, pk=company_id)
+    load_company_fixtures(company)
     
     # Get date range
     end_date = datetime.date.today()
@@ -360,7 +278,8 @@ def analytics_view(request, company_size):
     entries = ScheduleEntry.objects.filter(
         date__gte=start_date,
         date__lte=end_date,
-        archived=False
+        archived=False,
+        employee__company=company
     )
     
     # Calculate various statistics
@@ -372,23 +291,23 @@ def analytics_view(request, company_size):
     }
     
     # Coverage by shift type
-    for shift_type in ShiftType.objects.all():
-        shift_entries = entries.filter(shift_type=shift_type)
+    for shift in Shift.objects.filter(company=company):
+        shift_entries = entries.filter(shift=shift)
         dates = shift_entries.values('date').distinct().count()
         if dates > 0:
             avg_coverage = shift_entries.count() / dates
-            stats['coverage_by_shift'][shift_type.name] = {
+            stats['coverage_by_shift'][shift.name] = {
                 'average': round(avg_coverage, 1),
-                'min': shift_type.min_staff,
-                'max': shift_type.max_staff,
-                'percentage': round((avg_coverage / shift_type.max_staff) * 100, 1)
+                'min': shift.min_staff,
+                'max': shift.max_staff,
+                'percentage': round((avg_coverage / shift.max_staff) * 100, 1)
             }
     
     # Employee distribution
     employee_stats = []
-    for employee in Employee.objects.all():
+    for employee in Employee.objects.filter(company=company):
         emp_entries = entries.filter(employee=employee)
-        hours = sum(e.shift_type.get_duration() for e in emp_entries)
+        hours = sum(e.shift.get_duration() for e in emp_entries)
         employee_stats.append({
             'name': employee.name,
             'shifts': emp_entries.count(),
@@ -401,8 +320,8 @@ def analytics_view(request, company_size):
                                           reverse=True)[:10]
     
     context = {
-        'company_size': company_size,
-        'company_name': get_company_name(company_size),
+        'company': company,
+        'company_name': company.name,
         'stats': stats,
         'start_date': start_date,
         'end_date': end_date,
@@ -411,9 +330,10 @@ def analytics_view(request, company_size):
     return render(request, 'rostering_app/analytics.html', context)
 
 
-def api_schedule_data(request, company_size, year, month):
+def api_schedule_data(request, company_id, year, month):
     """API endpoint for AJAX schedule data."""
-    load_company_fixtures(company_size)
+    company = get_object_or_404(Company, pk=company_id)
+    load_company_fixtures(company)
     
     year = int(year)
     month = int(month)
@@ -424,8 +344,9 @@ def api_schedule_data(request, company_size, year, month):
     entries = ScheduleEntry.objects.filter(
         date__gte=first_day,
         date__lte=last_day,
-        archived=False
-    ).select_related('employee', 'shift_type')
+        archived=False,
+        employee__company=company
+    ).select_related('employee', 'shift')
     
     # Format data for JSON
     schedule_data = {}
@@ -434,7 +355,7 @@ def api_schedule_data(request, company_size, year, month):
         if date_str not in schedule_data:
             schedule_data[date_str] = {}
         
-        shift_name = entry.shift_type.name
+        shift_name = entry.shift.name
         if shift_name not in schedule_data[date_str]:
             schedule_data[date_str][shift_name] = []
         
@@ -452,16 +373,6 @@ def api_schedule_data(request, company_size, year, month):
 
 
 # Helper functions
-def get_company_name(company_size):
-    """Get display name for company size."""
-    names = {
-        'small': 'Kleines Unternehmen',
-        'medium': 'Mittleres Unternehmen',
-        'large': 'Großes Unternehmen'
-    }
-    return names.get(company_size, 'Unternehmen')
-
-
 def get_shift_status(count, min_staff, max_staff):
     """Determine shift coverage status."""
     if count < min_staff:
@@ -474,11 +385,11 @@ def get_shift_status(count, min_staff, max_staff):
         return 'ok'
 
 
-def calculate_coverage_stats(entries, start_date, end_date):
+def calculate_coverage_stats(entries, start_date, end_date, company):
     """Calculate coverage statistics for date range."""
     stats = []
-    for shift_type in ShiftType.objects.all():
-        shift_entries = entries.filter(shift_type=shift_type)
+    for shift in Shift.objects.filter(company=company):
+        shift_entries = entries.filter(shift=shift)
         total_days = (end_date - start_date).days + 1
         
         if total_days > 0:
@@ -486,10 +397,10 @@ def calculate_coverage_stats(entries, start_date, end_date):
             avg_staff = shift_entries.count() / total_days if total_days > 0 else 0
             
             stats.append({
-                'shift': shift_type,
+                'shift': shift,
                 'coverage_percentage': round((coverage_days / total_days) * 100, 1),
                 'avg_staff': round(avg_staff, 1),
-                'status': get_shift_status(avg_staff, shift_type.min_staff, shift_type.max_staff)
+                'status': get_shift_status(avg_staff, shift.min_staff, shift.max_staff)
             })
     
     return stats
@@ -500,7 +411,7 @@ def calculate_employee_hours(entries):
     hours = {}
     for entry in entries:
         emp_name = entry.employee.name
-        duration = entry.shift_type.get_duration()
+        duration = entry.shift.get_duration()
         hours[emp_name] = hours.get(emp_name, 0) + duration
     return hours
 

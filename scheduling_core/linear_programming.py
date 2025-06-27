@@ -5,7 +5,7 @@ from typing import List
 
 from pulp import LpProblem, LpVariable, lpSum, LpMinimize, LpBinary, PULP_CBC_CMD
 
-from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, ShiftType
+from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Shift
 from .utils import get_weeks
 
 
@@ -28,7 +28,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         for emp in problem.employees:
             current = problem.start_date
             for _ in range(total_days):
-                for shift in problem.shift_types:
+                for shift in problem.shifts:
                     key = (emp.id, current, shift.id)
                     variables[key] = LpVariable(
                         f"x_{emp.id}_{current}_{shift.id}",
@@ -50,7 +50,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         total_possible_hours = 0
         current = problem.start_date
         for _ in range(total_days):
-            for shift in problem.shift_types:
+            for shift in problem.shifts:
                 total_possible_hours += shift.duration * shift.max_staff
             current += timedelta(days=1)
         
@@ -68,7 +68,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         for emp in problem.employees:
             for absence_date in emp.absence_dates:
                 if problem.start_date <= absence_date <= problem.end_date:
-                    for shift in problem.shift_types:
+                    for shift in problem.shifts:
                         if (emp.id, absence_date, shift.id) in variables:
                             lp_problem += variables[(emp.id, absence_date, shift.id)] == 0
         
@@ -77,7 +77,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
             current = problem.start_date
             for _ in range(total_days):
                 day_vars = []
-                for shift in problem.shift_types:
+                for shift in problem.shifts:
                     key = (emp.id, current, shift.id)
                     if key in variables:
                         day_vars.append(variables[key])
@@ -88,7 +88,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         # 3. Min/max staffing
         current = problem.start_date
         for _ in range(total_days):
-            for shift in problem.shift_types:
+            for shift in problem.shifts:
                 shift_vars = []
                 for emp in problem.employees:
                     key = (emp.id, current, shift.id)
@@ -105,7 +105,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
             for week_dates in weeks.values():
                 week_hours = []
                 for date in week_dates:
-                    for shift in problem.shift_types:
+                    for shift in problem.shifts:
                         key = (emp.id, date, shift.id)
                         if key in variables:
                             week_hours.append(variables[key] * shift.duration)
@@ -117,8 +117,8 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         for day_idx in range(total_days - 1):
             next_date = current + timedelta(days=1)
             for emp in problem.employees:
-                for today_shift in problem.shift_types:
-                    for tomorrow_shift in problem.shift_types:
+                for today_shift in problem.shifts:
+                    for tomorrow_shift in problem.shifts:
                         if self._violates_rest_period(today_shift, tomorrow_shift, current):
                             today_key = (emp.id, current, today_shift.id)
                             tomorrow_key = (emp.id, next_date, tomorrow_shift.id)
@@ -132,7 +132,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
             total_hours = []
             current = problem.start_date
             for _ in range(total_days):
-                for shift in problem.shift_types:
+                for shift in problem.shifts:
                     key = (emp.id, current, shift.id)
                     if key in variables:
                         total_hours.append(variables[key] * shift.duration)
@@ -154,7 +154,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         for emp in problem.employees:
             current = problem.start_date
             for _ in range(total_days):
-                for shift in problem.shift_types:
+                for shift in problem.shifts:
                     key = (emp.id, current, shift.id)
                     if key in variables:
                         maximize_coverage.append(variables[key])
@@ -182,7 +182,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         
         return entries
     
-    def _violates_rest_period(self, shift1: ShiftType, shift2: ShiftType, date1) -> bool:
+    def _violates_rest_period(self, shift1: Shift, shift2: Shift, date1) -> bool:
         """Check if shift combination violates 11-hour rest period."""
         from datetime import datetime
         

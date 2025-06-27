@@ -35,7 +35,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -75,7 +76,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -114,7 +116,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -154,7 +157,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -194,7 +198,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -234,7 +239,8 @@
       "preferred_shifts": [
         "LateShift",
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -274,7 +280,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -313,7 +320,8 @@
       ],
       "preferred_shifts": [
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -352,7 +360,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -392,7 +401,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -432,7 +442,8 @@
       "preferred_shifts": [
         "LateShift",
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -472,7 +483,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -512,7 +524,8 @@
       "preferred_shifts": [
         "LateShift",
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -551,7 +564,8 @@
       ],
       "preferred_shifts": [
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -590,7 +604,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -630,7 +645,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -670,7 +686,8 @@
       "preferred_shifts": [
         "LateShift",
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -710,7 +727,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -749,7 +767,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -786,7 +805,8 @@
         "2025-12-28",
         "2025-12-29"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 2
     }
   },
   {
@@ -825,7 +845,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -864,7 +885,8 @@
       ],
       "preferred_shifts": [
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -904,7 +926,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -944,7 +967,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -984,7 +1008,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -1023,7 +1048,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -1063,7 +1089,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -1102,7 +1129,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -1141,7 +1169,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 2
     }
   },
   {
@@ -1181,7 +1210,8 @@
       "preferred_shifts": [
         "LateShift",
         "NightShift"
-      ]
+      ],
+      "company": 2
     }
   }
 ]

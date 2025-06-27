@@ -33,7 +33,7 @@
             <div class="card-body py-2">
                 <div class="d-flex align-items-center gap-3">
                     <span class="fw-bold">Legende:</span>
-                    {% for shift in shift_types %}
+                    {% for shift in shifts %}
                     <span>
                         <span class="shift-badge shift-{{ shift.name|lower|cut:'shift' }}">
                             {{ shift.name }}
@@ -75,7 +75,7 @@
                             {% for day in week %}
                             {% if day %}
                             <td class="calendar-day {% if day.is_today %}today{% endif %} {% if day.date.weekday >= 5 %}weekend{% endif %}"
-                                onclick="window.location.href='{% url 'day_view' company_size day.date|date:'Y-m-d' %}'">
+                                onclick="window.location.href='{% url 'day_view' company.id day.date|date:'Y-m-d' %}'">
                                 <div class="day-header">
                                     <strong>{{ day.day }}</strong>
                                     {% if day.is_today %}

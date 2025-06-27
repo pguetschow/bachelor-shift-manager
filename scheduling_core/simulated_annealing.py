@@ -87,7 +87,7 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         
         current = self.problem.start_date
         while current <= self.problem.end_date:
-            for shift in self.problem.shift_types:
+            for shift in self.problem.shifts:
                 key = (current, shift.id)
                 available = [
                     emp.id for emp in self.problem.employees
@@ -184,7 +184,7 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                     (self.problem.end_date - self.problem.start_date).days + 1
                 )))
                 target_date = self.problem.start_date + timedelta(days=target_date)
-                target_shift = random.choice(self.problem.shift_types)
+                target_shift = random.choice(self.problem.shifts)
                 
                 if len(neighbor.assignments[(target_date, target_shift.id)]) < target_shift.max_staff:
                     if is_employee_available(emp_id, target_date, target_shift,

@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Tuple, Set
 from collections import defaultdict
-from .base import Employee, ShiftType, Solution, SchedulingProblem
+from .base import Employee, Shift, Solution, SchedulingProblem
 
 
 def get_weeks(start_date: date, end_date: date) -> Dict[Tuple[int, int], List[date]]:
@@ -19,7 +19,7 @@ def get_weeks(start_date: date, end_date: date) -> Dict[Tuple[int, int], List[da
 def is_employee_available(
     emp_id: int,
     date: date,
-    shift: ShiftType,
+    shift: Shift,
     solution: Solution,
     problem: SchedulingProblem,
     weeks: Dict[Tuple[int, int], List[date]]
@@ -32,7 +32,7 @@ def is_employee_available(
         return False
     
     # Check if already assigned on same day
-    for s in problem.shift_types:
+    for s in problem.shifts:
         if emp_id in solution.assignments.get((date, s.id), []):
             return False
     
@@ -40,7 +40,7 @@ def is_employee_available(
     week_key = tuple(date.isocalendar()[:2])
     weekly_hours = 0
     for d in weeks[week_key]:
-        for s in problem.shift_types:
+        for s in problem.shifts:
             if emp_id in solution.assignments.get((d, s.id), []):
                 weekly_hours += s.duration
     
@@ -57,14 +57,14 @@ def is_employee_available(
 def check_rest_period(
     emp_id: int,
     date: date,
-    shift: ShiftType,
+    shift: Shift,
     solution: Solution,
     problem: SchedulingProblem
 ) -> bool:
     """Check 11-hour rest period between shifts."""
     # Check previous day
     prev_date = date - timedelta(days=1)
-    for s in problem.shift_types:
+    for s in problem.shifts:
         if emp_id in solution.assignments.get((prev_date, s.id), []):
             end_prev = datetime.combine(prev_date, s.end)
             if s.end < s.start:  # Night shift
@@ -75,7 +75,7 @@ def check_rest_period(
     
     # Check next day
     next_date = date + timedelta(days=1)
-    for s in problem.shift_types:
+    for s in problem.shifts:
         if emp_id in solution.assignments.get((next_date, s.id), []):
             end_curr = datetime.combine(date, shift.end)
             if shift.end < shift.start:  # Night shift
@@ -109,7 +109,7 @@ def evaluate_solution(
     current = problem.start_date
     
     for _ in range(total_days):
-        for shift in problem.shift_types:
+        for shift in problem.shifts:
             assigned = len(solution.assignments.get((current, shift.id), []))
             if assigned < shift.min_staff:
                 penalty += (shift.min_staff - assigned) * penalty_weights['understaffing']
@@ -150,7 +150,7 @@ def create_empty_solution(problem: SchedulingProblem) -> Solution:
     solution = Solution()
     current = problem.start_date
     while current <= problem.end_date:
-        for shift in problem.shift_types:
+        for shift in problem.shifts:
             solution.assignments[(current, shift.id)] = []
         current += timedelta(days=1)
     return solution

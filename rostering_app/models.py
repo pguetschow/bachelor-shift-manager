@@ -1,7 +1,18 @@
 from django.db import models
 from django.db.models import JSONField  # Use JSONField (available in Django 3.1+)
 
+class Company(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    size = models.CharField(max_length=20, choices=[('small', 'Small'), ('medium', 'Medium'), ('large', 'Large')])
+    description = models.TextField(blank=True)
+    icon = models.CharField(max_length=10, blank=True)
+    color = models.CharField(max_length=20, blank=True)
+
+    def __str__(self):
+        return self.name
+
 class Employee(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='employees')
     name = models.CharField(max_length=100)
     max_hours_per_week = models.IntegerField()
     # List of ISO date strings (e.g., ["2025-02-05", "2025-02-12"])
@@ -12,12 +23,13 @@ class Employee(models.Model):
     def __str__(self):
         return self.name
 
-class ShiftType(models.Model):
+class Shift(models.Model):
     SHIFT_CHOICES = [
         ('EarlyShift', 'Early Shift'),
         ('LateShift', 'Late Shift'),
         ('NightShift', 'Night Shift'),
     ]
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='shifts')
     name = models.CharField(max_length=20, choices=SHIFT_CHOICES, unique=True)
     start = models.TimeField()
     end = models.TimeField()
@@ -38,8 +50,8 @@ class ShiftType(models.Model):
 class ScheduleEntry(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
     date = models.DateField()
-    shift_type = models.ForeignKey(ShiftType, on_delete=models.CASCADE)
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
     archived = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.date} - {self.employee.name} - {self.shift_type.name}"
+        return f"{self.date} - {self.employee.name} - {self.shift.name}"

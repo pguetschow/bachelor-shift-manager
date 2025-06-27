@@ -3,6 +3,7 @@
     "model": "rostering_app.employee",
     "pk": 1,
     "fields": {
+      "company": 1,
       "name": "Anna Schmidt",
       "max_hours_per_week": 40,
       "absences": [
@@ -19,6 +20,7 @@
     "model": "rostering_app.employee",
     "pk": 2,
     "fields": {
+      "company": 1,
       "name": "Bernd Meyer",
       "max_hours_per_week": 40,
       "absences": [
@@ -35,6 +37,7 @@
     "model": "rostering_app.employee",
     "pk": 3,
     "fields": {
+      "company": 1,
       "name": "Claudia Weber",
       "max_hours_per_week": 32,
       "absences": [
@@ -51,6 +54,7 @@
     "model": "rostering_app.employee",
     "pk": 4,
     "fields": {
+      "company": 1,
       "name": "Daniel Becker",
       "max_hours_per_week": 40,
       "absences": [
@@ -66,6 +70,7 @@
     "model": "rostering_app.employee",
     "pk": 5,
     "fields": {
+      "company": 1,
       "name": "Eva Schulz",
       "max_hours_per_week": 32,
       "absences": [
@@ -82,6 +87,7 @@
     "model": "rostering_app.employee",
     "pk": 6,
     "fields": {
+      "company": 1,
       "name": "Frank Wagner",
       "max_hours_per_week": 40,
       "absences": [
@@ -97,6 +103,7 @@
     "model": "rostering_app.employee",
     "pk": 7,
     "fields": {
+      "company": 1,
       "name": "Gisela Hoffmann",
       "max_hours_per_week": 40,
       "absences": [
@@ -113,6 +120,7 @@
     "model": "rostering_app.employee",
     "pk": 8,
     "fields": {
+      "company": 1,
       "name": "Hans Fischer",
       "max_hours_per_week": 32,
       "absences": [
@@ -129,6 +137,7 @@
     "model": "rostering_app.employee",
     "pk": 9,
     "fields": {
+      "company": 1,
       "name": "Ingrid Müller",
       "max_hours_per_week": 40,
       "absences": [
@@ -145,6 +154,7 @@
     "model": "rostering_app.employee",
     "pk": 10,
     "fields": {
+      "company": 1,
       "name": "Jürgen Koch",
       "max_hours_per_week": 40,
       "absences": [

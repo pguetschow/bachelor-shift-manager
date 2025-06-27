@@ -19,7 +19,7 @@
                             <div class="display-1 mb-3">{{ company.icon }}</div>
                             <h3 class="card-title">{{ company.name }}</h3>
                             <p class="card-text text-muted flex-grow-1">{{ company.description }}</p>
-                            <a href="{% url 'schedule_dashboard' company.size %}" 
+                            <a href="{% url 'schedule_dashboard' company.id %}" 
                                class="btn btn-{{ company.color }} btn-lg mt-3">
                                 <i class="bi bi-box-arrow-in-right"></i> Auswählen
                             </a>

@@ -12,12 +12,12 @@ import numpy as np
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from rostering_app.models import ScheduleEntry, Employee, ShiftType
+from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 
 # Import scheduling algorithms
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, ShiftType as CoreShiftType
+from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
 from scheduling_core.linear_programming import LinearProgrammingScheduler
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
 from scheduling_core.simulated_annealing import SimulatedAnnealingScheduler, CoolingSchedule
@@ -29,23 +29,23 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # Test configurations
         test_cases = [
-            # {
-            #     'name': 'small_company',
-            #     'display_name': 'Kleines Unternehmen (10 MA, 2 Schichten)',
-            #     'employee_fixture': 'rostering_app/fixtures/small_company/employees.json',
-            #     'shift_fixture': 'rostering_app/fixtures/small_company/shift_types.json'
-            # },
+            {
+                'name': 'small_company',
+                'display_name': 'Kleines Unternehmen (10 MA, 2 Schichten)',
+                'employee_fixture': 'rostering_app/fixtures/small_company/employees.json',
+                'shift_fixture': 'rostering_app/fixtures/small_company/shifts.json'
+            },
             {
                 'name': 'medium_company',
                 'display_name': 'Mittleres Unternehmen (30 MA, 3 Schichten)',
                 'employee_fixture': 'rostering_app/fixtures/medium_company/employees.json',
-                'shift_fixture': 'rostering_app/fixtures/medium_company/shift_types.json'
+                'shift_fixture': 'rostering_app/fixtures/medium_company/shifts.json'
             },
             # {
             #     'name': 'large_company',
             #     'display_name': 'Großes Unternehmen (100 MA, 3 Schichten)',
             #     'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
-            #     'shift_fixture': 'rostering_app/fixtures/large_company/shift_types.json'
+            #     'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
             # }
         ]
 
@@ -129,7 +129,7 @@ class Command(BaseCommand):
                 'results': results,
                 'problem_size': {
                     'employees': len(problem.employees),
-                    'shifts': len(problem.shift_types),
+                    'shifts': len(problem.shifts),
                     'days': (problem.end_date - problem.start_date).days + 1
                 }
             }
@@ -157,19 +157,25 @@ class Command(BaseCommand):
         # Clear existing data
         with transaction.atomic():
             Employee.objects.all().delete()
-            ShiftType.objects.all().delete()
+            Shift.objects.all().delete()
             
             # Load employees
             with open(employee_file, 'r', encoding='utf-8') as f:
                 employee_data = json.load(f)
                 for item in employee_data:
-                    Employee.objects.create(**item['fields'])
+                    fields = item['fields']
+                    if 'company' in fields:
+                        fields['company'] = Company.objects.get(pk=fields['company'])
+                    Employee.objects.create(**fields)
             
             # Load shift types
             with open(shift_file, 'r', encoding='utf-8') as f:
                 shift_data = json.load(f)
                 for item in shift_data:
-                    ShiftType.objects.create(**item['fields'])
+                    fields = item['fields']
+                    if 'company' in fields:
+                        fields['company'] = Company.objects.get(pk=fields['company'])
+                    Shift.objects.create(**fields)
 
     def _create_problem(self) -> SchedulingProblem:
         """Create scheduling problem from database."""
@@ -186,8 +192,8 @@ class Command(BaseCommand):
             ))
         
         shifts = []
-        for shift in ShiftType.objects.all():
-            shifts.append(CoreShiftType(
+        for shift in Shift.objects.all():
+            shifts.append(CoreShift(
                 id=shift.id,
                 name=shift.name,
                 start=shift.start,
@@ -199,7 +205,7 @@ class Command(BaseCommand):
         
         return SchedulingProblem(
             employees=employees,
-            shift_types=shifts,
+            shifts=shifts,
             start_date=date(2025, 1, 1),
             end_date=date(2025, 12, 31)
         )
@@ -211,14 +217,14 @@ class Command(BaseCommand):
                 ScheduleEntry.objects.create(
                     employee_id=entry.employee_id,
                     date=entry.date,
-                    shift_type_id=entry.shift_id,
+                    shift_id=entry.shift_id,
                     archived=False
                 )
 
     def _calculate_kpis(self) -> Dict[str, Any]:
         """Calculate comprehensive KPIs for current schedule."""
         employees = list(Employee.objects.all())
-        shift_types = list(ShiftType.objects.all())
+        shifts = list(Shift.objects.all())
         start_date = date(2025, 1, 1)
         end_date = date(2025, 12, 31)
         num_days = (end_date - start_date).days + 1
@@ -228,7 +234,7 @@ class Command(BaseCommand):
         employee_hours = []
         employee_shift_counts = []
         shift_coverage_stats = {st.name: {'filled': 0, 'required': st.min_staff * num_days} 
-                               for st in shift_types}
+                               for st in shifts}
         
         # Per-employee metrics
         employee_stats = {}
@@ -247,7 +253,7 @@ class Command(BaseCommand):
             )
             
             for entry in entries:
-                duration = entry.shift_type.get_duration()
+                duration = entry.shift.get_duration()
                 hours_worked += duration
                 shifts_worked += 1
                 
@@ -256,7 +262,7 @@ class Command(BaseCommand):
                 weekly_hours[week_key] = weekly_hours.get(week_key, 0) + duration
                 
                 # Update shift coverage
-                shift_coverage_stats[entry.shift_type.name]['filled'] += 1
+                shift_coverage_stats[entry.shift.name]['filled'] += 1
             
             # Check constraint violations
             violations = sum(1 for hours in weekly_hours.values() 

@@ -115,7 +115,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             random.shuffle(available)
             used = set()
             
-            for shift in self.problem.shift_types:
+            for shift in self.problem.shifts:
                 key = (current, shift.id)
                 candidates = [eid for eid in available if eid not in used]
                 
@@ -150,7 +150,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         current = self.problem.start_date
         while current <= self.problem.end_date:
             emp_counts = {}
-            for shift in self.problem.shift_types:
+            for shift in self.problem.shifts:
                 for emp_id in solution.assignments.get((current, shift.id), []):
                     emp_counts[emp_id] = emp_counts.get(emp_id, 0) + 1
             

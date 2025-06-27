@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name='ShiftType',
+            name='Shift',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(choices=[('EarlyShift', 'Early Shift'), ('LateShift', 'Late Shift'), ('NightShift', 'Night Shift')], max_length=20, unique=True)),
@@ -40,7 +40,7 @@ class Migration(migrations.Migration):
                 ('date', models.DateField()),
                 ('archived', models.BooleanField(default=False)),
                 ('employee', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='rostering_app.employee')),
-                ('shift_type', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='rostering_app.shifttype')),
+                ('shift_type', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='rostering_app.shift')),
             ],
         ),
     ]

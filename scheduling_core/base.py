@@ -16,7 +16,7 @@ class Employee:
 
 
 @dataclass
-class ShiftType:
+class Shift:
     """Shift type data structure."""
     id: int
     name: str
@@ -39,14 +39,14 @@ class ScheduleEntry:
 class SchedulingProblem:
     """Problem definition for scheduling."""
     employees: List[Employee]
-    shift_types: List[ShiftType]
+    shifts: List[Shift]
     start_date: date
     end_date: date
     
     def __post_init__(self):
         """Create helper structures."""
         self.emp_by_id = {e.id: e for e in self.employees}
-        self.shift_by_id = {s.id: s for s in self.shift_types}
+        self.shift_by_id = {s.id: s for s in self.shifts}
 
 
 class SchedulingAlgorithm(ABC):

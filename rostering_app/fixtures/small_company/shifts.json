@@ -1,8 +1,9 @@
 [
   {
-    "model": "rostering_app.shifttype",
+    "model": "rostering_app.shift",
     "pk": 1,
     "fields": {
+      "company": 1,
       "name": "EarlyShift",
       "start": "06:00:00",
       "end": "14:00:00",
@@ -11,9 +12,10 @@
     }
   },
   {
-    "model": "rostering_app.shifttype",
+    "model": "rostering_app.shift",
     "pk": 2,
     "fields": {
+      "company": 1,
       "name": "LateShift",
       "start": "14:00:00",
       "end": "22:00:00",
