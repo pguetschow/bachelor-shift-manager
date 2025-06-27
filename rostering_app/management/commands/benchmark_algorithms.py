@@ -36,17 +36,11 @@ class Command(BaseCommand):
             #     'shift_fixture': 'rostering_app/fixtures/small_company/shift_types.json'
             # },
             {
-                'name': 'old_company',
-                'display_name': 'Altes Unternehmen (30 MA, 3 Schichten)',
-                'employee_fixture': 'rostering_app/fixtures/old_company/employees.json',
-                'shift_fixture': 'rostering_app/fixtures/old_company/shift_types.json'
+                'name': 'medium_company',
+                'display_name': 'Mittleres Unternehmen (30 MA, 3 Schichten)',
+                'employee_fixture': 'rostering_app/fixtures/medium_company/employees.json',
+                'shift_fixture': 'rostering_app/fixtures/medium_company/shift_types.json'
             },
-            # {
-            #     'name': 'medium_company',
-            #     'display_name': 'Mittleres Unternehmen (30 MA, 3 Schichten)',
-            #     'employee_fixture': 'rostering_app/fixtures/medium_company/employees.json',
-            #     'shift_fixture': 'rostering_app/fixtures/medium_company/shift_types.json'
-            # },
             # {
             #     'name': 'large_company',
             #     'display_name': 'Großes Unternehmen (100 MA, 3 Schichten)',

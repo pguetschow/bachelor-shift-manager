@@ -6,8 +6,8 @@
       "name": "EarlyShift",
       "start": "06:00:00",
       "end": "14:00:00",
-      "min_staff": 5,
-      "max_staff": 8
+      "min_staff": 2,
+      "max_staff": 4
     }
   },
   {
@@ -17,8 +17,8 @@
       "name": "LateShift",
       "start": "14:00:00",
       "end": "22:00:00",
-      "min_staff": 6,
-      "max_staff": 9
+      "min_staff": 3,
+      "max_staff": 5
     }
   },
   {
@@ -28,8 +28,8 @@
       "name": "NightShift",
       "start": "22:00:00",
       "end": "06:00:00",
-      "min_staff": 3,
-      "max_staff": 5
+      "min_staff": 2,
+      "max_staff": 4
     }
   }
 ]
