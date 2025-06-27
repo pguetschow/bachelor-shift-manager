@@ -52,10 +52,10 @@ class Command(BaseCommand):
         # Algorithm configurations
         algorithms = [
             LinearProgrammingScheduler(),
-            # GeneticAlgorithmScheduler(population_size=30, generations=50),
-            # SimulatedAnnealingScheduler(CoolingSchedule.EXPONENTIAL),
-            # SimulatedAnnealingScheduler(CoolingSchedule.LINEAR),
-            # SimulatedAnnealingScheduler(CoolingSchedule.LOGARITHMIC)
+            GeneticAlgorithmScheduler(population_size=30, generations=50),
+            SimulatedAnnealingScheduler(CoolingSchedule.EXPONENTIAL),
+            SimulatedAnnealingScheduler(CoolingSchedule.LINEAR),
+            SimulatedAnnealingScheduler(CoolingSchedule.LOGARITHMIC)
         ]
 
         # Create export directory
