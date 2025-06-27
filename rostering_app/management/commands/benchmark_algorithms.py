@@ -3,6 +3,7 @@ import json
 import os
 import time
 import statistics
+import traceback
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Any
 
@@ -28,33 +29,39 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # Test configurations
         test_cases = [
+            # {
+            #     'name': 'small_company',
+            #     'display_name': 'Kleines Unternehmen (10 MA, 2 Schichten)',
+            #     'employee_fixture': 'rostering_app/fixtures/small_company/employees.json',
+            #     'shift_fixture': 'rostering_app/fixtures/small_company/shift_types.json'
+            # },
             {
-                'name': 'small_company',
-                'display_name': 'Kleines Unternehmen (10 MA, 2 Schichten)',
-                'employee_fixture': 'rostering_app/fixtures/small_company/employees.json',
-                'shift_fixture': 'rostering_app/fixtures/small_company/shift_types.json'
+                'name': 'old_company',
+                'display_name': 'Altes Unternehmen (30 MA, 3 Schichten)',
+                'employee_fixture': 'rostering_app/fixtures/old_company/employees.json',
+                'shift_fixture': 'rostering_app/fixtures/old_company/shift_types.json'
             },
-            {
-                'name': 'medium_company',
-                'display_name': 'Mittleres Unternehmen (30 MA, 3 Schichten)',
-                'employee_fixture': 'rostering_app/fixtures/medium_company/employees.json',
-                'shift_fixture': 'rostering_app/fixtures/medium_company/shift_types.json'
-            },
-            {
-                'name': 'large_company',
-                'display_name': 'Großes Unternehmen (100 MA, 3 Schichten)',
-                'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
-                'shift_fixture': 'rostering_app/fixtures/large_company/shift_types.json'
-            }
+            # {
+            #     'name': 'medium_company',
+            #     'display_name': 'Mittleres Unternehmen (30 MA, 3 Schichten)',
+            #     'employee_fixture': 'rostering_app/fixtures/medium_company/employees.json',
+            #     'shift_fixture': 'rostering_app/fixtures/medium_company/shift_types.json'
+            # },
+            # {
+            #     'name': 'large_company',
+            #     'display_name': 'Großes Unternehmen (100 MA, 3 Schichten)',
+            #     'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
+            #     'shift_fixture': 'rostering_app/fixtures/large_company/shift_types.json'
+            # }
         ]
 
         # Algorithm configurations
         algorithms = [
             LinearProgrammingScheduler(),
-            GeneticAlgorithmScheduler(population_size=30, generations=50),
-            SimulatedAnnealingScheduler(CoolingSchedule.EXPONENTIAL),
-            SimulatedAnnealingScheduler(CoolingSchedule.LINEAR),
-            SimulatedAnnealingScheduler(CoolingSchedule.LOGARITHMIC)
+            # GeneticAlgorithmScheduler(population_size=30, generations=50),
+            # SimulatedAnnealingScheduler(CoolingSchedule.EXPONENTIAL),
+            # SimulatedAnnealingScheduler(CoolingSchedule.LINEAR),
+            # SimulatedAnnealingScheduler(CoolingSchedule.LOGARITHMIC)
         ]
 
         # Create export directory
@@ -118,6 +125,9 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.ERROR(
                         f"✗ {algorithm.name} failed: {str(e)}"
                     ))
+                    # Print the full traceback to the console
+                    traceback.print_exc()
+
             
             # Store results
             all_results[test_case['name']] = {
@@ -303,13 +313,15 @@ class Command(BaseCommand):
 
     def _calculate_gini(self, values: List[float]) -> float:
         """Calculate Gini coefficient."""
-        if not values or len(values) == 1:
-            return 0
-        
-        sorted_values = sorted(values)
         n = len(values)
+        total = sum(values)
+        if n == 0 or total == 0:
+            return 0.0
+        if n == 1:
+            return 0.0
+        sorted_values = sorted(values)
         cumsum = sum((i + 1) * val for i, val in enumerate(sorted_values))
-        return (2 * cumsum) / (n * sum(values)) - (n + 1) / n
+        return (2 * cumsum) / (n * total) - (n + 1) / n
 
     def _save_test_results(self, test_name: str, results: Dict, export_dir: str):
         """Save results for a specific test case."""
