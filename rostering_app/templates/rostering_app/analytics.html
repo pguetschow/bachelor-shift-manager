@@ -119,7 +119,7 @@
                             {% for shift_name, data in stats.coverage_by_shift.items %}
                             <tr>
                                 <td>
-                                    <span class="shift-badge shift-{{ shift_name|lower|slice:":5" }} small">
+                                    <span class="shift-badge shift-{{ shift_name|lower|cut:'shift' }} small">
                                         {{ shift_name }}
                                     </span>
                                 </td>

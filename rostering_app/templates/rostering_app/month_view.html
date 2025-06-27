@@ -35,7 +35,7 @@
                     <span class="fw-bold">Legende:</span>
                     {% for shift in shift_types %}
                     <span>
-                        <span class="shift-badge shift-{{ shift.name|lower|slice:":5" }}">
+                        <span class="shift-badge shift-{{ shift.name|lower|cut:'shift' }}">
                             {{ shift.name }}
                         </span>
                         <small class="text-muted">({{ shift.start|time:"H:i" }}-{{ shift.end|time:"H:i" }})</small>
@@ -85,7 +85,7 @@
                                 <div class="shift-info mt-2">
                                     {% for shift_name, shift_data in day.shifts.items %}
                                     <div class="mb-1">
-                                        <span class="shift-badge shift-{{ shift_name|lower|slice:":5" }} small">
+                                        <span class="shift-badge shift-{{ shift_name|lower|cut:'shift' }} small">
                                             {{ shift_name|slice:":1" }}
                                         </span>
                                         <span class="small {% if shift_data.status == 'understaffed' %}text-danger{% elif shift_data.status == 'overstaffed' %}text-warning{% else %}text-success{% endif %}">

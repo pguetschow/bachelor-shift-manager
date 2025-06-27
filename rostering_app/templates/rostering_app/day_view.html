@@ -33,7 +33,7 @@
     {% for shift_data in shifts_data %}
     <div class="col-md-4 mb-4">
         <div class="card h-100">
-            <div class="card-header shift-{{ shift_data.shift.name|lower|slice:":5" }} text-white">
+            <div class="card-header shift-{{ shift_data.shift.name|lower|cut:'shift' }} text-white">
                 <h5 class="mb-0">
                     <i class="bi bi-clock"></i> {{ shift_data.shift.name }}
                     <span class="float-end">{{ shift_data.shift.start|time:"H:i" }} - {{ shift_data.shift.end|time:"H:i" }}</span>

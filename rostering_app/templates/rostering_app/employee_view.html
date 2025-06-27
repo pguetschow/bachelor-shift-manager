@@ -40,7 +40,7 @@
                     <dt class="col-sm-6">Präferierte Schichten:</dt>
                     <dd class="col-sm-6">
                         {% for shift in employee.preferred_shifts %}
-                        <span class="shift-badge shift-{{ shift|lower|slice:":5" }} small">{{ shift }}</span>
+                        <span class="shift-badge shift-{{ shift|lower|cut:'shift' }} small">{{ shift }}</span>
                         {% empty %}
                         <span class="text-muted">Keine Präferenz</span>
                         {% endfor %}
@@ -107,7 +107,7 @@
                                 </div>
                                 {% if day.entry %}
                                 <div class="mt-1">
-                                    <span class="shift-badge shift-{{ day.entry.shift_type.name|lower|slice:":5" }} small">
+                                    <span class="shift-badge shift-{{ day.entry.shift_type.name|lower|cut:'shift' }} small">
                                         {{ day.entry.shift_type.name }}
                                     </span>
                                     <small class="d-block text-muted">
