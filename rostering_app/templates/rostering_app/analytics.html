@@ -64,7 +64,8 @@
                     {% for emp in stats.employee_distribution %}
                         {% if forloop.first %}{{ emp.hours|floatformat:1 }}{% endif %}
                     {% endfor %}
-                    </h2>
+                    {% endwith %}
+                </h2>
                 <small class="text-muted">Top-Performer</small>
             </div>
         </div>

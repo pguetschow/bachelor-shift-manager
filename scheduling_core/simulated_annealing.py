@@ -95,12 +95,13 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                                            self.problem, self.weeks)
                 ]
                 
-                if available:
+                if len(available) >= shift.min_staff:
                     count = random.randint(
                         shift.min_staff,
                         min(shift.max_staff, len(available))
                     )
                     solution.assignments[key] = random.sample(available, count)
+                # else: leave unassigned (empty)
             
             current += timedelta(days=1)
         

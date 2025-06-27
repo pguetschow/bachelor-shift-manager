@@ -5,7 +5,7 @@ from typing import List
 
 from pulp import LpProblem, LpVariable, lpSum, LpMinimize, LpBinary, PULP_CBC_CMD
 
-from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry
+from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, ShiftType
 from .utils import get_weeks
 
 
@@ -61,7 +61,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         
         target_total_hours = min(total_possible_hours, total_capacity_hours)
         avg_hours_per_emp = target_total_hours / len(problem.employees) if problem.employees else 0
-        
+
         # Constraints
         
         # 1. Absences
