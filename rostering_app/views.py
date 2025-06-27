@@ -41,7 +41,7 @@ def schedule_dashboard(request, company_id):
     
     # Get schedule entries for the month
     entries = ScheduleEntry.objects.filter(
-        employee__company=company,
+        company=company,
         date__gte=first_day,
         date__lte=last_day,
         archived=False
@@ -96,7 +96,7 @@ def month_view(request, company_id):
                 week_data.append(None)
             else:
                 date = datetime.date(year, month, day)
-                entries = ScheduleEntry.objects.filter(date=date, archived=False, employee__company=company)
+                entries = ScheduleEntry.objects.filter(date=date, archived=False, company=company)
 
                 shifts_data = {}
                 for shift in Shift.objects.filter(company=company):
@@ -173,7 +173,7 @@ def day_view(request, company_id, date):
             date=date_obj,
             shift=shift,
             archived=False,
-            employee__company=company
+            company=company
         ).select_related('employee')
         
         shifts_data.append({
@@ -193,7 +193,7 @@ def day_view(request, company_id, date):
         assigned = ScheduleEntry.objects.filter(
             date=date_obj,
             archived=False,
-            employee__company=company
+            company=company
         ).values_list('employee_id', flat=True)
         
         available = []
@@ -279,7 +279,7 @@ def analytics_view(request, company_id):
         date__gte=start_date,
         date__lte=end_date,
         archived=False,
-        employee__company=company
+        company=company
     )
     
     # Calculate various statistics
@@ -345,7 +345,7 @@ def api_schedule_data(request, company_id, year, month):
         date__gte=first_day,
         date__lte=last_day,
         archived=False,
-        employee__company=company
+        company=company
     ).select_related('employee', 'shift')
     
     # Format data for JSON

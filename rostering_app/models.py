@@ -51,7 +51,8 @@ class ScheduleEntry(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
     date = models.DateField()
     shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='schedule_entries', null=True, blank=True)
     archived = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.date} - {self.employee.name} - {self.shift.name}"
+        return f"{self.date} - {self.employee.name} - {self.shift.name} - {self.company.name if self.company else 'No Company'}"

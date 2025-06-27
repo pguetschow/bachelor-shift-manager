@@ -74,6 +74,9 @@ class Command(BaseCommand):
             # Load fixtures
             self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
             
+            # Get the company for this test case (all employees belong to the same company)
+            company = Employee.objects.first().company if Employee.objects.exists() else None
+            
             # Create problem instance
             problem = self._create_problem()
             
@@ -82,8 +85,9 @@ class Command(BaseCommand):
             for algorithm in algorithms:
                 self.stdout.write(f"\nTesting {algorithm.name}...")
                 
-                # Clear previous schedule
-                ScheduleEntry.objects.all().delete()
+                # Clear previous schedule for this company only
+                if company:
+                    ScheduleEntry.objects.filter(company=company).delete()
                 
                 # Time the algorithm
                 start_time = time.time()
@@ -214,10 +218,14 @@ class Command(BaseCommand):
         """Save schedule entries to database."""
         with transaction.atomic():
             for entry in entries:
+                # Get company from employee or shift (they should match)
+                employee = Employee.objects.get(id=entry.employee_id)
+                company = employee.company
                 ScheduleEntry.objects.create(
                     employee_id=entry.employee_id,
                     date=entry.date,
                     shift_id=entry.shift_id,
+                    company=company,
                     archived=False
                 )
 
