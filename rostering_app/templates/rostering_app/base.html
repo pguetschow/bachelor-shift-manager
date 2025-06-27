@@ -177,6 +177,15 @@
                 
                 <span class="navbar-text">
                     <i class="bi bi-building"></i> {{ company.name }}
+                    {% if available_algorithms %}
+                    <form method="get" action="" class="d-inline-block ms-3" id="algorithm-form">
+                        <select name="algorithm" class="form-select form-select-sm d-inline-block w-auto" onchange="document.getElementById('algorithm-form').submit();">
+                            {% for alg in available_algorithms %}
+                                <option value="{{ alg }}" {% if alg == selected_algorithm %}selected{% endif %}>{{ alg }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                    {% endif %}
                 </span>
             </div>
             {% endif %}

@@ -52,6 +52,7 @@ class ScheduleEntry(models.Model):
     date = models.DateField()
     shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='schedule_entries', null=True, blank=True)
+    algorithm = models.CharField(max_length=64, blank=True, default='')
     archived = models.BooleanField(default=False)
 
     def __str__(self):

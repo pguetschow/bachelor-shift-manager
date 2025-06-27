@@ -65,6 +65,10 @@ class Command(BaseCommand):
 
         # Run benchmarks for each test case
         all_results = {}
+
+        # Delete old benchmark results
+        ScheduleEntry.objects.filter().delete()
+        self.stdout.write("Clear DB")
         
         for test_case in test_cases:
             self.stdout.write(f"\n{'='*60}")
@@ -72,10 +76,7 @@ class Command(BaseCommand):
             self.stdout.write(f"{'='*60}\n")
             
             # Load fixtures
-            self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
-            
-            # Get the company for this test case (all employees belong to the same company)
-            company = Employee.objects.first().company if Employee.objects.exists() else None
+            # self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
             
             # Create problem instance
             problem = self._create_problem()
@@ -84,19 +85,15 @@ class Command(BaseCommand):
             results = {}
             for algorithm in algorithms:
                 self.stdout.write(f"\nTesting {algorithm.name}...")
-                
-                # Clear previous schedule for this company only
-                if company:
-                    ScheduleEntry.objects.filter(company=company).delete()
-                
+
                 # Time the algorithm
                 start_time = time.time()
                 try:
                     entries = algorithm.solve(problem)
                     runtime = time.time() - start_time
                     
-                    # Save to database
-                    self._save_entries(entries)
+                    # Save to database, track algorithm
+                    self._save_entries(entries, algorithm.name)
                     
                     # Calculate KPIs
                     kpis = self._calculate_kpis()
@@ -214,11 +211,10 @@ class Command(BaseCommand):
             end_date=date(2025, 12, 31)
         )
 
-    def _save_entries(self, entries: List):
-        """Save schedule entries to database."""
+    def _save_entries(self, entries: List, algorithm_name: str = ''):
+        """Save schedule entries to database, tracking the algorithm used."""
         with transaction.atomic():
             for entry in entries:
-                # Get company from employee or shift (they should match)
                 employee = Employee.objects.get(id=entry.employee_id)
                 company = employee.company
                 ScheduleEntry.objects.create(
@@ -226,6 +222,7 @@ class Command(BaseCommand):
                     date=entry.date,
                     shift_id=entry.shift_id,
                     company=company,
+                    algorithm=algorithm_name,
                     archived=False
                 )
 

@@ -39,13 +39,23 @@ def schedule_dashboard(request, company_id):
     total_employees = Employee.objects.filter(company=company).count()
     total_shifts = Shift.objects.filter(company=company).count()
     
+    # Algorithm filter
+    available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
+    available_algorithms = sorted([alg for alg in available_algorithms if alg])
+    selected_algorithm = request.GET.get('algorithm', '')
+    if not selected_algorithm and 'Linear Programming (ILP)' in available_algorithms:
+        selected_algorithm = 'Linear Programming (ILP)'
+
     # Get schedule entries for the month
-    entries = ScheduleEntry.objects.filter(
-        company=company,
-        date__gte=first_day,
-        date__lte=last_day,
-        archived=False
-    )
+    entry_filter = {
+        'company': company,
+        'date__gte': first_day,
+        'date__lte': last_day,
+        'archived': False
+    }
+    if selected_algorithm:
+        entry_filter['algorithm'] = selected_algorithm
+    entries = ScheduleEntry.objects.filter(**entry_filter)
     
     # Calculate coverage statistics
     coverage_stats = calculate_coverage_stats(entries, first_day, last_day, company)
@@ -67,6 +77,8 @@ def schedule_dashboard(request, company_id):
         'top_employees': top_employees,
         'prev_month': (first_day - datetime.timedelta(days=1)).strftime('%Y-%m'),
         'next_month': (last_day + datetime.timedelta(days=1)).strftime('%Y-%m'),
+        'available_algorithms': available_algorithms,
+        'selected_algorithm': selected_algorithm,
     }
     
     return render(request, 'rostering_app/dashboard.html', context)
@@ -77,11 +89,16 @@ def month_view(request, company_id):
     company = get_object_or_404(Company, pk=company_id)
     load_company_fixtures(company)
 
-    # Get date parameters
     year = int(request.GET.get('year', datetime.date.today().year))
     month = int(request.GET.get('month', datetime.date.today().month))
 
-    # Build calendar data
+    # Algorithm filter
+    available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
+    available_algorithms = sorted([alg for alg in available_algorithms if alg])
+    selected_algorithm = request.GET.get('algorithm', '')
+    if not selected_algorithm and 'Linear Programming (ILP)' in available_algorithms:
+        selected_algorithm = 'Linear Programming (ILP)'
+
     cal = calendar.monthcalendar(year, month)
     month_data = []
     week_count = 0
@@ -96,7 +113,10 @@ def month_view(request, company_id):
                 week_data.append(None)
             else:
                 date = datetime.date(year, month, day)
-                entries = ScheduleEntry.objects.filter(date=date, archived=False, company=company)
+                entry_filter = {'date': date, 'archived': False, 'company': company}
+                if selected_algorithm:
+                    entry_filter['algorithm'] = selected_algorithm
+                entries = ScheduleEntry.objects.filter(**entry_filter)
 
                 shifts_data = {}
                 for shift in Shift.objects.filter(company=company):
@@ -120,7 +140,6 @@ def month_view(request, company_id):
                 })
         month_data.append(week_data)
 
-    # Zusatzberechnungen
     shifts = Shift.objects.filter(company=company)
     days_per_week = 7
     total_workdays = week_count * days_per_week - 2
@@ -128,7 +147,6 @@ def month_view(request, company_id):
     shifts_per_day = shifts.count()
     total_shifts = week_count * days_per_week * shifts_per_day
 
-    # Navigation
     first_day = datetime.date(year, month, 1)
     last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
     prev_month = first_day - datetime.timedelta(days=1)
@@ -146,13 +164,13 @@ def month_view(request, company_id):
         'prev_month': prev_month.month,
         'next_year': next_month.year,
         'next_month': next_month.month,
-        # Neue Werte für die Übersicht
         'total_workdays': total_workdays,
         'total_weekends': total_weekends,
         'shifts_per_day': shifts_per_day,
         'total_shifts': total_shifts,
+        'available_algorithms': available_algorithms,
+        'selected_algorithm': selected_algorithm,
     }
-
     return render(request, 'rostering_app/month_view.html', context)
 
 
@@ -166,15 +184,20 @@ def day_view(request, company_id, date):
     except ValueError:
         raise Http404("Invalid date format")
     
+    # Algorithm filter
+    available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
+    available_algorithms = sorted([alg for alg in available_algorithms if alg])
+    selected_algorithm = request.GET.get('algorithm', '')
+    if not selected_algorithm and 'Linear Programming (ILP)' in available_algorithms:
+        selected_algorithm = 'Linear Programming (ILP)'
+
     # Get all shifts for this day
     shifts_data = []
     for shift in Shift.objects.filter(company=company):
-        entries = ScheduleEntry.objects.filter(
-            date=date_obj,
-            shift=shift,
-            archived=False,
-            company=company
-        ).select_related('employee')
+        entry_filter = {'date': date_obj, 'shift': shift, 'archived': False, 'company': company}
+        if selected_algorithm:
+            entry_filter['algorithm'] = selected_algorithm
+        entries = ScheduleEntry.objects.filter(**entry_filter).select_related('employee')
         
         shifts_data.append({
             'shift': shift,
@@ -190,11 +213,10 @@ def day_view(request, company_id, date):
     available_by_shift = {}
     
     for shift in Shift.objects.filter(company=company):
-        assigned = ScheduleEntry.objects.filter(
-            date=date_obj,
-            archived=False,
-            company=company
-        ).values_list('employee_id', flat=True)
+        entry_filter = {'date': date_obj, 'archived': False, 'company': company}
+        if selected_algorithm:
+            entry_filter['algorithm'] = selected_algorithm
+        assigned = ScheduleEntry.objects.filter(**entry_filter).values_list('employee_id', flat=True)
         
         available = []
         for emp in all_employees:
@@ -211,6 +233,8 @@ def day_view(request, company_id, date):
         'available_by_shift': available_by_shift,
         'prev_date': (date_obj - datetime.timedelta(days=1)).strftime('%Y-%m-%d'),
         'next_date': (date_obj + datetime.timedelta(days=1)).strftime('%Y-%m-%d'),
+        'available_algorithms': available_algorithms,
+        'selected_algorithm': selected_algorithm,
     }
     
     return render(request, 'rostering_app/day_view.html', context)
@@ -274,13 +298,23 @@ def analytics_view(request, company_id):
     end_date = datetime.date.today()
     start_date = end_date - datetime.timedelta(days=30)
     
+    # Algorithm filter
+    available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
+    available_algorithms = sorted([alg for alg in available_algorithms if alg])
+    selected_algorithm = request.GET.get('algorithm', '')
+    if not selected_algorithm and 'Linear Programming (ILP)' in available_algorithms:
+        selected_algorithm = 'Linear Programming (ILP)'
+
     # Get all entries in range
-    entries = ScheduleEntry.objects.filter(
-        date__gte=start_date,
-        date__lte=end_date,
-        archived=False,
-        company=company
-    )
+    entry_filter = {
+        'date__gte': start_date,
+        'date__lte': end_date,
+        'archived': False,
+        'company': company
+    }
+    if selected_algorithm:
+        entry_filter['algorithm'] = selected_algorithm
+    entries = ScheduleEntry.objects.filter(**entry_filter)
     
     # Calculate various statistics
     stats = {
@@ -325,6 +359,8 @@ def analytics_view(request, company_id):
         'stats': stats,
         'start_date': start_date,
         'end_date': end_date,
+        'available_algorithms': available_algorithms,
+        'selected_algorithm': selected_algorithm,
     }
     
     return render(request, 'rostering_app/analytics.html', context)
