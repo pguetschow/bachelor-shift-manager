@@ -360,6 +360,7 @@ class Command(BaseCommand):
         bars1 = ax1.bar(algorithms, ginis)
         ax1.set_title('Gini-Koeffizient (niedriger = fairer)')
         ax1.set_ylabel('Gini-Koeffizient')
+        ax1.set_xticks(range(len(algorithms)))
         ax1.set_xticklabels(algorithms, rotation=45, ha='right')
         
         for bar, val in zip(bars1, ginis):
@@ -371,6 +372,7 @@ class Command(BaseCommand):
         bars2 = ax2.bar(algorithms, stdevs)
         ax2.set_title('Standardabweichung Arbeitsstunden')
         ax2.set_ylabel('Stunden')
+        ax2.set_xticks(range(len(algorithms)))
         ax2.set_xticklabels(algorithms, rotation=45, ha='right')
         
         for bar, val in zip(bars2, stdevs):
@@ -425,6 +427,7 @@ class Command(BaseCommand):
             ax.set_title(f"{all_results[test_case]['display_name']}")
             ax.set_xlabel('Algorithmus')
             ax.set_ylabel('Laufzeit (s)')
+            ax.set_xticks(range(len(alg_names)))
             ax.set_xticklabels(alg_names, rotation=45, ha='right')
             
             # Add values

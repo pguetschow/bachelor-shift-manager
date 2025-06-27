@@ -141,46 +141,15 @@
 <div class="row mt-4">
     <div class="col-12 text-center">
         <div class="btn-group">
-            <a href="?year={{ year|add:"-1" if month == 1 else year }}&month={{ 12 if month == 1 else month|add:"-1" }}" 
+            <a href="?year={% if month == 1 %}{{ year|add:"-1" }}{% else %}{{ year }}{% endif %}&month={% if month == 1 %}12{% else %}{{ month|add:"-1" }}{% endif %}" 
                class="btn btn-outline-secondary">
                 <i class="bi bi-chevron-left"></i> Vorheriger Monat
             </a>
-            <a href="?year={{ year|add:"1" if month == 12 else year }}&month={{ 1 if month == 12 else month|add:"1" }}" 
+            <a href="?year={% if month == 12 %}{{ year|add:"1" }}{% else %}{{ year }}{% endif %}&month={% if month == 12 %}1{% else %}{{ month|add:"1" }}{% endif %}" 
                class="btn btn-outline-secondary">
                 Nächster Monat <i class="bi bi-chevron-right"></i>
             </a>
         </div>
     </div>
 </div>
-{% endblock %}check"></i> {{ month_name }} Statistik</h5>
-            </div>
-            <div class="card-body">
-                <dl class="row">
-                    <dt class="col-sm-6">Gesamtstunden:</dt>
-                    <dd class="col-sm-6">
-                        <strong>{{ total_hours|floatformat:1 }}h</strong>
-                        <div class="progress" style="height: 10px;">
-                            <div class="progress-bar" style="width: {% widthratio total_hours max_hours_per_week|multiply:4 100 %}%"></div>
-                        </div>
-                    </dd>
-                    
-                    <dt class="col-sm-6">Schichten:</dt>
-                    <dd class="col-sm-6">
-                        {% for shift_name, count in shifts_by_type.items %}
-                        <div>{{ shift_name }}: {{ count }}x</div>
-                        {% endfor %}
-                    </dd>
-                    
-                    <dt class="col-sm-6">Auslastung:</dt>
-                    <dd class="col-sm-6">
-                        {% widthratio total_hours max_hours_per_week|multiply:4 100 %}%
-                    </dd>
-                </dl>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-calendar-
+{% endblock %}
