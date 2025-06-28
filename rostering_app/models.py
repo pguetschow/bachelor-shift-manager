@@ -26,6 +26,7 @@ class Employee(models.Model):
 class Shift(models.Model):
     SHIFT_CHOICES = [
         ('EarlyShift', 'Early Shift'),
+        ('MorningShift', 'Morning Shift'),
         ('LateShift', 'Late Shift'),
         ('NightShift', 'Night Shift'),
     ]

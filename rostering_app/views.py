@@ -60,7 +60,7 @@ def schedule_dashboard(request, company_id):
     coverage_stats = calculate_coverage_stats(entries, first_day, last_day, company)
     
     # Get employees with most/least hours
-    employee_hours = calculate_employee_hours(entries)
+    employee_hours = calculate_employee_hours_with_month_boundaries(entries, first_day, last_day)
     top_employees = sorted(employee_hours.items(), key=lambda x: x[1], reverse=True)[:5]
     
     context = {
@@ -270,7 +270,9 @@ def employee_view(request, company_id, employee_id):
     entries = ScheduleEntry.objects.filter(**entry_filter).order_by('date')
 
     # Calculate statistics
-    total_hours = sum(entry.shift.get_duration() for entry in entries)
+    total_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, first_day, last_day) for entry in entries)
+    total_shifts = entries.count()
+    average_hours_per_shift = total_hours / total_shifts if total_shifts > 0 else 0
     shifts_by_type = {}
     for shift in Shift.objects.filter(company=company):
         count = entries.filter(shift=shift).count()
@@ -287,6 +289,8 @@ def employee_view(request, company_id, employee_id):
         'month': month,
         'month_name': calendar.month_name[month],
         'total_hours': total_hours,
+        'total_shifts': total_shifts,
+        'average_hours_per_shift': average_hours_per_shift,
         'shifts_by_type': shifts_by_type,
         'calendar_data': cal_data,
         'max_hours_per_week': employee.max_hours_per_week,
@@ -346,7 +350,7 @@ def analytics_view(request, company_id):
     employee_stats = []
     for employee in Employee.objects.filter(company=company):
         emp_entries = entries.filter(employee=employee)
-        hours = sum(e.shift.get_duration() for e in emp_entries)
+        hours = sum(calculate_shift_hours_in_month(e.shift, e.date, first_day, last_day) for e in emp_entries)
         employee_stats.append({
             'name': employee.name,
             'shifts': emp_entries.count(),
@@ -448,14 +452,55 @@ def calculate_coverage_stats(entries, start_date, end_date, company):
     return stats
 
 
-def calculate_employee_hours(entries):
-    """Calculate total hours per employee."""
+def calculate_employee_hours_with_month_boundaries(entries, month_start_date, month_end_date):
+    """Calculate total hours per employee, properly handling night shifts that overlap months."""
     hours = {}
+    
     for entry in entries:
         emp_name = entry.employee.name
-        duration = entry.shift.get_duration()
-        hours[emp_name] = hours.get(emp_name, 0) + duration
+        shift = entry.shift
+        shift_date = entry.date
+        
+        # Calculate the actual hours for this shift within the specified month
+        actual_hours = calculate_shift_hours_in_month(shift, shift_date, month_start_date, month_end_date)
+        
+        hours[emp_name] = hours.get(emp_name, 0) + actual_hours
+    
     return hours
+
+
+def calculate_shift_hours_in_date_range(shift, shift_date, start_date, end_date):
+    """Calculate how many hours of a shift fall within the specified date range."""
+    from datetime import datetime, timedelta
+    
+    # Create datetime objects for shift start and end
+    shift_start_dt = datetime.combine(shift_date, shift.start)
+    shift_end_dt = datetime.combine(shift_date, shift.end)
+    
+    # If it's a night shift (end time < start time), the end is on the next day
+    if shift.end < shift.start:
+        shift_end_dt += timedelta(days=1)
+    
+    # Create datetime objects for date range boundaries
+    range_start_dt = datetime.combine(start_date, datetime.min.time())
+    range_end_dt = datetime.combine(end_date, datetime.max.time())
+    
+    # Calculate the overlap between the shift and the date range
+    effective_start = max(shift_start_dt, range_start_dt)
+    effective_end = min(shift_end_dt, range_end_dt)
+    
+    # If there's no overlap, return 0 hours
+    if effective_end <= effective_start:
+        return 0
+    
+    # Calculate the hours within the date range
+    duration_seconds = (effective_end - effective_start).total_seconds()
+    return duration_seconds / 3600
+
+
+def calculate_shift_hours_in_month(shift, shift_date, month_start_date, month_end_date):
+    """Calculate how many hours of a shift fall within the specified month."""
+    return calculate_shift_hours_in_date_range(shift, shift_date, month_start_date, month_end_date)
 
 
 def build_employee_calendar(year, month, entries, absences):

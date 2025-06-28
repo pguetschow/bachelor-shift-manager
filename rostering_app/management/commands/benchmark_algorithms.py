@@ -59,10 +59,10 @@ class Command(BaseCommand):
         # Algorithm configurations
         algorithms = [
             LinearProgrammingScheduler(),
-            GeneticAlgorithmScheduler(population_size=30, generations=50),
-            SimulatedAnnealingScheduler(CoolingSchedule.EXPONENTIAL),
-            SimulatedAnnealingScheduler(CoolingSchedule.LINEAR),
-            SimulatedAnnealingScheduler(CoolingSchedule.LOGARITHMIC)
+            # GeneticAlgorithmScheduler(population_size=50, generations=50),
+            # SimulatedAnnealingScheduler(CoolingSchedule.EXPONENTIAL),
+            # SimulatedAnnealingScheduler(CoolingSchedule.LINEAR),
+            # SimulatedAnnealingScheduler(CoolingSchedule.LOGARITHMIC)
         ]
 
         # Create export directory
@@ -313,7 +313,9 @@ class Command(BaseCommand):
             )
             
             for entry in entries:
-                duration = entry.shift.get_duration()
+                # Use date-range-aware calculation for accurate hours
+                from rostering_app.views import calculate_shift_hours_in_date_range
+                duration = calculate_shift_hours_in_date_range(entry.shift, entry.date, start_date, end_date)
                 hours_worked += duration
                 shifts_worked += 1
                 
@@ -325,6 +327,7 @@ class Command(BaseCommand):
                 shift_coverage_stats[entry.shift.name]['filled'] += 1
             
             # Check constraint violations
+            # todo: improve violation checker
             violations = sum(1 for hours in weekly_hours.values() 
                            if hours > emp.max_hours_per_week)
             constraint_violations += violations
@@ -339,6 +342,7 @@ class Command(BaseCommand):
                 'utilization': utilization,
                 'violations': violations
             }
+            # todo use employee stats
             
             employee_hours.append(hours_worked)
             employee_shift_counts.append(shifts_worked)
