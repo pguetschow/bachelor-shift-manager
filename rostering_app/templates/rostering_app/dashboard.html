@@ -120,7 +120,7 @@
                             <tr>
                                 <td>
                                     <span class="shift-badge shift-{{ stat.shift.name|lower|cut:'shift' }}">
-                                        {{ stat.shift.name }}
+                                        {{ stat.shift.get_name_display }}
                                     </span>
                                 </td>
                                 <td>{{ stat.shift.start|time:"H:i" }} - {{ stat.shift.end|time:"H:i" }}</td>

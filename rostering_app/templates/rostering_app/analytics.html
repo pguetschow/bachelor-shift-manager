@@ -1,4 +1,5 @@
 {% extends 'rostering_app/base.html' %}
+{% load custom_filters %}
 
 {% block title %}Analysen{% endblock %}
 
@@ -129,7 +130,7 @@
                             <tr>
                                 <td>
                                     <span class="shift-badge shift-{{ shift_name|lower|cut:'shift' }} small">
-                                        {{ shift_name }}
+                                        {{ shift_name|shift_display_name }}
                                     </span>
                                 </td>
                                 <td>{{ data.average }}</td>
@@ -198,7 +199,7 @@
 // Coverage Chart
 const coverageCtx = document.getElementById('coverageChart').getContext('2d');
 const coverageData = {
-    labels: [{% for shift_name, data in stats.coverage_by_shift.items %}'{{ shift_name }}'{% if not forloop.last %},{% endif %}{% endfor %}],
+    labels: [{% for shift_name, data in stats.coverage_by_shift.items %}'{{ shift_name|shift_display_name }}'{% if not forloop.last %},{% endif %}{% endfor %}],
     datasets: [{
         label: 'Durchschnittliche Besetzung',
         data: [{% for shift_name, data in stats.coverage_by_shift.items %}{{ data.average }}{% if not forloop.last %},{% endif %}{% endfor %}],

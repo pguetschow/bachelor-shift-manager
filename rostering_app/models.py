@@ -26,10 +26,10 @@ class Employee(models.Model):
 
 class Shift(models.Model):
     SHIFT_CHOICES = [
-        ('EarlyShift', 'Early Shift'),
-        ('MorningShift', 'Morning Shift'),
-        ('LateShift', 'Late Shift'),
-        ('NightShift', 'Night Shift'),
+        ('EarlyShift', 'Frühschicht'),
+        ('MorningShift', 'Morgenschicht'),
+        ('LateShift', 'Spätschicht'),
+        ('NightShift', 'Nachtschicht'),
     ]
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='shifts')
     name = models.CharField(max_length=20, choices=SHIFT_CHOICES)

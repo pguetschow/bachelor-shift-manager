@@ -5,6 +5,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
 from django.db.models import Count, Q
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
+from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range
 
 
 def load_company_fixtures(company):
@@ -16,6 +17,17 @@ def load_company_fixtures(company):
 def company_selection(request):
     """Landing page for selecting company size."""
     companies = Company.objects.all()
+    
+    # Calculate dynamic statistics for each company
+    for company in companies:
+        employee_count = Employee.objects.filter(company=company).count()
+        shift_count = Shift.objects.filter(company=company).count()
+        
+        # Update the description dynamically
+        company.dynamic_description = f"{employee_count} Mitarbeiter, {shift_count} Schichten"
+        company.employee_count = employee_count
+        company.shift_count = shift_count
+    
     return render(request, 'rostering_app/company_selection.html', {
         'companies': companies
     })
@@ -131,11 +143,19 @@ def month_view(request, company_id):
                         )
                     }
 
+                # Check if this is a non-working day
+                is_holiday_day = is_holiday(date)
+                is_sunday_day = is_sunday(date)
+                is_non_working = is_non_working_day(date, company)
+
                 week_data.append({
                     'day': day,
                     'date': date,
                     'shifts': shifts_data,
-                    'is_today': date == datetime.date.today()
+                    'is_today': date == datetime.date.today(),
+                    'is_holiday': is_holiday_day,
+                    'is_sunday': is_sunday_day,
+                    'is_non_working': is_non_working
                 })
         month_data.append(week_data)
 
@@ -436,15 +456,19 @@ def calculate_coverage_stats(entries, start_date, end_date, company):
     stats = []
     for shift in Shift.objects.filter(company=company):
         shift_entries = entries.filter(shift=shift)
-        total_days = (end_date - start_date).days + 1
         
-        if total_days > 0:
-            coverage_days = shift_entries.values('date').distinct().count()
-            avg_staff = shift_entries.count() / total_days if total_days > 0 else 0
+        # Only count working days for KPI calculations
+        working_days = get_working_days_in_range(start_date, end_date, company)
+        total_working_days = len(working_days)
+        
+        if total_working_days > 0:
+            avg_staff = shift_entries.count() / total_working_days if total_working_days > 0 else 0
+            # Calculate actual staffing percentage (how well staffed relative to max_staff)
+            coverage_percentage = round((avg_staff / shift.max_staff) * 100, 1) if shift.max_staff > 0 else 0
             
             stats.append({
                 'shift': shift,
-                'coverage_percentage': round((coverage_days / total_days) * 100, 1),
+                'coverage_percentage': coverage_percentage,
                 'avg_staff': round(avg_staff, 1),
                 'status': get_shift_status(avg_staff, shift.min_staff, shift.max_staff)
             })

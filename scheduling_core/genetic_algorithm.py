@@ -14,22 +14,65 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
     """Scheduling using genetic algorithm."""
     
     def __init__(self, population_size=50, generations=100, 
-                 mutation_rate=0.2, crossover_rate=0.8, elitism_size=2):
+                 mutation_rate=0.2, crossover_rate=0.8, elitism_size=2,
+                 sundays_off=False):
         self.population_size = population_size
         self.generations = generations
         self.mutation_rate = mutation_rate
         self.crossover_rate = crossover_rate
         self.elitism_size = elitism_size
+        self.sundays_off = sundays_off
+        self.holidays = set()
     
     @property
     def name(self) -> str:
         return "Genetic Algorithm"
-    
+
+    def _get_holidays_for_year(self, year: int) -> set:
+        """Get German national holidays for a specific year."""
+        if year == 2024:
+            return {
+                (2024, 1, 1), (2024, 1, 6), (2024, 3, 29), (2024, 4, 1),
+                (2024, 5, 1), (2024, 5, 9), (2024, 5, 20), (2024, 10, 3),
+                (2024, 12, 25), (2024, 12, 26),
+            }
+        elif year == 2025:
+            return {
+                (2025, 1, 1), (2025, 1, 6), (2025, 4, 18), (2025, 4, 21),
+                (2025, 5, 1), (2025, 5, 29), (2025, 6, 9), (2025, 10, 3),
+                (2025, 12, 25), (2025, 12, 26),
+            }
+        elif year == 2026:
+            return {
+                (2026, 1, 1), (2026, 1, 6), (2026, 4, 3), (2026, 4, 6),
+                (2026, 5, 1), (2026, 5, 14), (2026, 5, 25), (2026, 10, 3),
+                (2026, 12, 25), (2026, 12, 26),
+            }
+        else:
+            return set()
+
+    def _is_non_working_day(self, date) -> bool:
+        """Check if a date is a non-working day (holiday or Sunday)."""
+        if date in self.holidays:
+            return True
+        if date.weekday() == 6 and self.sundays_off:  # Sunday
+            return True
+        return False
+
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
         """Solve using genetic algorithm."""
         self.problem = problem
         self.weeks = get_weeks(problem.start_date, problem.end_date)
         
+        # Populate holidays for the date range
+        self.holidays = set()
+        for year in range(problem.start_date.year, problem.end_date.year + 1):
+            year_holidays = self._get_holidays_for_year(year)
+            for holiday_tuple in year_holidays:
+                holiday_date = problem.start_date.replace(year=holiday_tuple[0], month=holiday_tuple[1], day=holiday_tuple[2])
+                if problem.start_date <= holiday_date <= problem.end_date:
+                    self.holidays.add(holiday_date)
+
         # Initialize population
         population = [self._create_random_solution() for _ in range(self.population_size)]
         
@@ -37,62 +80,41 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         for solution in population:
             solution.cost = self._evaluate_fast(solution)
         
-        population.sort(key=lambda x: x.cost)
-        best_solution = population[0].copy()
-        
         # Evolution
         for generation in range(self.generations):
-            new_population = []
+            # Sort by fitness
+            population.sort(key=lambda x: x.cost)
             
-            # Elitism - keep best solutions
-            for i in range(self.elitism_size):
-                new_population.append(population[i].copy())
+            # Elitism: keep best solutions
+            new_population = population[:self.elitism_size].copy()
             
             # Generate new solutions
             while len(new_population) < self.population_size:
-                # Selection
-                parent1 = self._tournament_selection(population)
-                parent2 = self._tournament_selection(population)
-                
-                # Crossover
                 if random.random() < self.crossover_rate:
-                    child1, child2 = self._crossover(parent1, parent2)
+                    # Crossover
+                    parent1 = self._tournament_selection(population)
+                    parent2 = self._tournament_selection(population)
+                    child = self._crossover(parent1, parent2)
                 else:
-                    child1, child2 = parent1.copy(), parent2.copy()
+                    # Mutation
+                    parent = self._tournament_selection(population)
+                    child = self._mutate(parent.copy())
                 
-                # Mutation
-                self._mutate(child1)
-                if len(new_population) + 1 < self.population_size:
-                    self._mutate(child2)
-                
-                # Evaluate
-                if generation > self.generations // 2:
-                    # Use full evaluation in later generations
-                    child1.cost = evaluate_solution(child1, self.problem)
-                    if len(new_population) + 1 < self.population_size:
-                        child2.cost = evaluate_solution(child2, self.problem)
-                else:
-                    # Use fast evaluation in early generations
-                    child1.cost = self._evaluate_fast(child1)
-                    if len(new_population) + 1 < self.population_size:
-                        child2.cost = self._evaluate_fast(child2)
-                
-                new_population.append(child1)
-                if len(new_population) < self.population_size:
-                    new_population.append(child2)
+                child.cost = self._evaluate_fast(child)
+                new_population.append(child)
             
-            # Update population
-            population = sorted(new_population, key=lambda x: x.cost)[:self.population_size]
+            population = new_population
             
-            # Update best solution
-            if population[0].cost < best_solution.cost:
-                best_solution = population[0].copy()
-                best_solution.cost = evaluate_solution(best_solution, self.problem)
+            # Print progress
+            if generation % 20 == 0:
+                best_cost = population[0].cost
+                print(f"[GA] Generation {generation}: Best cost = {best_cost:.2f}")
         
         # Final evaluation of best solution
+        best_solution = population[0]
         best_solution.cost = evaluate_solution(best_solution, self.problem)
         return best_solution.to_entries()
-    
+
     def _create_random_solution(self) -> Solution:
         """Create a random valid solution."""
         solution = create_empty_solution(self.problem)
@@ -106,7 +128,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         while current <= self.problem.end_date and iteration_count < max_iterations:
             available = []
             for emp in self.problem.employees:
-                if current not in emp.absence_dates:
+                # Check if employee is available (not absent, not holiday, not Sunday if sundays_off)
+                if (current not in emp.absence_dates and 
+                    not self._is_non_working_day(current)):
                     available.append(emp.id)
             daily_availability[current] = available
             current += timedelta(days=1)
@@ -138,7 +162,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             iteration_count += 1
         
         return solution
-    
+
     def _evaluate_fast(self, solution: Solution) -> float:
         """Fast fitness evaluation for early generations."""
         penalty = 0
@@ -182,61 +206,63 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         penalty -= total_assignments * 5
         
         return penalty
-    
-    def _tournament_selection(self, population: List[Solution], 
-                            tournament_size: int = 3) -> Solution:
-        """Select solution using tournament selection."""
-        tournament = random.sample(population, min(tournament_size, len(population)))
+
+    def _tournament_selection(self, population: List[Solution], tournament_size: int = 3) -> Solution:
+        """Tournament selection."""
+        tournament = random.sample(population, tournament_size)
         return min(tournament, key=lambda x: x.cost)
-    
-    def _crossover(self, parent1: Solution, parent2: Solution) -> Tuple[Solution, Solution]:
-        """Uniform crossover."""
-        child1, child2 = Solution(), Solution()
+
+    def _crossover(self, parent1: Solution, parent2: Solution) -> Solution:
+        """Single-point crossover."""
+        child = Solution()
         
-        for key in parent1.assignments:
-            if random.random() < 0.5:
-                child1.assignments[key] = parent1.assignments[key].copy()
-                child2.assignments[key] = parent2.assignments[key].copy()
-            else:
-                child1.assignments[key] = parent2.assignments[key].copy()
-                child2.assignments[key] = parent1.assignments[key].copy()
+        # Get all date-shift combinations
+        all_keys = list(parent1.assignments.keys())
+        if not all_keys:
+            return child
         
-        return child1, child2
-    
-    def _mutate(self, solution: Solution) -> None:
-        """Mutate solution."""
-        for key in list(solution.assignments.keys()):
-            if random.random() < self.mutation_rate:
+        # Choose crossover point
+        crossover_point = random.randint(0, len(all_keys))
+        
+        # Copy from parent1 before crossover point
+        for i in range(crossover_point):
+            key = all_keys[i]
+            child.assignments[key] = parent1.assignments[key].copy()
+        
+        # Copy from parent2 after crossover point
+        for i in range(crossover_point, len(all_keys)):
+            key = all_keys[i]
+            child.assignments[key] = parent2.assignments[key].copy()
+        
+        return child
+
+    def _mutate(self, solution: Solution) -> Solution:
+        """Random mutation."""
+        if random.random() < self.mutation_rate:
+            # Choose random date-shift combination
+            all_keys = list(solution.assignments.keys())
+            if all_keys:
+                key = random.choice(all_keys)
                 date, shift_id = key
                 shift = self.problem.shift_by_id[shift_id]
+                
+                # Randomly change assignment
                 current_staff = solution.assignments[key]
-                
-                mutation_type = random.choice(['add', 'remove', 'replace'])
-                
-                if mutation_type == 'add' and len(current_staff) < shift.max_staff:
-                    # Try to add employee
-                    available = [
-                        emp.id for emp in self.problem.employees
-                        if emp.id not in current_staff and
-                        is_employee_available(emp.id, date, shift, solution, 
-                                            self.problem, self.weeks)
-                    ]
-                    if available:
-                        solution.assignments[key].append(random.choice(available))
-                
-                elif mutation_type == 'remove' and len(current_staff) > shift.min_staff:
+                if current_staff:
                     # Remove random employee
-                    solution.assignments[key].remove(random.choice(current_staff))
+                    emp_to_remove = random.choice(current_staff)
+                    current_staff.remove(emp_to_remove)
                 
-                elif mutation_type == 'replace' and current_staff:
-                    # Replace employee
-                    old_emp = random.choice(current_staff)
-                    available = [
-                        emp.id for emp in self.problem.employees
-                        if emp.id not in current_staff and
-                        is_employee_available(emp.id, date, shift, solution,
-                                            self.problem, self.weeks)
-                    ]
-                    if available:
-                        solution.assignments[key].remove(old_emp)
-                        solution.assignments[key].append(random.choice(available))
+                # Add random available employee
+                available = [
+                    emp.id for emp in self.problem.employees
+                    if emp.id not in current_staff and
+                    date not in emp.absence_dates and
+                    not self._is_non_working_day(date)
+                ]
+                
+                if available and len(current_staff) < shift.max_staff:
+                    emp_to_add = random.choice(available)
+                    current_staff.append(emp_to_add)
+        
+        return solution

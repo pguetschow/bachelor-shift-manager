@@ -29,7 +29,7 @@
     "fields": {
       "name": "Großes Unternehmen",
       "size": "large",
-      "description": "100 Mitarbeiter, 3 Schichten",
+      "description": "100 Mitarbeiter, 4 Schichten",
       "icon": "🏭",
       "color": "warning",
       "sunday_is_workday": false
