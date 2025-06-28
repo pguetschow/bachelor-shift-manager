@@ -86,7 +86,10 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         solution = create_empty_solution(self.problem)
         
         current = self.problem.start_date
-        while current <= self.problem.end_date:
+        max_iterations = 1000  # Safety check to prevent infinite loops
+        iteration_count = 0
+        
+        while current <= self.problem.end_date and iteration_count < max_iterations:
             for shift in self.problem.shifts:
                 key = (current, shift.id)
                 available = [
@@ -104,6 +107,7 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 # else: leave unassigned (empty)
             
             current += timedelta(days=1)
+            iteration_count += 1
         
         return solution
     

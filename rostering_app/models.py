@@ -30,7 +30,7 @@ class Shift(models.Model):
         ('NightShift', 'Night Shift'),
     ]
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='shifts')
-    name = models.CharField(max_length=20, choices=SHIFT_CHOICES, unique=True)
+    name = models.CharField(max_length=20, choices=SHIFT_CHOICES)
     start = models.TimeField()
     end = models.TimeField()
     min_staff = models.IntegerField()
@@ -46,6 +46,9 @@ class Shift(models.Model):
 
     def __str__(self):
         return self.name
+
+    class Meta:
+        unique_together = ('company', 'name')
 
 class ScheduleEntry(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE)

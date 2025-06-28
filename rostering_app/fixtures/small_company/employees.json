@@ -1,7 +1,7 @@
 [
   {
     "model": "rostering_app.employee",
-    "pk": 1,
+    "pk": 1001,
     "fields": {
       "company": 1,
       "name": "Anna Schmidt",
@@ -18,7 +18,7 @@
   },
   {
     "model": "rostering_app.employee",
-    "pk": 2,
+    "pk": 1002,
     "fields": {
       "company": 1,
       "name": "Bernd Meyer",
@@ -35,7 +35,7 @@
   },
   {
     "model": "rostering_app.employee",
-    "pk": 3,
+    "pk": 1003,
     "fields": {
       "company": 1,
       "name": "Claudia Weber",
@@ -52,7 +52,7 @@
   },
   {
     "model": "rostering_app.employee",
-    "pk": 4,
+    "pk": 1004,
     "fields": {
       "company": 1,
       "name": "Daniel Becker",
@@ -68,7 +68,7 @@
   },
   {
     "model": "rostering_app.employee",
-    "pk": 5,
+    "pk": 1005,
     "fields": {
       "company": 1,
       "name": "Eva Schulz",
@@ -85,7 +85,7 @@
   },
   {
     "model": "rostering_app.employee",
-    "pk": 6,
+    "pk": 1006,
     "fields": {
       "company": 1,
       "name": "Frank Wagner",
@@ -101,7 +101,7 @@
   },
   {
     "model": "rostering_app.employee",
-    "pk": 7,
+    "pk": 1007,
     "fields": {
       "company": 1,
       "name": "Gisela Hoffmann",
@@ -118,7 +118,7 @@
   },
   {
     "model": "rostering_app.employee",
-    "pk": 8,
+    "pk": 1008,
     "fields": {
       "company": 1,
       "name": "Hans Fischer",
@@ -135,7 +135,7 @@
   },
   {
     "model": "rostering_app.employee",
-    "pk": 9,
+    "pk": 1009,
     "fields": {
       "company": 1,
       "name": "Ingrid Müller",
@@ -152,7 +152,7 @@
   },
   {
     "model": "rostering_app.employee",
-    "pk": 10,
+    "pk": 1010,
     "fields": {
       "company": 1,
       "name": "Jürgen Koch",

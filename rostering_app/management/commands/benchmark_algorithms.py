@@ -66,20 +66,53 @@ class Command(BaseCommand):
         # Run benchmarks for each test case
         all_results = {}
 
-        # Delete old benchmark results
-        ScheduleEntry.objects.filter().delete()
-        self.stdout.write("Clear DB")
+        # Clear the database first
+        ScheduleEntry.objects.all().delete()
+        Employee.objects.all().delete()
+        Shift.objects.all().delete()
+        Company.objects.all().delete()
+
+        self.stdout.write("Cleared database")
+
+        # Load company fixtures first
+        self._load_company_fixtures('rostering_app/fixtures/companies.json')
+        self.stdout.write(f"Loaded {Company.objects.count()} companies")
         
+        # Load all fixtures for all companies before running benchmarks
+        for test_case in test_cases:
+            self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
+        
+        self.stdout.write(f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
+
         for test_case in test_cases:
             self.stdout.write(f"\n{'='*60}")
             self.stdout.write(f"Benchmarking: {test_case['display_name']}")
             self.stdout.write(f"{'='*60}\n")
+
+            # Get the company for this test case
+            company_name_mapping = {
+                'small_company': 'Kleines Unternehmen',
+                'medium_company': 'Mittleres Unternehmen', 
+                'large_company': 'Großes Unternehmen'
+            }
             
-            # Load fixtures
-            # self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
+            company_name = company_name_mapping.get(test_case['name'])
+            self.stdout.write(f"Looking for company: '{company_name}' for test case '{test_case['name']}'")
             
-            # Create problem instance
-            problem = self._create_problem()
+            if company_name:
+                company = Company.objects.filter(name=company_name).first()
+            else:
+                company = Company.objects.filter(name__icontains=test_case['name'].split('_')[0]).first()
+                
+            self.stdout.write(f"Using company: {company.name if company else 'NOT FOUND'}")
+            
+            # Debug: show all available companies
+            all_companies = Company.objects.all()
+            self.stdout.write(f"Available companies: {[c.name for c in all_companies]}")
+            
+            # Create problem instance for this company
+            problem = self._create_problem(company)
+            self.stdout.write(f"Problem created with {len(problem.employees)} employees and {len(problem.shifts)} shifts")
             
             # Benchmark algorithms
             results = {}
@@ -95,8 +128,8 @@ class Command(BaseCommand):
                     # Save to database, track algorithm
                     self._save_entries(entries, algorithm.name)
                     
-                    # Calculate KPIs
-                    kpis = self._calculate_kpis()
+                    # Calculate KPIs for this company and algorithm
+                    kpis = self._calculate_kpis(company, algorithm.name)
                     
                     results[algorithm.name] = {
                         'runtime': runtime,
@@ -123,7 +156,6 @@ class Command(BaseCommand):
                     # Print the full traceback to the console
                     traceback.print_exc()
 
-            
             # Store results
             all_results[test_case['name']] = {
                 'display_name': test_case['display_name'],
@@ -155,34 +187,43 @@ class Command(BaseCommand):
 
     def _load_fixtures(self, employee_file: str, shift_file: str):
         """Load fixture data into database."""
-        # Clear existing data
-        with transaction.atomic():
-            Employee.objects.all().delete()
-            Shift.objects.all().delete()
-            
-            # Load employees
-            with open(employee_file, 'r', encoding='utf-8') as f:
-                employee_data = json.load(f)
-                for item in employee_data:
-                    fields = item['fields']
-                    if 'company' in fields:
-                        fields['company'] = Company.objects.get(pk=fields['company'])
-                    Employee.objects.create(**fields)
-            
-            # Load shift types
-            with open(shift_file, 'r', encoding='utf-8') as f:
-                shift_data = json.load(f)
-                for item in shift_data:
-                    fields = item['fields']
-                    if 'company' in fields:
-                        fields['company'] = Company.objects.get(pk=fields['company'])
-                    Shift.objects.create(**fields)
+        # Load employees
+        with open(employee_file, 'r', encoding='utf-8') as f:
+            employee_data = json.load(f)
+            for item in employee_data:
+                fields = item['fields']
+                if 'company' in fields:
+                    fields['company'] = Company.objects.get(pk=fields['company'])
+                Employee.objects.create(**fields)
+        # Load shift types
+        with open(shift_file, 'r', encoding='utf-8') as f:
+            shift_data = json.load(f)
+            for item in shift_data:
+                fields = item['fields']
+                if 'company' in fields:
+                    fields['company'] = Company.objects.get(pk=fields['company'])
+                Shift.objects.create(**fields)
 
-    def _create_problem(self) -> SchedulingProblem:
+    def _load_company_fixtures(self, company_file: str):
+        """Load company fixture data into database."""
+        with open(company_file, 'r', encoding='utf-8') as f:
+            company_data = json.load(f)
+            for item in company_data:
+                fields = item['fields']
+                pk = item.get('pk')
+                if pk is not None:
+                    Company.objects.create(pk=pk, **fields)
+                else:
+                    Company.objects.create(**fields)
+
+    def _create_problem(self, company) -> SchedulingProblem:
         """Create scheduling problem from database."""
         # Convert Django models to core data structures
         employees = []
-        for emp in Employee.objects.all():
+        company_employees = Employee.objects.filter(company=company)
+        self.stdout.write(f"Found {company_employees.count()} employees for company {company.name}")
+        
+        for emp in company_employees:
             employees.append(CoreEmployee(
                 id=emp.id,
                 name=emp.name,
@@ -193,7 +234,10 @@ class Command(BaseCommand):
             ))
         
         shifts = []
-        for shift in Shift.objects.all():
+        company_shifts = Shift.objects.filter(company=company)
+        self.stdout.write(f"Found {company_shifts.count()} shifts for company {company.name}")
+        
+        for shift in company_shifts:
             shifts.append(CoreShift(
                 id=shift.id,
                 name=shift.name,
@@ -226,10 +270,10 @@ class Command(BaseCommand):
                     archived=False
                 )
 
-    def _calculate_kpis(self) -> Dict[str, Any]:
-        """Calculate comprehensive KPIs for current schedule."""
-        employees = list(Employee.objects.all())
-        shifts = list(Shift.objects.all())
+    def _calculate_kpis(self, company, algorithm_name) -> Dict[str, Any]:
+        """Calculate comprehensive KPIs for current schedule for a given company and algorithm."""
+        employees = list(Employee.objects.filter(company=company))
+        shifts = list(Shift.objects.filter(company=company))
         start_date = date(2025, 1, 1)
         end_date = date(2025, 12, 31)
         num_days = (end_date - start_date).days + 1
@@ -254,7 +298,9 @@ class Command(BaseCommand):
                 employee=emp, 
                 date__gte=start_date, 
                 date__lte=end_date,
-                archived=False
+                archived=False,
+                algorithm=algorithm_name,
+                company=company
             )
             
             for entry in entries:

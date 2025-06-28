@@ -1,6 +1,6 @@
 """Shared utilities for scheduling algorithms."""
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Tuple, Set
+from typing import Dict, List, Tuple, Set, Optional
 from collections import defaultdict
 from .base import Employee, Shift, Solution, SchedulingProblem
 
@@ -37,7 +37,8 @@ def is_employee_available(
             return False
     
     # Check weekly hours
-    week_key = tuple(date.isocalendar()[:2])
+    iso_week = date.isocalendar()
+    week_key: Tuple[int, int] = (iso_week[0], iso_week[1])
     weekly_hours = 0
     for d in weeks[week_key]:
         for s in problem.shifts:
@@ -90,7 +91,7 @@ def check_rest_period(
 def evaluate_solution(
     solution: Solution,
     problem: SchedulingProblem,
-    penalty_weights: Dict[str, float] = None
+    penalty_weights: Optional[Dict[str, float]] = None
 ) -> float:
     """Evaluate solution quality (lower is better)."""
     if penalty_weights is None:
@@ -149,8 +150,13 @@ def create_empty_solution(problem: SchedulingProblem) -> Solution:
     """Create an empty solution with all possible date-shift combinations."""
     solution = Solution()
     current = problem.start_date
-    while current <= problem.end_date:
+    max_iterations = 1000  # Safety check to prevent infinite loops
+    iteration_count = 0
+    
+    while current <= problem.end_date and iteration_count < max_iterations:
         for shift in problem.shifts:
             solution.assignments[(current, shift.id)] = []
         current += timedelta(days=1)
+        iteration_count += 1
+    
     return solution

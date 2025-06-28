@@ -100,17 +100,23 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         # Pre-calculate daily availability
         daily_availability = {}
         current = self.problem.start_date
-        while current <= self.problem.end_date:
+        max_iterations = 1000  # Safety check
+        iteration_count = 0
+        
+        while current <= self.problem.end_date and iteration_count < max_iterations:
             available = []
             for emp in self.problem.employees:
                 if current not in emp.absence_dates:
                     available.append(emp.id)
             daily_availability[current] = available
             current += timedelta(days=1)
+            iteration_count += 1
         
         # Assign employees randomly
         current = self.problem.start_date
-        while current <= self.problem.end_date:
+        iteration_count = 0
+        
+        while current <= self.problem.end_date and iteration_count < max_iterations:
             available = daily_availability[current].copy()
             random.shuffle(available)
             used = set()
@@ -129,6 +135,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                     used.update(selected)
             
             current += timedelta(days=1)
+            iteration_count += 1
         
         return solution
     
@@ -148,7 +155,10 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         # Check one shift per day
         violations = 0
         current = self.problem.start_date
-        while current <= self.problem.end_date:
+        max_iterations = 1000  # Safety check to prevent infinite loops
+        iteration_count = 0
+        
+        while current <= self.problem.end_date and iteration_count < max_iterations:
             emp_counts = {}
             for shift in self.problem.shifts:
                 for emp_id in solution.assignments.get((current, shift.id), []):
@@ -157,7 +167,13 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             for count in emp_counts.values():
                 if count > 1:
                     violations += count - 1
+            
             current += timedelta(days=1)
+            iteration_count += 1
+        
+        # If we hit the safety limit, add a large penalty
+        if iteration_count >= max_iterations:
+            penalty += 1000000
         
         penalty += violations * 5000
         
