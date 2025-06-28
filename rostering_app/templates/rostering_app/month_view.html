@@ -36,7 +36,7 @@
                     {% for shift in shifts %}
                     <span>
                         <span class="shift-badge shift-{{ shift.name|lower|cut:'shift' }}">
-                            {{ shift.name }}
+                            {{ shift.get_name_display }}
                         </span>
                         <small class="text-muted">({{ shift.start|time:"H:i" }}-{{ shift.end|time:"H:i" }})</small>
                     </span>
@@ -74,14 +74,20 @@
                         <tr>
                             {% for day in week %}
                             {% if day %}
-                            <td class="calendar-day {% if day.is_today %}today{% endif %} {% if day.date.weekday >= 5 %}weekend{% endif %}"
+                            <td class="calendar-day {% if day.is_today %}today{% endif %} {% if day.is_non_working %}non-working{% endif %} {% if day.is_holiday %}holiday{% endif %} {% if day.is_sunday %}sunday{% endif %}"
                                 onclick="window.location.href='{% url 'day_view' company.id day.date|date:'Y-m-d' %}'">
                                 <div class="day-header">
                                     <strong>{{ day.day }}</strong>
                                     {% if day.is_today %}
                                     <span class="badge bg-primary float-end">Heute</span>
                                     {% endif %}
+                                    {% if day.is_holiday %}
+                                    <span class="badge bg-danger float-end">Feiertag</span>
+                                    {% elif day.is_sunday and not company.sunday_is_workday %}
+                                    <span class="badge bg-secondary float-end">Sonntag</span>
+                                    {% endif %}
                                 </div>
+                                {% if not day.is_non_working %}
                                 <div class="shift-info mt-2">
                                     {% for shift_name, shift_data in day.shifts.items %}
                                     <div class="mb-1">
@@ -94,6 +100,13 @@
                                     </div>
                                     {% endfor %}
                                 </div>
+                                {% else %}
+                                <div class="non-working-info mt-2">
+                                    <span class="text-muted small">
+                                        {% if day.is_holiday %}Feiertag{% elif day.is_sunday %}Sonntag{% endif %}
+                                    </span>
+                                </div>
+                                {% endif %}
                             </td>
                             {% else %}
                             <td class="calendar-day disabled"></td>
@@ -154,6 +167,21 @@
     background-color: #f8f9fa;
 }
 
+.calendar-day.non-working {
+    background-color: #f8f9fa;
+    opacity: 0.7;
+}
+
+.calendar-day.holiday {
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+}
+
+.calendar-day.sunday {
+    background-color: #e2e3e5;
+    border-color: #d6d8db;
+}
+
 .calendar-day .day-header {
     border-bottom: 1px solid #e9ecef;
     padding-bottom: 0.25rem;
@@ -167,6 +195,12 @@
 .shift-badge.small {
     padding: 0.15rem 0.35rem;
     font-size: 0.75rem;
+}
+
+.non-working-info {
+    font-size: 0.875rem;
+    text-align: center;
+    padding-top: 1rem;
 }
 
 @media print {

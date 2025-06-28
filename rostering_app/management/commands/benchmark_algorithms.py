@@ -56,13 +56,11 @@ class Command(BaseCommand):
             }
         ]
 
-        # Algorithm configurations
-        algorithms = [
-            LinearProgrammingScheduler(),
-            GeneticAlgorithmScheduler(population_size=30, generations=50),
-            SimulatedAnnealingScheduler(CoolingSchedule.EXPONENTIAL),
-            SimulatedAnnealingScheduler(CoolingSchedule.LINEAR),
-            SimulatedAnnealingScheduler(CoolingSchedule.LOGARITHMIC)
+        # Algorithm configurations - will be created per company
+        algorithm_classes = [
+            LinearProgrammingScheduler,
+            # GeneticAlgorithmScheduler,
+            # SimulatedAnnealingScheduler,
         ]
 
         # Create export directory
@@ -116,6 +114,8 @@ class Command(BaseCommand):
                 company = Company.objects.filter(name__icontains=test_case['name'].split('_')[0]).first()
                 
             self.stdout.write(f"Using company: {company.name if company else 'NOT FOUND'}")
+            if company:
+                self.stdout.write(f"Company settings: sunday_is_workday={company.sunday_is_workday}")
             
             # Debug: show all available companies
             all_companies = Company.objects.all()
@@ -124,6 +124,21 @@ class Command(BaseCommand):
             # Create problem instance for this company
             problem = self._create_problem(company)
             self.stdout.write(f"Problem created with {len(problem.employees)} employees and {len(problem.shifts)} shifts")
+            
+            # Create algorithms for this specific company
+            algorithms = []
+            for algorithm_class in algorithm_classes:
+                if algorithm_class == LinearProgrammingScheduler:
+                    # Use the company's sunday_is_workday setting (inverted for the algorithm)
+                    algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
+                elif algorithm_class == GeneticAlgorithmScheduler:
+                    # Use the company's sunday_is_workday setting (inverted for the algorithm)
+                    algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
+                elif algorithm_class == SimulatedAnnealingScheduler:
+                    # Use the company's sunday_is_workday setting (inverted for the algorithm)
+                    algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
+                else:
+                    algorithms.append(algorithm_class())
             
             # Benchmark algorithms
             results = {}
@@ -313,7 +328,9 @@ class Command(BaseCommand):
             )
             
             for entry in entries:
-                duration = entry.shift.get_duration()
+                # Use date-range-aware calculation for accurate hours
+                from rostering_app.views import calculate_shift_hours_in_date_range
+                duration = calculate_shift_hours_in_date_range(entry.shift, entry.date, start_date, end_date)
                 hours_worked += duration
                 shifts_worked += 1
                 
@@ -325,6 +342,7 @@ class Command(BaseCommand):
                 shift_coverage_stats[entry.shift.name]['filled'] += 1
             
             # Check constraint violations
+            # todo: improve violation checker
             violations = sum(1 for hours in weekly_hours.values() 
                            if hours > emp.max_hours_per_week)
             constraint_violations += violations
@@ -339,6 +357,7 @@ class Command(BaseCommand):
                 'utilization': utilization,
                 'violations': violations
             }
+            # todo use employee stats
             
             employee_hours.append(hours_worked)
             employee_shift_counts.append(shifts_worked)

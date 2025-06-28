@@ -9,9 +9,18 @@
             <h1>
                 <i class="bi bi-person-circle"></i> {{ employee.name }}
             </h1>
-            <a href="{% url 'schedule_dashboard' company.id %}" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> Zurück zum Dashboard
-            </a>
+            <div class="d-flex gap-2">
+                {% if available_algorithms %}
+                <div class="dropdown">
+                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <i class="bi bi-gear"></i> {{ selected_algorithm|default:"Algorithmus wählen" }}
+                    </button>
+                </div>
+                {% endif %}
+                <a href="{% url 'schedule_dashboard' company.id %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> Zurück zum Dashboard
+                </a>
+            </div>
         </div>
     </div>
 </div>
@@ -40,7 +49,7 @@
                     <dt class="col-sm-6">Präferierte Schichten:</dt>
                     <dd class="col-sm-6">
                         {% for shift in employee.preferred_shifts %}
-                        <span class="shift-badge shift-{{ shift|lower|cut:'shift' }} small">{{ shift }}</span>
+                        <span class="shift-badge shift-{{ shift|lower|cut:'shift' }} small">{{ shift|shift_display_name }}</span>
                         {% empty %}
                         <span class="text-muted">Keine Präferenz</span>
                         {% endfor %}
@@ -69,7 +78,81 @@
             </div>
         </div>
     </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-graph-up"></i> Monatsstatistik {{ month_name }} {{ year }}</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-6">Gearbeitete Schichten:</dt>
+                    <dd class="col-sm-6">
+                        <span class="badge bg-primary fs-6">{{ total_shifts }}</span>
+                    </dd>
+                    
+                    <dt class="col-sm-6">Gesamtstunden:</dt>
+                    <dd class="col-sm-6">
+                        <span class="badge bg-success fs-6">{{ total_hours|floatformat:1 }}h</span>
+                    </dd>
+                    
+                    <dt class="col-sm-6">Durchschnitt/Shift:</dt>
+                    <dd class="col-sm-6">
+                        {% if total_shifts > 0 %}
+                        <span class="text-muted">{{ average_hours_per_shift|floatformat:1 }}h</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                    
+                    <dt class="col-sm-6">Auslastung:</dt>
+                    <dd class="col-sm-6">
+                        {% if max_hours_per_week > 0 %}
+                        {% widthratio total_hours max_hours_per_week 100 as utilization %}
+                        <span class="badge {% if utilization > 100 %}bg-danger{% elif utilization > 80 %}bg-warning{% else %}bg-info{% endif %}">
+                            {{ utilization|floatformat:0 }}%
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+    </div>
 </div>
+
+<!-- Shift Breakdown -->
+{% if shifts_by_type %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-pie-chart"></i> Schichtaufteilung {{ month_name }} {{ year }}</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for shift_name, count in shifts_by_type.items %}
+                    {% if count > 0 %}
+                    <div class="col-md-3 col-sm-6 mb-3">
+                        <div class="d-flex align-items-center">
+                            <span class="shift-badge shift-{{ shift_name|lower|cut:'shift' }} me-2">
+                                {{ shift_name|slice:":1" }}
+                            </span>
+                            <div>
+                                <div class="fw-bold">{{ count }} Schicht{{ count|pluralize:"en" }}</div>
+                                <small class="text-muted">{{ shift_name|shift_display_name }}</small>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- Monthly Calendar -->
 <div class="row">
@@ -108,7 +191,7 @@
                                 {% if day.entry %}
                                 <div class="mt-1">
                                     <span class="shift-badge shift-{{ day.entry.shift.name|lower|cut:'shift' }} small">
-                                        {{ day.entry.shift.name }}
+                                        {{ day.entry.shift.get_name_display }}
                                     </span>
                                     <small class="d-block text-muted">
                                         {{ day.entry.shift_type.start|time:"H:i" }}-{{ day.entry.shift_type.end|time:"H:i" }}
@@ -141,11 +224,11 @@
 <div class="row mt-4">
     <div class="col-12 text-center">
         <div class="btn-group">
-            <a href="?year={% if month == 1 %}{{ year|add:"-1" }}{% else %}{{ year }}{% endif %}&month={% if month == 1 %}12{% else %}{{ month|add:"-1" }}{% endif %}" 
+            <a href="?year={% if month == 1 %}{{ year|add:'-1' }}{% else %}{{ year }}{% endif %}&month={% if month == 1 %}12{% else %}{{ month|add:'-1' }}{% endif %}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}" 
                class="btn btn-outline-secondary">
                 <i class="bi bi-chevron-left"></i> Vorheriger Monat
             </a>
-            <a href="?year={% if month == 12 %}{{ year|add:"1" }}{% else %}{{ year }}{% endif %}&month={% if month == 12 %}1{% else %}{{ month|add:"1" }}{% endif %}" 
+            <a href="?year={% if month == 12 %}{{ year|add:'1' }}{% else %}{{ year }}{% endif %}&month={% if month == 12 %}1{% else %}{{ month|add:'1' }}{% endif %}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}" 
                class="btn btn-outline-secondary">
                 Nächster Monat <i class="bi bi-chevron-right"></i>
             </a>

@@ -7,6 +7,7 @@ class Company(models.Model):
     description = models.TextField(blank=True)
     icon = models.CharField(max_length=10, blank=True)
     color = models.CharField(max_length=20, blank=True)
+    sunday_is_workday = models.BooleanField(default=False, help_text="Indicates if Sunday is considered a workday for this company")
 
     def __str__(self):
         return self.name
@@ -25,9 +26,10 @@ class Employee(models.Model):
 
 class Shift(models.Model):
     SHIFT_CHOICES = [
-        ('EarlyShift', 'Early Shift'),
-        ('LateShift', 'Late Shift'),
-        ('NightShift', 'Night Shift'),
+        ('EarlyShift', 'Frühschicht'),
+        ('MorningShift', 'Morgenschicht'),
+        ('LateShift', 'Spätschicht'),
+        ('NightShift', 'Nachtschicht'),
     ]
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='shifts')
     name = models.CharField(max_length=20, choices=SHIFT_CHOICES)

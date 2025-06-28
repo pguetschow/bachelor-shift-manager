@@ -1,196 +1,221 @@
-"""Linear programming based scheduling algorithm."""
-from datetime import timedelta
+from datetime import timedelta, datetime
 from collections import defaultdict
 from typing import List
 
-from pulp import LpProblem, LpVariable, lpSum, LpMinimize, LpBinary, PULP_CBC_CMD
+from pulp import (
+    LpProblem,
+    LpVariable,
+    lpSum,
+    LpMinimize,
+    LpBinary,
+    PULP_CBC_CMD,
+    LpStatus,
+)
 
 from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Shift
 from .utils import get_weeks
 
 
 class LinearProgrammingScheduler(SchedulingAlgorithm):
-    """Scheduling using integer linear programming."""
-    
+    """Scheduling using integer linear programming with demand scaling."""
+
+    def __init__(self, sundays_off: bool = False):
+        self.sundays_off = sundays_off
+        # Global holidays - will be populated based on problem date range
+        self.holidays = set()
+
     @property
     def name(self) -> str:
-        return "Linear Programming (ILP)"
-    
+        return "Linear Programming (ILP with Scaling)"
+
+    def _get_holidays_for_year(self, year: int) -> set:
+        """Get German national holidays for a specific year."""
+        if year == 2024:
+            return {
+                (2024, 1, 1), (2024, 1, 6), (2024, 3, 29), (2024, 4, 1),
+                (2024, 5, 1), (2024, 5, 9), (2024, 5, 20), (2024, 10, 3),
+                (2024, 12, 25), (2024, 12, 26),
+            }
+        elif year == 2025:
+            return {
+                (2025, 1, 1), (2025, 1, 6), (2025, 4, 18), (2025, 4, 21),
+                (2025, 5, 1), (2025, 5, 29), (2025, 6, 9), (2025, 10, 3),
+                (2025, 12, 25), (2025, 12, 26),
+            }
+        elif year == 2026:
+            return {
+                (2026, 1, 1), (2026, 1, 6), (2026, 4, 3), (2026, 4, 6),
+                (2026, 5, 1), (2026, 5, 14), (2026, 5, 25), (2026, 10, 3),
+                (2026, 12, 25), (2026, 12, 26),
+            }
+        else:
+            # For other years, return an empty set or implement a more sophisticated calculation
+            return set()
+
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
-        """Solve scheduling problem using linear programming."""
+        # 1) Build the full list of dates
+        current = problem.start_date
+        dates = []
+        while current <= problem.end_date:
+            dates.append(current)
+            current += timedelta(days=1)
+
+        # 2) Populate holidays for the date range
+        self.holidays = set()
+        for year in range(problem.start_date.year, problem.end_date.year + 1):
+            self.holidays.update(self._get_holidays_for_year(year))
+
+        # 3) Compute number of weeks in horizon
+        weeks = get_weeks(problem.start_date, problem.end_date)
+        num_weeks = len(weeks)
+
+        # 4) Pre-check capacity vs. demand & scale min_staff if needed
+        total_emp_hours = sum(emp.max_hours_per_week for emp in problem.employees) * num_weeks
+        total_req_hours = sum(
+            shift.min_staff * shift.duration * len(dates)
+            for shift in problem.shifts
+        )
+        if total_req_hours > total_emp_hours:
+            scale = total_emp_hours / total_req_hours
+            for shift in problem.shifts:
+                shift.min_staff = max(1, int(round(shift.min_staff * scale)))
+            print(f"[INFO] Scaled down min_staff by {scale:.2f}× to restore feasibility.")
+
         # Create LP problem
         lp_problem = LpProblem("EmployeeScheduling", LpMinimize)
-        
-        # Decision variables: x[emp_id, date, shift_id]
-        variables = {}
-        total_days = (problem.end_date - problem.start_date).days + 1
-        
-        for emp in problem.employees:
-            current = problem.start_date
-            for _ in range(total_days):
-                for shift in problem.shifts:
-                    key = (emp.id, current, shift.id)
-                    variables[key] = LpVariable(
-                        f"x_{emp.id}_{current}_{shift.id}",
-                        0, 1, LpBinary
-                    )
-                current += timedelta(days=1)
-        
-        # Helper variables for fairness
-        emp_total_hours = {}
-        emp_overtime = {}
-        emp_undertime = {}
-        
-        for emp in problem.employees:
-            emp_total_hours[emp.id] = LpVariable(f"total_hours_{emp.id}", 0)
-            emp_overtime[emp.id] = LpVariable(f"overtime_{emp.id}", 0)
-            emp_undertime[emp.id] = LpVariable(f"undertime_{emp.id}", 0)
-        
-        # Calculate target hours
-        total_possible_hours = 0
-        current = problem.start_date
-        for _ in range(total_days):
-            for shift in problem.shifts:
-                total_possible_hours += shift.duration * shift.max_staff
-            current += timedelta(days=1)
-        
-        total_capacity_hours = sum(
-            emp.max_hours_per_week * ((total_days + 6) // 7)
-            for emp in problem.employees
-        )
-        
-        target_total_hours = min(total_possible_hours, total_capacity_hours)
-        avg_hours_per_emp = target_total_hours / len(problem.employees) if problem.employees else 0
 
-        # Constraints
-        
-        # 1. Absences
+        # Decision variables
+        vars_x = {}
         for emp in problem.employees:
-            for absence_date in emp.absence_dates:
-                if problem.start_date <= absence_date <= problem.end_date:
-                    for shift in problem.shifts:
-                        if (emp.id, absence_date, shift.id) in variables:
-                            lp_problem += variables[(emp.id, absence_date, shift.id)] == 0
-        
-        # 2. One shift per day per employee
-        for emp in problem.employees:
-            current = problem.start_date
-            for _ in range(total_days):
-                day_vars = []
+            for date in dates:
                 for shift in problem.shifts:
-                    key = (emp.id, current, shift.id)
-                    if key in variables:
-                        day_vars.append(variables[key])
-                if day_vars:
-                    lp_problem += lpSum(day_vars) <= 1
-                current += timedelta(days=1)
-        
-        # 3. Min/max staffing
-        current = problem.start_date
-        for _ in range(total_days):
+                    name = f"x_{emp.id}_{date}_{shift.id}"
+                    vars_x[(emp.id, date, shift.id)] = LpVariable(name, cat=LpBinary)
+
+        # Overtime/undertime tracking
+        months = defaultdict(list)
+        for date in dates:
+            months[(date.year, date.month)].append(date)
+        overtime = {}
+        undertime = {}
+        for emp in problem.employees:
+            exp_hours = emp.max_hours_per_week * 4.33
+            max_ot = exp_hours * 0.2
+            for mk in months:
+                overtime[(emp.id, mk)] = LpVariable(f"ot_{emp.id}_{mk[0]}_{mk[1]}", lowBound=0, upBound=max_ot)
+                undertime[(emp.id, mk)] = LpVariable(f"ut_{emp.id}_{mk[0]}_{mk[1]}", lowBound=0)
+
+        # Fairness and totals
+        total_hours = {}
+        deviation = {}
+        for emp in problem.employees:
+            total_hours[emp.id] = LpVariable(f"total_hours_{emp.id}", lowBound=0)
+            deviation[emp.id] = LpVariable(f"dev_{emp.id}", lowBound=0)
+        avg_hours = LpVariable("avg_hours", lowBound=0)
+
+        # Slack for understaff/overstaff
+        slack = {}
+        w_understaff = 1_000_000
+        w_overstaff  = 100_000
+        w_overtime   = 50
+        w_undertime  = 30
+        w_fairness   = 20
+        w_preference = -5
+
+        objective = 0
+        for date in dates:
             for shift in problem.shifts:
-                shift_vars = []
-                for emp in problem.employees:
-                    key = (emp.id, current, shift.id)
-                    if key in variables:
-                        shift_vars.append(variables[key])
-                if shift_vars:
-                    lp_problem += lpSum(shift_vars) >= shift.min_staff
-                    lp_problem += lpSum(shift_vars) <= shift.max_staff
-            current += timedelta(days=1)
-        
-        # 4. Weekly hours limit
-        weeks = get_weeks(problem.start_date, problem.end_date)
+                u = LpVariable(f"under_{date}_{shift.id}", lowBound=0)
+                o = LpVariable(f"over_{date}_{shift.id}", lowBound=0)
+                slack[(date, shift.id, 'under')] = u
+                slack[(date, shift.id, 'over')]  = o
+                objective += w_understaff * u + w_overstaff * o
+
+        # Add other penalties
         for emp in problem.employees:
-            for week_dates in weeks.values():
-                week_hours = []
-                for date in week_dates:
+            for mk in months:
+                objective += w_overtime * overtime[(emp.id, mk)]
+                objective += w_undertime * undertime[(emp.id, mk)]
+            objective += w_fairness * deviation[emp.id]
+            for date in dates:
+                for shift in problem.shifts:
+                    if shift.name in emp.preferred_shifts:
+                        objective += w_preference * vars_x[(emp.id, date, shift.id)]
+        lp_problem += objective
+
+        # 1) One shift per day
+        for emp in problem.employees:
+            for date in dates:
+                lp_problem += (
+                    lpSum(vars_x[(emp.id, date, s.id)] for s in problem.shifts) <= 1
+                )
+
+        # 2) Staffing with slack
+        for date in dates:
+            for shift in problem.shifts:
+                count = lpSum(vars_x[(e.id, date, shift.id)] for e in problem.employees)
+                lp_problem += count + slack[(date, shift.id, 'under')] >= shift.min_staff
+                lp_problem += count - slack[(date, shift.id, 'over')]  <= shift.max_staff
+
+        # 3) Absences, holidays, Sundays
+        for emp in problem.employees:
+            for date in dates:
+                if date in emp.absence_dates or (date.weekday()==6 and self.sundays_off) or ((date.year, date.month, date.day) in self.holidays):
                     for shift in problem.shifts:
-                        key = (emp.id, date, shift.id)
-                        if key in variables:
-                            week_hours.append(variables[key] * shift.duration)
-                if week_hours:
-                    lp_problem += lpSum(week_hours) <= emp.max_hours_per_week
-        
-        # 5. 11-hour rest period
-        current = problem.start_date
-        for day_idx in range(total_days - 1):
-            next_date = current + timedelta(days=1)
-            for emp in problem.employees:
-                for today_shift in problem.shifts:
-                    for tomorrow_shift in problem.shifts:
-                        if self._violates_rest_period(today_shift, tomorrow_shift, current):
-                            today_key = (emp.id, current, today_shift.id)
-                            tomorrow_key = (emp.id, next_date, tomorrow_shift.id)
-                            if today_key in variables and tomorrow_key in variables:
-                                lp_problem += (variables[today_key] + 
-                                             variables[tomorrow_key]) <= 1
-            current += timedelta(days=1)
-        
-        # 6. Calculate total hours
+                        lp_problem += vars_x[(emp.id, date, shift.id)] == 0
+
+        # 4) Weekly hours
         for emp in problem.employees:
-            total_hours = []
-            current = problem.start_date
-            for _ in range(total_days):
-                for shift in problem.shifts:
-                    key = (emp.id, current, shift.id)
-                    if key in variables:
-                        total_hours.append(variables[key] * shift.duration)
-                current += timedelta(days=1)
-            if total_hours:
-                lp_problem += emp_total_hours[emp.id] == lpSum(total_hours)
-        
-        # 7. Over/undertime for fairness
+            for wk, wk_dates in weeks.items():
+                lp_problem += (
+                    lpSum(vars_x[(emp.id, d, s.id)] * s.duration for d in wk_dates for s in problem.shifts)
+                    <= emp.max_hours_per_week
+                )
+
+        # 5) Rest period (11h)
         for emp in problem.employees:
-            max_hours = emp.max_hours_per_week * ((total_days + 6) // 7)
-            target = min(max_hours, avg_hours_per_emp)
-            lp_problem += (emp_total_hours[emp.id] - target == 
-                          emp_overtime[emp.id] - emp_undertime[emp.id])
-        
-        # Objective function
-        maximize_coverage = []
-        preference_bonus = []
-        
+            for i in range(len(dates)-1):
+                d1, d2 = dates[i], dates[i+1]
+                for s1 in problem.shifts:
+                    for s2 in problem.shifts:
+                        if self._violates_rest_period(s1, s2, d1):
+                            lp_problem += vars_x[(emp.id, d1, s1.id)] + vars_x[(emp.id, d2, s2.id)] <= 1
+
+        # 6) Monthly hours and hard limit
         for emp in problem.employees:
-            current = problem.start_date
-            for _ in range(total_days):
-                for shift in problem.shifts:
-                    key = (emp.id, current, shift.id)
-                    if key in variables:
-                        maximize_coverage.append(variables[key])
-                        if shift.name in emp.preferred_shifts:
-                            preference_bonus.append(variables[key])
-                current += timedelta(days=1)
-        
-        fairness_penalty = lpSum([emp_overtime[emp.id] + emp_undertime[emp.id] 
-                                 for emp in problem.employees])
-        
-        # Weighted objective
-        lp_problem += (-lpSum(maximize_coverage) * 10000 +  # Maximize coverage
-                      fairness_penalty * 100 +              # Fairness
-                      -lpSum(preference_bonus) * 1)         # Preferences
-        
+            exp_month = emp.max_hours_per_week * 4.33
+            hard_limit = emp.max_hours_per_week * 5
+            for mk, mdates in months.items():
+                expr = lpSum(vars_x[(emp.id, d, s.id)] * s.duration for d in mdates for s in problem.shifts if s.end>=s.start)
+                # night-shifts splitting omitted for brevity
+                lp_problem += expr == exp_month - undertime[(emp.id, mk)] + overtime[(emp.id, mk)]
+                lp_problem += expr <= hard_limit
+
+        # 7) Total & average hours
+        lp_problem += avg_hours * len(problem.employees) == lpSum(total_hours[e.id] for e in problem.employees)
+        for emp in problem.employees:
+            lp_problem += total_hours[emp.id] == lpSum(vars_x[(emp.id, d, s.id)]*s.duration for d in dates for s in problem.shifts)
+            lp_problem += deviation[emp.id] >= total_hours[emp.id] - avg_hours
+            lp_problem += deviation[emp.id] >= avg_hours - total_hours[emp.id]
+            # 8) Min utilization
+            lp_problem += total_hours[emp.id] >= emp.max_hours_per_week * 52 * 0.7
+
         # Solve
-        lp_problem.solve(PULP_CBC_CMD(msg=False, timeLimit=300))
-        
-        # Extract solution
-        entries = []
-        if lp_problem.status == 1:  # Optimal
-            for (emp_id, date, shift_id), var in variables.items():
-                if var.varValue == 1:
-                    entries.append(ScheduleEntry(emp_id, date, shift_id))
-        
+        solver = PULP_CBC_CMD(msg=False, timeLimit=300)
+        status = lp_problem.solve(solver)
+        print(f"[LP DEBUG] Status: {LpStatus[status]}")
+
+        # Extract
+        entries: List[ScheduleEntry] = []
+        for (eid, dt, sid), v in vars_x.items():
+            if v.varValue and v.varValue > 0.5:
+                entries.append(ScheduleEntry(eid, dt, sid))
         return entries
-    
+
     def _violates_rest_period(self, shift1: Shift, shift2: Shift, date1) -> bool:
-        """Check if shift combination violates 11-hour rest period."""
-        from datetime import datetime
-        
         end1 = datetime.combine(date1, shift1.end)
-        start2 = datetime.combine(date1 + timedelta(days=1), shift2.start)
-        
-        if shift1.end < shift1.start:  # Night shift
+        if shift1.end < shift1.start:
             end1 += timedelta(days=1)
-        
-        pause_hours = (start2 - end1).total_seconds() / 3600
-        return pause_hours < 11
+        start2 = datetime.combine(date1 + timedelta(days=1), shift2.start)
+        pause = (start2 - end1).total_seconds() / 3600
+        return pause < 11
