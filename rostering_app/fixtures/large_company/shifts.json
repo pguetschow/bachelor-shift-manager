@@ -1,0 +1,38 @@
+[
+  {
+    "model": "rostering_app.shift",
+    "pk": 3001,
+    "fields": {
+      "company": 3,
+      "name": "EarlyShift",
+      "start": "06:00:00",
+      "end": "14:00:00",
+      "min_staff": 25,
+      "max_staff": 30
+    }
+  },
+  {
+    "model": "rostering_app.shift",
+    "pk": 3002,
+    "fields": {
+      "company": 3,
+      "name": "LateShift",
+      "start": "14:00:00",
+      "end": "22:00:00",
+      "min_staff": 30,
+      "max_staff": 35
+    }
+  },
+  {
+    "model": "rostering_app.shift",
+    "pk": 3003,
+    "fields": {
+      "company": 3,
+      "name": "NightShift",
+      "start": "22:00:00",
+      "end": "06:00:00",
+      "min_staff": 15,
+      "max_staff": 20
+    }
+  }
+]

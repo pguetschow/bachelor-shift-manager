@@ -24,7 +24,7 @@ Load the employee data
 
 `python manage.py loaddata employees.json`
 
-`python manage.py loaddata shift_types.json`
+`python manage.py loaddata shifts.json`
 
 ## Generate Schedule:
 Run the management command to archive any previous schedule and generate a new one
@@ -52,8 +52,8 @@ The create_candidate function generates a candidate by iterating over the fixtur
 ### Fitness Function:
 The fitness function assigns penalties for:
 
-- Fewer employees than the shift’s minimum requirement.
-- More employees than the shift’s maximum allowed.
+- Fewer employees than the shift's minimum requirement.
+- More employees than the shift's maximum allowed.
 - An employee assigned to more than one shift on the same day.
 - An employee assigned on a day when they are absent.
 

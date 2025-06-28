@@ -1,0 +1,64 @@
+{% extends 'rostering_app/base.html' %}
+
+{% block title %}Unternehmensauswahl{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-10">
+            <h1 class="text-center mb-5">
+                <i class="bi bi-building"></i> 
+                Wählen Sie Ihre Unternehmensgröße
+            </h1>
+            
+            <div class="row g-4">
+                {% for company in companies %}
+                <div class="col-md-4">
+                    <div class="card h-100 text-center company-card">
+                        <div class="card-body d-flex flex-column">
+                            <div class="display-1 mb-3">{{ company.icon }}</div>
+                            <h3 class="card-title">{{ company.name }}</h3>
+                            <p class="card-text text-muted flex-grow-1">{{ company.description }}</p>
+                            <a href="{% url 'schedule_dashboard' company.id %}" 
+                               class="btn btn-{{ company.color }} btn-lg mt-3">
+                                <i class="bi bi-box-arrow-in-right"></i> Auswählen
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <div class="mt-5 text-center">
+                <div class="card bg-light">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <i class="bi bi-info-circle"></i> Hinweis
+                        </h5>
+                        <p class="card-text">
+                            Diese Demo zeigt die Schichtplanung für verschiedene Unternehmensgrößen. 
+                            Die Daten werden durch verschiedene Optimierungsalgorithmen generiert.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.company-card {
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+}
+
+.company-card:hover {
+    transform: translateY(-5px);
+    border-color: var(--secondary-color);
+}
+
+.company-card .display-1 {
+    font-size: 4rem;
+}
+</style>
+{% endblock %}

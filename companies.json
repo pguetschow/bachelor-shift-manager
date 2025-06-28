@@ -1,0 +1,35 @@
+[
+  {
+    "model": "rostering_app.company",
+    "pk": 1,
+    "fields": {
+      "name": "Kleines Unternehmen",
+      "size": "small",
+      "description": "10 Mitarbeiter, 2 Schichten",
+      "icon": "🏪",
+      "color": "primary"
+    }
+  },
+  {
+    "model": "rostering_app.company",
+    "pk": 2,
+    "fields": {
+      "name": "Mittleres Unternehmen",
+      "size": "medium",
+      "description": "30 Mitarbeiter, 3 Schichten",
+      "icon": "🏥",
+      "color": "success"
+    }
+  },
+  {
+    "model": "rostering_app.company",
+    "pk": 3,
+    "fields": {
+      "name": "Großes Unternehmen",
+      "size": "large",
+      "description": "100 Mitarbeiter, 3 Schichten",
+      "icon": "🏭",
+      "color": "warning"
+    }
+  }
+] 
