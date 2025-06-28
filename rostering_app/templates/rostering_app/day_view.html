@@ -11,15 +11,15 @@
                 <i class="bi bi-calendar-day"></i> {{ date|date:"l, j. F Y" }}
             </h1>
             <div class="btn-group">
-                <a href="{% url 'day_view' company.id prev_date %}" 
+                <a href="{% url 'day_view' company.id prev_date %}{% if selected_algorithm %}?algorithm={{ selected_algorithm }}{% endif %}"
                    class="btn btn-outline-secondary">
                     <i class="bi bi-chevron-left"></i> Vorheriger Tag
                 </a>
-                <a href="{% url 'month_view' company.id %}?year={{ date.year }}&month={{ date.month }}" 
+                <a href="{% url 'month_view' company.id %}?year={{ date.year }}&month={{ date.month }}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}"
                    class="btn btn-outline-primary">
                     <i class="bi bi-calendar-month"></i> Monatsansicht
                 </a>
-                <a href="{% url 'day_view' company.id next_date %}" 
+                <a href="{% url 'day_view' company.id next_date %}{% if selected_algorithm %}?algorithm={{ selected_algorithm }}{% endif %}"
                    class="btn btn-outline-secondary">
                     Nächster Tag <i class="bi bi-chevron-right"></i>
                 </a>
@@ -49,17 +49,23 @@
                         </span>
                     </div>
                     <div class="progress mt-2" style="height: 10px;">
-                        <div class="progress-bar {% if shift_data.status == 'understaffed' %}bg-danger{% elif shift_data.status == 'overstaffed' %}bg-warning{% else %}bg-success{% endif %}" 
-                             style="width: {% widthratio shift_data.count shift_data.shift.max_staff 100 %}%"></div>
+                        {% if shift_data.shift.max_staff > 0 %}
+                        <div class="progress-bar {% if shift_data.status == 'understaffed' %}bg-danger{% elif shift_data.status == 'overstaffed' %}bg-warning{% else %}bg-success{% endif %}"
+                             style="width: {% widthratio shift_data.count shift_data.shift.max_staff 100 %}%"
+                             aria-valuenow="{{ shift_data.count }}"
+                             aria-valuemin="0"
+                             aria-valuemax="{{ shift_data.shift.max_staff }}">
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
-                
+
                 <!-- Assigned Employees -->
                 <h6 class="mb-2">Zugewiesene Mitarbeiter:</h6>
                 {% if shift_data.employees %}
                 <div class="list-group list-group-flush mb-3">
                     {% for employee in shift_data.employees %}
-                    <a href="{% url 'employee_view' company.id employee.id %}" 
+                    <a href="{% url 'employee_view' company.id employee.id %}{% if selected_algorithm %}?algorithm={{ selected_algorithm }}{% endif %}"
                        class="list-group-item list-group-item-action">
                         <i class="bi bi-person"></i> {{ employee.name }}
                         {% if employee.max_hours_per_week < 40 %}
@@ -71,12 +77,15 @@
                 {% else %}
                 <p class="text-muted">Keine Mitarbeiter zugewiesen</p>
                 {% endif %}
-                
+
                 <!-- Available Employees -->
                 {% if shift_data.status == 'understaffed' %}
                 <div class="alert alert-warning">
-                    <i class="bi bi-exclamation-triangle"></i> 
-                    Unterbesetzt! {{ shift_data.shift.min_staff|add:"-"|add:shift_data.count }} weitere Mitarbeiter benötigt.
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Unterbesetzt!
+                    {% with needed=shift_data.shift.min_staff|add:"-"|add:shift_data.count %}
+                    {% if needed > 0 %}{{ needed }} weitere Mitarbeiter benötigt.{% endif %}
+                    {% endwith %}
                 </div>
                 {% endif %}
             </div>
@@ -100,23 +109,41 @@
                     </div>
                     <div class="col-md-3">
                         <h6 class="text-muted">Eingesetzte Mitarbeiter</h6>
-                        <h3>{% for shift in shifts_data %}{{ shift.count }}{% if not forloop.last %}+{% endif %}{% endfor %}</h3>
+                        <h3>
+                            {% with total_employees=0 %}
+                            {% for shift in shifts_data %}
+                                {% if forloop.first %}{{ shift.count }}{% endif %}
+                                {% if not forloop.first %}+ {{ shift.count }}{% endif %}
+                            {% endfor %}
+                            {% endwith %}
+                        </h3>
                     </div>
                     <div class="col-md-3">
                         <h6 class="text-muted">Gesamtstunden</h6>
-                        <h3>{% for shift in shifts_data %}{{ shift.shift.get_duration|multiply:shift.count }}{% if not forloop.last %}+{% endif %}{% endfor %}h</h3>
+                        <h3>
+                            {% with total_hours=0 %}
+                            {% for shift in shifts_data %}
+                                {% if forloop.first %}{{ shift.shift.get_duration|multiply:shift.count|floatformat:0 }}{% endif %}
+                                {% if not forloop.first %}+ {{ shift.shift.get_duration|multiply:shift.count|floatformat:0 }}{% endif %}
+                            {% endfor %}
+                            {% endwith %}h
+                        </h3>
                     </div>
                     <div class="col-md-3">
                         <h6 class="text-muted">Status</h6>
                         <h3>
+                            {% with has_issues=False %}
                             {% for shift in shifts_data %}
                                 {% if shift.status == 'understaffed' %}
-                                    <span class="text-danger">⚠️</span>
+                                    {% if not has_issues %}
+                                        <span class="text-danger">⚠️ Probleme</span>
+                                    {% endif %}
                                 {% endif %}
                             {% endfor %}
-                            {% if not shifts_data|length %}
-                                <span class="text-success">✓</span>
+                            {% if not has_issues %}
+                                <span class="text-success">✓ Alles OK</span>
                             {% endif %}
+                            {% endwith %}
                         </h3>
                     </div>
                 </div>
@@ -137,11 +164,22 @@
                 <div class="row">
                     {% for shift_id, employees in available_by_shift.items %}
                     <div class="col-md-4">
-                        <h6>Für {{ shift_id }}</h6>
+                        <h6>
+                            {% for shift in shifts_data %}
+                                {% if shift.shift.id == shift_id %}
+                                    Für {{ shift.shift.get_name_display }}
+                                {% endif %}
+                            {% endfor %}
+                        </h6>
                         {% if employees %}
                         <ul class="list-unstyled">
                             {% for emp in employees|slice:":5" %}
-                            <li><i class="bi bi-person"></i> {{ emp.name }}</li>
+                            <li>
+                                <a href="{% url 'employee_view' company.id emp.id %}{% if selected_algorithm %}?algorithm={{ selected_algorithm }}{% endif %}"
+                                   class="text-decoration-none">
+                                    <i class="bi bi-person"></i> {{ emp.name }}
+                                </a>
+                            </li>
                             {% endfor %}
                             {% if employees|length > 5 %}
                             <li class="text-muted">... und {{ employees|length|add:"-5" }} weitere</li>

@@ -1,4 +1,5 @@
 {% extends 'rostering_app/base.html' %}
+{% load custom_filters %}
 
 {% block title %}Dashboard{% endblock %}
 
@@ -11,15 +12,15 @@
                 <small class="text-muted">{{ current_month|date:"F Y" }}</small>
             </h1>
             <div class="btn-group">
-                <a href="?year={{ prev_month|slice:":4" }}&month={{ prev_month|slice:"5:" }}" 
+                <a href="?year={{ prev_month|slice:":4" }}&month={{ prev_month|slice:"5:" }}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}"
                    class="btn btn-outline-secondary">
                     <i class="bi bi-chevron-left"></i> Vorheriger Monat
                 </a>
-                <a href="{% url 'month_view' company.id %}?year={{ year }}&month={{ month }}" 
+                <a href="{% url 'month_view' company.id %}?year={{ year }}&month={{ month }}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}"
                    class="btn btn-outline-primary">
                     <i class="bi bi-calendar-month"></i> Monatsansicht
                 </a>
-                <a href="?year={{ next_month|slice:":4" }}&month={{ next_month|slice:"5:" }}" 
+                <a href="?year={{ next_month|slice:":4" }}&month={{ next_month|slice:"5:" }}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}"
                    class="btn btn-outline-secondary">
                     Nächster Monat <i class="bi bi-chevron-right"></i>
                 </a>
@@ -45,7 +46,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-md-3">
         <div class="card stat-card success">
             <div class="card-body">
@@ -61,7 +62,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-md-3">
         <div class="card stat-card warning">
             <div class="card-body">
@@ -77,7 +78,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-md-3">
         <div class="card stat-card danger">
             <div class="card-body">
@@ -125,13 +126,16 @@
                                 </td>
                                 <td>{{ stat.shift.start|time:"H:i" }} - {{ stat.shift.end|time:"H:i" }}</td>
                                 <td>{{ stat.shift.min_staff }} / {{ stat.shift.max_staff }}</td>
-                                <td>{{ stat.avg_staff }}</td>
+                                <td>{{ stat.avg_staff|floatformat:1 }}</td>
                                 <td>
                                     <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar {% if stat.coverage_percentage < 80 %}bg-danger{% elif stat.coverage_percentage < 95 %}bg-warning{% else %}bg-success{% endif %}" 
-                                             role="progressbar" 
-                                             style="width: {{ stat.coverage_percentage }}%">
-                                            {{ stat.coverage_percentage }}%
+                                        <div class="progress-bar {% if stat.coverage_percentage < 80 %}bg-danger{% elif stat.coverage_percentage < 95 %}bg-warning{% else %}bg-success{% endif %}"
+                                             role="progressbar"
+                                             style="width: {{ stat.coverage_percentage|floatformat:0 }}%"
+                                             aria-valuenow="{{ stat.coverage_percentage|floatformat:0 }}"
+                                             aria-valuemin="0"
+                                             aria-valuemax="100">
+                                            {{ stat.coverage_percentage|floatformat:0 }}%
                                         </div>
                                     </div>
                                 </td>
@@ -148,7 +152,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-md-4">
         <div class="card">
             <div class="card-header">
@@ -180,19 +184,19 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-md-3">
-                        <a href="{% url 'day_view' company.id current_date|date:'Y-m-d' %}" 
+                        <a href="{% url 'day_view' company.id current_date|date:'Y-m-d' %}{% if selected_algorithm %}?algorithm={{ selected_algorithm }}{% endif %}"
                            class="btn btn-outline-primary w-100">
                             <i class="bi bi-calendar-day"></i> Heutige Schichten
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'month_view' company.id %}" 
+                        <a href="{% url 'month_view' company.id %}{% if selected_algorithm %}?algorithm={{ selected_algorithm }}{% endif %}"
                            class="btn btn-outline-secondary w-100">
                             <i class="bi bi-calendar-month"></i> Vollständiger Kalender
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'analytics_view' company.id %}" 
+                        <a href="{% url 'analytics_view' company.id %}{% if selected_algorithm %}?algorithm={{ selected_algorithm }}{% endif %}"
                            class="btn btn-outline-info w-100">
                             <i class="bi bi-graph-up"></i> Detaillierte Analysen
                         </a>

@@ -15,14 +15,14 @@
                 <i class="bi bi-calendar-month"></i> {{ month_name }} {{ year }}
             </h1>
             <div class="btn-group">
-                <a href="?year={{ prev_year }}&month={{ prev_month }}"
+                <a href="?year={{ prev_year }}&month={{ prev_month }}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}"
                    class="btn btn-outline-secondary">
                     <i class="bi bi-chevron-left"></i>
                 </a>
                 <button class="btn btn-outline-primary" onclick="window.print()">
                     <i class="bi bi-printer"></i> Drucken
                 </button>
-                <a href="?year={{ next_year }}&month={{ next_month }}"
+                <a href="?year={{ next_year }}&month={{ next_month }}{% if selected_algorithm %}&algorithm={{ selected_algorithm }}{% endif %}"
                    class="btn btn-outline-secondary">
                     <i class="bi bi-chevron-right"></i>
                 </a>
@@ -38,7 +38,7 @@
             <div class="card-body">
                 <h6 class="text-muted">Gesamtschichten</h6>
                 <h2>{{ stats.total_shifts }}</h2>
-                <small class="text-muted">in 30 Tagen</small>
+                <small class="text-muted">im Monat</small>
             </div>
         </div>
     </div>
@@ -47,12 +47,17 @@
             <div class="card-body">
                 <h6 class="text-muted">Durchschn. Auslastung</h6>
                 <h2>
-                    {% for shift, data in stats.coverage_by_shift.items %}
-                        {{ data.percentage }}%
-                        {% if not forloop.last %}/{% endif %}
-                    {% endfor %}
+                    {% if stats.coverage_by_shift %}
+                        {% with total_percentage=0 count=0 %}
+                        {% for shift_name, data in stats.coverage_by_shift.items %}
+                            {% if forloop.first %}{{ data.percentage|floatformat:0 }}%{% endif %}
+                        {% endfor %}
+                        {% endwith %}
+                    {% else %}
+                        0%
+                    {% endif %}
                 </h2>
-                <small class="text-muted">nach Schicht</small>
+                <small class="text-muted">über alle Schichten</small>
             </div>
         </div>
     </div>
@@ -70,11 +75,13 @@
             <div class="card-body">
                 <h6 class="text-muted">Ø Stunden/Mitarbeiter</h6>
                 <h2>
-                    {% with total_hours=0 %}
-                    {% for emp in stats.employee_distribution %}
-                        {% if forloop.first %}{{ emp.hours|floatformat:1 }}{% endif %}
-                    {% endfor %}
-                    {% endwith %}
+                    {% if stats.employee_distribution %}
+                        {% for emp in stats.employee_distribution %}
+                            {% if forloop.first %}{{ emp.hours|floatformat:0 }}{% endif %}
+                        {% endfor %}
+                    {% else %}
+                        0
+                    {% endif %}
                 </h2>
                 <small class="text-muted">Top-Performer</small>
             </div>
@@ -94,7 +101,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-md-6">
         <div class="card">
             <div class="card-header">
@@ -133,13 +140,13 @@
                                         {{ shift_name|shift_display_name }}
                                     </span>
                                 </td>
-                                <td>{{ data.average }}</td>
+                                <td>{{ data.average|floatformat:1 }}</td>
                                 <td>{{ data.min }}/{{ data.max }}</td>
                                 <td>
                                     <div class="progress" style="height: 15px;">
-                                        <div class="progress-bar {% if data.percentage < 80 %}bg-danger{% elif data.percentage < 95 %}bg-warning{% else %}bg-success{% endif %}" 
-                                             style="width: {{ data.percentage }}%">
-                                            {{ data.percentage }}%
+                                        <div class="progress-bar {% if data.percentage < 80 %}bg-danger{% elif data.percentage < 95 %}bg-warning{% else %}bg-success{% endif %}"
+                                             style="width: {{ data.percentage|floatformat:0 }}%">
+                                            {{ data.percentage|floatformat:0 }}%
                                         </div>
                                     </div>
                                 </td>
@@ -151,7 +158,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-md-6">
         <div class="card">
             <div class="card-header">
@@ -178,8 +185,8 @@
                                 <td>{{ emp.hours|floatformat:1 }}h</td>
                                 <td>
                                     <div class="progress" style="height: 15px;">
-                                        <div class="progress-bar" style="width: {{ emp.utilization }}%">
-                                            {{ emp.utilization }}%
+                                        <div class="progress-bar" style="width: {{ emp.utilization|floatformat:0 }}%">
+                                            {{ emp.utilization|floatformat:0 }}%
                                         </div>
                                     </div>
                                 </td>
@@ -196,60 +203,112 @@
 
 {% block extra_js %}
 <script>
-// Coverage Chart
-const coverageCtx = document.getElementById('coverageChart').getContext('2d');
-const coverageData = {
-    labels: [{% for shift_name, data in stats.coverage_by_shift.items %}'{{ shift_name|shift_display_name }}'{% if not forloop.last %},{% endif %}{% endfor %}],
-    datasets: [{
-        label: 'Durchschnittliche Besetzung',
-        data: [{% for shift_name, data in stats.coverage_by_shift.items %}{{ data.average }}{% if not forloop.last %},{% endif %}{% endfor %}],
-        backgroundColor: ['#3498db', '#27ae60', '#34495e'],
-        borderWidth: 1
-    }]
-};
+document.addEventListener('DOMContentLoaded', function() {
+    // Coverage Chart Data
+    const coverageLabels = [
+        {% for shift_name, data in stats.coverage_by_shift.items %}
+        '{{ shift_name|shift_display_name }}'{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
 
-new Chart(coverageCtx, {
-    type: 'bar',
-    data: coverageData,
-    options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-            y: {
-                beginAtZero: true
+    const coverageData = [
+        {% for shift_name, data in stats.coverage_by_shift.items %}
+        {{ data.average|floatformat:1 }}{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    // Create Coverage Chart
+    const coverageCtx = document.getElementById('coverageChart').getContext('2d');
+    new Chart(coverageCtx, {
+        type: 'bar',
+        data: {
+            labels: coverageLabels,
+            datasets: [{
+                label: 'Durchschnittliche Besetzung',
+                data: coverageData,
+                backgroundColor: ['#3498db', '#27ae60', '#e74c3c', '#f39c12'],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
             }
         }
-    }
-});
+    });
 
-// Distribution Chart
-const distributionCtx = document.getElementById('distributionChart').getContext('2d');
-const distributionData = {
-    labels: [{% for emp in stats.employee_distribution|slice:":5" %}'{{ emp.name }}'{% if not forloop.last %},{% endif %}{% endfor %}],
-    datasets: [{
-        data: [{% for emp in stats.employee_distribution|slice:":5" %}{{ emp.hours }}{% if not forloop.last %},{% endif %}{% endfor %}],
-        backgroundColor: [
-            '#3498db',
-            '#27ae60',
-            '#f39c12',
-            '#e74c3c',
-            '#9b59b6'
-        ]
-    }]
-};
+    // Distribution Chart Data
+    const distributionLabels = [
+        {% for emp in stats.employee_distribution|slice:":5" %}
+        '{{ emp.name }}'{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
 
-new Chart(distributionCtx, {
-    type: 'doughnut',
-    data: distributionData,
-    options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: {
-                position: 'right'
+    const distributionData = [
+        {% for emp in stats.employee_distribution|slice:":5" %}
+        {{ emp.hours|floatformat:1 }}{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    // Create Distribution Chart
+    const distributionCtx = document.getElementById('distributionChart').getContext('2d');
+    new Chart(distributionCtx, {
+        type: 'doughnut',
+        data: {
+            labels: distributionLabels,
+            datasets: [{
+                data: distributionData,
+                backgroundColor: [
+                    '#3498db',
+                    '#27ae60',
+                    '#f39c12',
+                    '#e74c3c',
+                    '#9b59b6'
+                ],
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        padding: 10,
+                        font: {
+                            size: 11
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            label += context.parsed.toFixed(1) + ' Stunden';
+                            return label;
+                        }
+                    }
+                }
             }
         }
-    }
+    });
 });
 </script>
 {% endblock %}
