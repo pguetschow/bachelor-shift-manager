@@ -26,7 +26,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
 
     @property
     def name(self) -> str:
-        return "Linear Programming (ILP with Scaling)"
+        return "Linear Programming (ILP)"
 
     def _get_holidays_for_year(self, year: int) -> set:
         """Get German national holidays for a specific year."""
