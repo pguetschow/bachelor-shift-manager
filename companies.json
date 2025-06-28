@@ -7,7 +7,8 @@
       "size": "small",
       "description": "10 Mitarbeiter, 2 Schichten",
       "icon": "🏪",
-      "color": "primary"
+      "color": "primary",
+      "sunday_is_workday": false
     }
   },
   {
@@ -18,7 +19,8 @@
       "size": "medium",
       "description": "30 Mitarbeiter, 3 Schichten",
       "icon": "🏥",
-      "color": "success"
+      "color": "success",
+      "sunday_is_workday": false
     }
   },
   {
@@ -29,7 +31,8 @@
       "size": "large",
       "description": "100 Mitarbeiter, 3 Schichten",
       "icon": "🏭",
-      "color": "warning"
+      "color": "warning",
+      "sunday_is_workday": false
     }
   }
 ] 

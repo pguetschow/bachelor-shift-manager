@@ -79,10 +79,15 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
 
         # Create overtime/undertime variables for each employee and month
         for emp in problem.employees:
+            expected_monthly_hours = emp.max_hours_per_week * 4.33  # Average weeks per month
+            max_overtime = expected_monthly_hours * 0.2
+
             for month_key in months:
+                # Limit overtime to something reasonable (e.g., 20% of expected hours)
                 overtime_vars[(emp.id, month_key)] = LpVariable(
                     f"overtime_{emp.id}_{month_key[0]}_{month_key[1]}",
-                    lowBound=0
+                    lowBound=0,
+                    upBound=max_overtime
                 )
                 undertime_vars[(emp.id, month_key)] = LpVariable(
                     f"undertime_{emp.id}_{month_key[0]}_{month_key[1]}",
@@ -93,10 +98,32 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         # Weights for different penalty components
         w_understaff = 1000  # High penalty for understaffing
         w_overstaff = 100    # Medium penalty for overstaffing
-        w_overtime = 10      # Lower penalty for overtime
+        w_overtime = 50      # Higher penalty for overtime to discourage it
+        w_undertime = 30     # Increased penalty for undertime to encourage fuller utilization
+        w_fairness = 20      # Penalty for deviation from average hours
         w_preference = -5    # Bonus for preferred shifts
 
         objective = 0
+
+        # Add fairness component - penalize deviation from average hours
+        # Create variables for total hours per employee
+        total_hours_vars = {}
+        for emp in problem.employees:
+            total_hours_vars[emp.id] = LpVariable(
+                f"total_hours_{emp.id}",
+                lowBound=0
+            )
+
+        # Variable for average hours
+        avg_hours_var = LpVariable("avg_hours", lowBound=0)
+
+        # Variables for absolute deviation from average
+        deviation_vars = {}
+        for emp in problem.employees:
+            deviation_vars[emp.id] = LpVariable(
+                f"deviation_{emp.id}",
+                lowBound=0
+            )
 
         # Penalty for under/overstaffing
         slack_vars = {}
@@ -116,7 +143,11 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         for emp in problem.employees:
             for month_key in months:
                 objective += w_overtime * overtime_vars[(emp.id, month_key)]
-                objective += w_overtime * undertime_vars[(emp.id, month_key)]
+                objective += w_undertime * undertime_vars[(emp.id, month_key)]
+
+        # Penalty for unfair distribution (deviation from average)
+        for emp in problem.employees:
+            objective += w_fairness * deviation_vars[emp.id]
 
         # Bonus for preferred shifts
         for emp in problem.employees:
@@ -201,36 +232,112 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
         for emp in problem.employees:
             # Calculate expected monthly hours based on max weekly hours
             expected_monthly_hours = emp.max_hours_per_week * 4.33  # Average weeks per month
+            # Hard limit: no more than weekly_max * 5 hours per month (accounting for 5-week months)
+            monthly_hard_limit = emp.max_hours_per_week * 5
 
             for month_key, month_dates in months.items():
-                monthly_hours = lpSum(
-                    variables[(emp.id, date, shift.id)] * shift.duration
-                    for date in month_dates
-                    for shift in problem.shifts
-                )
+                # Calculate hours worked in this month using proper linear expressions
+                monthly_hours_expr = 0
+
+                # Add hours for each shift in this month
+                for date in month_dates:
+                    for shift in problem.shifts:
+                        if shift.end >= shift.start:  # Day shift
+                            monthly_hours_expr += variables[(emp.id, date, shift.id)] * shift.duration
+                        else:  # Night shift - need to split hours
+                            # Calculate hours before and after midnight
+                            hours_before_midnight = (
+                                datetime.combine(date, datetime.min.time().replace(hour=23, minute=59, second=59)) -
+                                datetime.combine(date, shift.start)
+                            ).total_seconds() / 3600 + 0.0167  # +1 minute
+
+                            # Hours before midnight count for this date's month
+                            monthly_hours_expr += variables[(emp.id, date, shift.id)] * hours_before_midnight
+
+                # Account for spillover hours from previous month's night shifts
+                if month_key[1] > 1:  # Not January
+                    prev_month_last_day = dates[dates.index(month_dates[0]) - 1] if dates.index(month_dates[0]) > 0 else None
+                else:  # January
+                    prev_month_last_day = None
+
+                if prev_month_last_day and prev_month_last_day >= problem.start_date:
+                    for shift in problem.shifts:
+                        if shift.end < shift.start:  # Night shift
+                            # Calculate hours after midnight
+                            hours_after_midnight = (
+                                datetime.combine(prev_month_last_day + timedelta(days=1), shift.end) -
+                                datetime.combine(prev_month_last_day + timedelta(days=1), datetime.min.time())
+                            ).total_seconds() / 3600
+
+                            # Add these hours to current month
+                            monthly_hours_expr += variables[(emp.id, prev_month_last_day, shift.id)] * hours_after_midnight
 
                 # Monthly hours = expected - undertime + overtime
                 lp_problem += (
-                    monthly_hours == expected_monthly_hours -
+                    monthly_hours_expr == expected_monthly_hours -
                     undertime_vars[(emp.id, month_key)] +
                     overtime_vars[(emp.id, month_key)],
                     f"monthly_hours_{emp.id}_{month_key[0]}_{month_key[1]}"
                 )
 
-        # 7. Handle month transitions for night shifts
-        # For shifts that cross midnight at month boundaries
+                # Add hard constraint: monthly hours cannot exceed the hard limit
+                lp_problem += (
+                    monthly_hours_expr <= monthly_hard_limit,
+                    f"monthly_hours_hard_limit_{emp.id}_{month_key[0]}_{month_key[1]}"
+                )
+
+        # 7. Calculate total hours per employee for fairness
         for emp in problem.employees:
-            for i, date in enumerate(dates):
-                # Check if this is the last day of a month
-                next_date = date + timedelta(days=1)
-                if date.month != next_date.month:
-                    for shift in problem.shifts:
-                        # If it's a night shift that crosses midnight
-                        if shift.end < shift.start:
-                            # The hours after midnight count toward the next month
-                            # This is implicitly handled by our date-based assignment
-                            # but we need to ensure consistency in rest periods
-                            pass  # Already handled in rest period constraints
+            total_hours_expr = lpSum(
+                variables[(emp.id, date, shift.id)] * shift.duration
+                for date in dates
+                for shift in problem.shifts
+            )
+            lp_problem += (
+                total_hours_vars[emp.id] == total_hours_expr,
+                f"total_hours_{emp.id}"
+            )
+
+        # 8. Calculate average hours
+        lp_problem += (
+            avg_hours_var * len(problem.employees) == lpSum(total_hours_vars[emp.id] for emp in problem.employees),
+            "average_hours"
+        )
+
+        # 9. Calculate deviations from average (absolute value approximation)
+        for emp in problem.employees:
+            # deviation >= total_hours - avg_hours
+            lp_problem += (
+                deviation_vars[emp.id] >= total_hours_vars[emp.id] - avg_hours_var,
+                f"deviation_pos_{emp.id}"
+            )
+            # deviation >= avg_hours - total_hours
+            lp_problem += (
+                deviation_vars[emp.id] >= avg_hours_var - total_hours_vars[emp.id],
+                f"deviation_neg_{emp.id}"
+            )
+
+        # 10. Minimum utilization constraint - ensure employees get at least 70% of their potential hours
+        for emp in problem.employees:
+            min_annual_hours = emp.max_hours_per_week * 52 * 0.7  # 70% utilization
+            lp_problem += (
+                total_hours_vars[emp.id] >= min_annual_hours,
+                f"min_utilization_{emp.id}"
+            )
+
+        # 11. Ensure feasibility - add a constraint to prevent infeasible solutions
+        # If the total available work hours is less than required, we need to relax constraints
+        total_available_hours = sum(
+            emp.max_hours_per_week * len(weeks)
+            for emp in problem.employees
+        )
+        total_required_hours = sum(
+            shift.min_staff * shift.duration * len(dates)
+            for shift in problem.shifts
+        )
+
+        if total_required_hours > total_available_hours:
+            print(f"[LP WARNING] Problem may be infeasible: required hours ({total_required_hours:.1f}) > available hours ({total_available_hours:.1f})")
 
         # Solve with a 5-minute time limit
         solver = PULP_CBC_CMD(msg=False, timeLimit=300)
