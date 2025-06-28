@@ -1201,7 +1201,8 @@
         "2025-12-28",
         "2025-12-29"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -1257,7 +1258,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -1298,7 +1300,8 @@
         "2025-12-25",
         "2025-12-26"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -1345,7 +1348,8 @@
         "2025-12-25",
         "2025-12-26"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -1401,7 +1405,8 @@
         "2025-12-30",
         "2025-12-31"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -1447,7 +1452,8 @@
         "2025-12-25",
         "2025-12-26"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -1500,7 +1506,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -1552,7 +1559,8 @@
       "preferred_shifts": [
         "LateShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -1598,7 +1606,8 @@
         "2025-12-27",
         "2025-12-28"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -1645,7 +1654,8 @@
       "preferred_shifts": [
         "LateShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -1692,7 +1702,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -1737,7 +1748,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -1793,7 +1805,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -1839,7 +1852,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -1886,7 +1900,8 @@
         "2025-12-25",
         "2025-12-26"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -1938,7 +1953,8 @@
         "2025-12-27",
         "2025-12-28"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -1990,7 +2006,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2042,7 +2059,8 @@
       "preferred_shifts": [
         "LateShift",
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2093,7 +2111,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2146,7 +2165,8 @@
       "preferred_shifts": [
         "LateShift",
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2196,7 +2216,8 @@
       "preferred_shifts": [
         "NightShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2246,7 +2267,8 @@
       ],
       "preferred_shifts": [
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2289,7 +2311,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2341,7 +2364,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2388,7 +2412,8 @@
       ],
       "preferred_shifts": [
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2440,7 +2465,8 @@
       "preferred_shifts": [
         "NightShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2488,7 +2514,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2529,7 +2556,8 @@
         "2025-12-26",
         "2025-12-27"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -2578,7 +2606,8 @@
         "2025-12-30",
         "2025-12-31"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -2630,7 +2659,8 @@
       "preferred_shifts": [
         "NightShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2674,7 +2704,8 @@
       ],
       "preferred_shifts": [
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2720,7 +2751,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2766,7 +2798,8 @@
         "2025-12-30",
         "2025-12-31"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -2816,7 +2849,8 @@
       "preferred_shifts": [
         "NightShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2869,7 +2903,8 @@
         "2025-12-30",
         "2025-12-31"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -2917,7 +2952,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -2963,7 +2999,8 @@
       ],
       "preferred_shifts": [
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3018,7 +3055,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3062,7 +3100,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3108,7 +3147,8 @@
         "2025-12-30",
         "2025-12-31"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -3155,7 +3195,8 @@
         "2025-12-26",
         "2025-12-27"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -3207,7 +3248,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3251,7 +3293,8 @@
         "2025-12-29",
         "2025-12-30"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -3296,7 +3339,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3348,7 +3392,8 @@
         "2025-12-26",
         "2025-12-27"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -3396,7 +3441,8 @@
       "preferred_shifts": [
         "LateShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3454,7 +3500,8 @@
       ],
       "preferred_shifts": [
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3500,7 +3547,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3544,7 +3592,8 @@
       ],
       "preferred_shifts": [
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3602,7 +3651,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3645,7 +3695,8 @@
         "2025-12-29",
         "2025-12-30"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -3696,7 +3747,8 @@
       "preferred_shifts": [
         "NightShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3751,7 +3803,8 @@
         "2025-12-30",
         "2025-12-31"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -3798,7 +3851,8 @@
       "preferred_shifts": [
         "NightShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3848,7 +3902,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3894,7 +3949,8 @@
         "2025-12-29",
         "2025-12-30"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -3939,7 +3995,8 @@
       "preferred_shifts": [
         "NightShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -3991,7 +4048,8 @@
       "preferred_shifts": [
         "LateShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4046,7 +4104,8 @@
       "preferred_shifts": [
         "NightShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4101,7 +4160,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4146,7 +4206,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4197,7 +4258,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4249,7 +4311,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4293,7 +4356,8 @@
         "2025-12-27",
         "2025-12-28"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -4343,7 +4407,8 @@
       "preferred_shifts": [
         "NightShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4392,7 +4457,8 @@
         "2025-12-27",
         "2025-12-28"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -4442,7 +4508,8 @@
       "preferred_shifts": [
         "NightShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4491,7 +4558,8 @@
       ],
       "preferred_shifts": [
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4533,7 +4601,8 @@
       ],
       "preferred_shifts": [
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4586,7 +4655,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4632,7 +4702,8 @@
       "preferred_shifts": [
         "NightShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4676,7 +4747,8 @@
         "2025-12-27",
         "2025-12-28"
       ],
-      "preferred_shifts": []
+      "preferred_shifts": [],
+      "company": 3
     }
   },
   {
@@ -4723,7 +4795,8 @@
       "preferred_shifts": [
         "LateShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4768,7 +4841,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4817,7 +4891,8 @@
       "preferred_shifts": [
         "NightShift",
         "LateShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4867,7 +4942,8 @@
       "preferred_shifts": [
         "EarlyShift",
         "NightShift"
-      ]
+      ],
+      "company": 3
     }
   },
   {
@@ -4916,7 +4992,8 @@
       "preferred_shifts": [
         "NightShift",
         "EarlyShift"
-      ]
+      ],
+      "company": 3
     }
   }
 ]

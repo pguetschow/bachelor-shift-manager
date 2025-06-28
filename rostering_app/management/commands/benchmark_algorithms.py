@@ -26,6 +26,13 @@ from scheduling_core.simulated_annealing import SimulatedAnnealingScheduler, Coo
 class Command(BaseCommand):
     help = "Benchmark scheduling algorithms across different company sizes"
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--load-fixtures',
+            action='store_true',
+            help='Load fixtures into database (clears existing data)',
+        )
+
     def handle(self, *args, **options):
         # Test configurations
         test_cases = [
@@ -66,23 +73,27 @@ class Command(BaseCommand):
         # Run benchmarks for each test case
         all_results = {}
 
-        # Clear the database first
         ScheduleEntry.objects.all().delete()
-        # Employee.objects.all().delete()
-        # Shift.objects.all().delete()
-        # Company.objects.all().delete()
+        # Load fixtures if requested
+        if options['load_fixtures']:
+            # Clear the database first
+            Employee.objects.all().delete()
+            Shift.objects.all().delete()
+            Company.objects.all().delete()
 
-        self.stdout.write("Cleared database")
+            self.stdout.write("Cleared database")
 
-        # Load company fixtures first
-        # self._load_company_fixtures('rostering_app/fixtures/companies.json')
-        # self.stdout.write(f"Loaded {Company.objects.count()} companies")
-        
-        # Load all fixtures for all companies before running benchmarks
-        # for test_case in test_cases:
-        #     self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
-        
-        # self.stdout.write(f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
+            # Load company fixtures first
+            self._load_company_fixtures('rostering_app/fixtures/companies.json')
+            self.stdout.write(f"Loaded {Company.objects.count()} companies")
+            
+            # Load all fixtures for all companies before running benchmarks
+            for test_case in test_cases:
+                self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
+            
+            self.stdout.write(f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
+        else:
+            self.stdout.write("Using existing database data (no fixtures loaded)")
 
         for test_case in test_cases:
             self.stdout.write(f"\n{'='*60}")
