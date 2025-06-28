@@ -50,8 +50,7 @@ def schedule_dashboard(request, company_id):
     entry_filter = {
         'company': company,
         'date__gte': first_day,
-        'date__lte': last_day,
-        'archived': False
+        'date__lte': last_day
     }
     if selected_algorithm:
         entry_filter['algorithm'] = selected_algorithm
@@ -113,7 +112,7 @@ def month_view(request, company_id):
                 week_data.append(None)
             else:
                 date = datetime.date(year, month, day)
-                entry_filter = {'date': date, 'archived': False, 'company': company}
+                entry_filter = {'date': date, 'company': company}
                 if selected_algorithm:
                     entry_filter['algorithm'] = selected_algorithm
                 entries = ScheduleEntry.objects.filter(**entry_filter)
@@ -194,7 +193,7 @@ def day_view(request, company_id, date):
     # Get all shifts for this day
     shifts_data = []
     for shift in Shift.objects.filter(company=company):
-        entry_filter = {'date': date_obj, 'shift': shift, 'archived': False, 'company': company}
+        entry_filter = {'date': date_obj, 'shift': shift, 'company': company}
         if selected_algorithm:
             entry_filter['algorithm'] = selected_algorithm
         entries = ScheduleEntry.objects.filter(**entry_filter).select_related('employee')
@@ -213,7 +212,7 @@ def day_view(request, company_id, date):
     available_by_shift = {}
     
     for shift in Shift.objects.filter(company=company):
-        entry_filter = {'date': date_obj, 'archived': False, 'company': company}
+        entry_filter = {'date': date_obj, 'company': company}
         if selected_algorithm:
             entry_filter['algorithm'] = selected_algorithm
         assigned = ScheduleEntry.objects.filter(**entry_filter).values_list('employee_id', flat=True)
@@ -264,8 +263,7 @@ def employee_view(request, company_id, employee_id):
     entry_filter = {
         'employee': employee,
         'date__gte': first_day,
-        'date__lte': last_day,
-        'archived': False
+        'date__lte': last_day
     }
     if selected_algorithm:
         entry_filter['algorithm'] = selected_algorithm
@@ -322,7 +320,6 @@ def analytics_view(request, company_id):
     entry_filter = {
         'date__gte': first_day,
         'date__lte': last_day,
-        'archived': False,
         'company': company
     }
     if selected_algorithm:
@@ -390,7 +387,6 @@ def api_schedule_data(request, company_id, year, month):
     entries = ScheduleEntry.objects.filter(
         date__gte=first_day,
         date__lte=last_day,
-        archived=False,
         company=company
     ).select_related('employee', 'shift')
     

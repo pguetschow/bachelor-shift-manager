@@ -41,12 +41,12 @@ class Command(BaseCommand):
                 'employee_fixture': 'rostering_app/fixtures/medium_company/employees.json',
                 'shift_fixture': 'rostering_app/fixtures/medium_company/shifts.json'
             },
-            # {
-            #     'name': 'large_company',
-            #     'display_name': 'Großes Unternehmen (100 MA, 3 Schichten)',
-            #     'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
-            #     'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
-            # }
+            {
+                'name': 'large_company',
+                'display_name': 'Großes Unternehmen (100 MA, 3 Schichten)',
+                'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
+                'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
+            }
         ]
 
         # Algorithm configurations
@@ -68,21 +68,21 @@ class Command(BaseCommand):
 
         # Clear the database first
         ScheduleEntry.objects.all().delete()
-        Employee.objects.all().delete()
-        Shift.objects.all().delete()
-        Company.objects.all().delete()
+        # Employee.objects.all().delete()
+        # Shift.objects.all().delete()
+        # Company.objects.all().delete()
 
         self.stdout.write("Cleared database")
 
         # Load company fixtures first
-        self._load_company_fixtures('rostering_app/fixtures/companies.json')
-        self.stdout.write(f"Loaded {Company.objects.count()} companies")
+        # self._load_company_fixtures('rostering_app/fixtures/companies.json')
+        # self.stdout.write(f"Loaded {Company.objects.count()} companies")
         
         # Load all fixtures for all companies before running benchmarks
-        for test_case in test_cases:
-            self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
+        # for test_case in test_cases:
+        #     self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
         
-        self.stdout.write(f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
+        # self.stdout.write(f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
 
         for test_case in test_cases:
             self.stdout.write(f"\n{'='*60}")
@@ -266,8 +266,7 @@ class Command(BaseCommand):
                     date=entry.date,
                     shift_id=entry.shift_id,
                     company=company,
-                    algorithm=algorithm_name,
-                    archived=False
+                    algorithm=algorithm_name
                 )
 
     def _calculate_kpis(self, company, algorithm_name) -> Dict[str, Any]:
@@ -298,7 +297,6 @@ class Command(BaseCommand):
                 employee=emp, 
                 date__gte=start_date, 
                 date__lte=end_date,
-                archived=False,
                 algorithm=algorithm_name,
                 company=company
             )
