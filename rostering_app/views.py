@@ -5,7 +5,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
 from django.db.models import Count, Q
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
-from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range
+from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range, get_non_working_days_in_range
 
 
 def load_company_fixtures(company):
@@ -40,8 +40,16 @@ def schedule_dashboard(request, company_id):
     
     # Get current date or from query params
     today = datetime.date.today()
-    year = int(request.GET.get('year', today.year))
-    month = int(request.GET.get('month', today.month))
+    year_param = request.GET.get('year', '')
+    month_param = request.GET.get('month', '')
+    
+    # Handle empty string parameters by using defaults
+    try:
+        year = int(year_param) if year_param else today.year
+        month = int(month_param) if month_param else today.month
+    except ValueError:
+        year = today.year
+        month = today.month
     
     # Calculate date range
     first_day = datetime.date(year, month, 1)
@@ -100,8 +108,17 @@ def month_view(request, company_id):
     company = get_object_or_404(Company, pk=company_id)
     load_company_fixtures(company)
 
-    year = int(request.GET.get('year', datetime.date.today().year))
-    month = int(request.GET.get('month', datetime.date.today().month))
+    today = datetime.date.today()
+    year_param = request.GET.get('year', '')
+    month_param = request.GET.get('month', '')
+    
+    # Handle empty string parameters by using defaults
+    try:
+        year = int(year_param) if year_param else today.year
+        month = int(month_param) if month_param else today.month
+    except ValueError:
+        year = today.year
+        month = today.month
 
     # Algorithm filter
     available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
@@ -113,6 +130,16 @@ def month_view(request, company_id):
     cal = calendar.monthcalendar(year, month)
     month_data = []
     week_count = 0
+
+    # Calculate date range for the month
+    first_day = datetime.date(year, month, 1)
+    last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    
+    # Get working and non-working days for accurate statistics
+    working_days = get_working_days_in_range(first_day, last_day, company)
+    non_working_days = get_non_working_days_in_range(first_day, last_day, company)
+    total_working_days = len(working_days)
+    total_non_working_days = len(non_working_days)
 
     for week in cal:
         week_data = []
@@ -160,14 +187,9 @@ def month_view(request, company_id):
         month_data.append(week_data)
 
     shifts = Shift.objects.filter(company=company)
-    days_per_week = 7
-    total_workdays = week_count * days_per_week - 2
-    total_weekends = week_count * 2
     shifts_per_day = shifts.count()
-    total_shifts = week_count * days_per_week * shifts_per_day
+    total_shifts = total_working_days * shifts_per_day
 
-    first_day = datetime.date(year, month, 1)
-    last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
     prev_month = first_day - datetime.timedelta(days=1)
     next_month = last_day + datetime.timedelta(days=1)
 
@@ -183,8 +205,8 @@ def month_view(request, company_id):
         'prev_month': prev_month.month,
         'next_year': next_month.year,
         'next_month': next_month.month,
-        'total_workdays': total_workdays,
-        'total_weekends': total_weekends,
+        'total_working_days': total_working_days,
+        'total_non_working_days': total_non_working_days,
         'shifts_per_day': shifts_per_day,
         'total_shifts': total_shifts,
         'available_algorithms': available_algorithms,
@@ -218,11 +240,16 @@ def day_view(request, company_id, date):
             entry_filter['algorithm'] = selected_algorithm
         entries = ScheduleEntry.objects.filter(**entry_filter).select_related('employee')
         
+        count = entries.count()
+        # Calculate percentage for progress bar
+        percentage = round((count / shift.max_staff) * 100, 1) if shift.max_staff > 0 else 0
+        
         shifts_data.append({
             'shift': shift,
             'employees': [entry.employee for entry in entries],
-            'count': entries.count(),
-            'status': get_shift_status(entries.count(), 
+            'count': count,
+            'percentage': percentage,
+            'status': get_shift_status(count, 
                                      shift.min_staff, 
                                      shift.max_staff)
         })
@@ -267,8 +294,16 @@ def employee_view(request, company_id, employee_id):
 
     # Get current month or from query
     today = datetime.date.today()
-    year = int(request.GET.get('year', today.year))
-    month = int(request.GET.get('month', today.month))
+    year_param = request.GET.get('year', '')
+    month_param = request.GET.get('month', '')
+    
+    # Handle empty string parameters by using defaults
+    try:
+        year = int(year_param) if year_param else today.year
+        month = int(month_param) if month_param else today.month
+    except ValueError:
+        year = today.year
+        month = today.month
     first_day = datetime.date(year, month, 1)
     last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
 
@@ -327,8 +362,17 @@ def analytics_view(request, company_id):
 
     # Use month-based date range
     today = datetime.date.today()
-    year = int(request.GET.get('year', today.year))
-    month = int(request.GET.get('month', today.month))
+    year_param = request.GET.get('year', '')
+    month_param = request.GET.get('month', '')
+    
+    # Handle empty string parameters by using defaults
+    try:
+        year = int(year_param) if year_param else today.year
+        month = int(month_param) if month_param else today.month
+    except ValueError:
+        year = today.year
+        month = today.month
+    
     first_day = datetime.date(year, month, 1)
     last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
     prev_month = first_day - datetime.timedelta(days=1)
@@ -350,34 +394,48 @@ def analytics_view(request, company_id):
         entry_filter['algorithm'] = selected_algorithm
     entries = ScheduleEntry.objects.filter(**entry_filter)
 
+    # Get working days for accurate KPI calculations
+    working_days = get_working_days_in_range(first_day, last_day, company)
+    total_working_days = len(working_days)
+
     stats = {
         'total_shifts': entries.count(),
         'coverage_by_shift': {},
         'employee_distribution': {},
         'weekly_patterns': {},
+        'total_working_days': total_working_days,
     }
+    
     for shift in Shift.objects.filter(company=company):
         shift_entries = entries.filter(shift=shift)
-        dates = shift_entries.values('date').distinct().count()
-        if dates > 0:
-            avg_coverage = shift_entries.count() / dates
+        # Only count working days for coverage calculation
+        if total_working_days > 0:
+            avg_coverage = shift_entries.count() / total_working_days
             stats['coverage_by_shift'][shift.name] = {
                 'average': round(avg_coverage, 1),
                 'min': shift.min_staff,
                 'max': shift.max_staff,
-                'percentage': round((avg_coverage / shift.max_staff) * 100, 1)
+                'percentage': round((avg_coverage / shift.max_staff) * 100, 1) if shift.max_staff > 0 else 0
             }
+    
     employee_stats = []
     for employee in Employee.objects.filter(company=company):
         emp_entries = entries.filter(employee=employee)
         hours = sum(calculate_shift_hours_in_month(e.shift, e.date, first_day, last_day) for e in emp_entries)
+        # Calculate utilization based on working days only
+        working_weeks = total_working_days / 7 if total_working_days > 0 else 0
+        max_possible_hours = employee.max_hours_per_week * working_weeks
+        utilization = round((hours / max_possible_hours) * 100, 1) if max_possible_hours > 0 else 0
+        
         employee_stats.append({
             'name': employee.name,
             'shifts': emp_entries.count(),
             'hours': hours,
-            'utilization': round((hours / (employee.max_hours_per_week * 4)) * 100, 1)
+            'utilization': utilization
         })
+    
     stats['employee_distribution'] = sorted(employee_stats, key=lambda x: x['hours'], reverse=True)[:10]
+    
     context = {
         'company': company,
         'company_name': company.name,

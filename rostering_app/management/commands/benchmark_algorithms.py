@@ -301,13 +301,17 @@ class Command(BaseCommand):
         shifts = list(Shift.objects.filter(company=company))
         start_date = date(2025, 1, 1)
         end_date = date(2025, 12, 31)
-        num_days = (end_date - start_date).days + 1
+        
+        # Get working days for accurate KPI calculations
+        from rostering_app.utils import get_working_days_in_range
+        working_days = get_working_days_in_range(start_date, end_date, company)
+        total_working_days = len(working_days)
         
         # Initialize counters
         total_hours_worked = 0
         employee_hours = []
         employee_shift_counts = []
-        shift_coverage_stats = {st.name: {'filled': 0, 'required': st.min_staff * num_days} 
+        shift_coverage_stats = {st.name: {'filled': 0, 'required': st.min_staff * total_working_days} 
                                for st in shifts}
         
         # Per-employee metrics
@@ -348,7 +352,9 @@ class Command(BaseCommand):
             constraint_violations += violations
             
             # Store employee stats
-            max_possible_hours = emp.max_hours_per_week * 52
+            # Calculate max possible hours based on working weeks
+            working_weeks = total_working_days / 7 if total_working_days > 0 else 0
+            max_possible_hours = emp.max_hours_per_week * working_weeks
             utilization = (hours_worked / max_possible_hours * 100) if max_possible_hours > 0 else 0
             
             employee_stats[emp.name] = {
@@ -387,7 +393,8 @@ class Command(BaseCommand):
             'constraint_violations': constraint_violations,
             'coverage_rates': coverage_rates,
             'min_hours': min(employee_hours) if employee_hours else 0,
-            'max_hours': max(employee_hours) if employee_hours else 0
+            'max_hours': max(employee_hours) if employee_hours else 0,
+            'total_working_days': total_working_days
         }
 
     def _calculate_gini(self, values: List[float]) -> float:
