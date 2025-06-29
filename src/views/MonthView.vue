@@ -281,6 +281,9 @@ const nextMonth = () => {
 const selectDay = (day) => {
   if (!day) return
   
+  // Set the selected date in the store
+  scheduleStore.setSelectedDate(day.date)
+  
   router.push({
     name: 'day-view',
     params: {
