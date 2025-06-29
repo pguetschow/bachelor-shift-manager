@@ -1116,3 +1116,97 @@ def api_company_employee_yearly_schedule(request, company_id, employee_id):
         },
         'year': year
     })
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_company_employee_statistics(request, company_id):
+    """API endpoint to get comprehensive employee statistics for a company."""
+    company = get_object_or_404(Company, pk=company_id)
+    
+    # Get query parameters
+    year = int(request.GET.get('year', datetime.date.today().year))
+    month = int(request.GET.get('month', datetime.date.today().month))
+    algorithm = request.GET.get('algorithm', '')
+    
+    # Calculate date ranges
+    month_start = datetime.date(year, month, 1)
+    month_end = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    year_start = datetime.date(year, 1, 1)
+    year_end = datetime.date(year, 12, 31)
+    
+    # Get all employees for the company
+    employees = Employee.objects.filter(company=company)
+    
+    # Get working days for the month
+    working_days = get_working_days_in_range(month_start, month_end, company)
+    total_working_days = len(working_days)
+    
+    employees_data = []
+    for employee in employees:
+        # Get employee's schedule entries for the month
+        month_entry_filter = {
+            'employee': employee,
+            'date__gte': month_start,
+            'date__lte': month_end
+        }
+        if algorithm:
+            month_entry_filter['algorithm'] = algorithm
+        
+        month_entries = ScheduleEntry.objects.filter(**month_entry_filter)
+        
+        # Get employee's schedule entries for the year
+        year_entry_filter = {
+            'employee': employee,
+            'date__gte': year_start,
+            'date__lte': year_end
+        }
+        if algorithm:
+            year_entry_filter['algorithm'] = algorithm
+        
+        year_entries = ScheduleEntry.objects.filter(**year_entry_filter)
+        
+        # Calculate monthly statistics
+        monthly_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, month_start, month_end) for entry in month_entries)
+        monthly_shifts = month_entries.count()
+        
+        # Calculate yearly statistics
+        yearly_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, year_start, year_end) for entry in year_entries)
+        yearly_shifts = year_entries.count()
+        
+        # Calculate possible work hours for the month
+        # Assuming 8 hours per working day (could be made configurable)
+        hours_per_working_day = 8
+        possible_monthly_hours = total_working_days * hours_per_working_day
+        
+        # Calculate absences (days without shifts)
+        absence_days = total_working_days - monthly_shifts
+        
+        # Calculate utilization percentages
+        monthly_utilization = (monthly_hours / possible_monthly_hours * 100) if possible_monthly_hours > 0 else 0
+        yearly_utilization = (yearly_hours / (employee.max_hours_per_week * 52) * 100) if employee.max_hours_per_week > 0 else 0
+        
+        employees_data.append({
+            'id': employee.id,
+            'name': employee.name,
+            'position': getattr(employee, 'position', 'Mitarbeiter'),
+            'max_hours_per_week': employee.max_hours_per_week,
+            'monthly_stats': {
+                'possible_hours': possible_monthly_hours,
+                'worked_hours': round(monthly_hours, 2),
+                'shifts': monthly_shifts,
+                'absences': absence_days,
+                'utilization_percentage': round(monthly_utilization, 2)
+            },
+            'yearly_stats': {
+                'worked_hours': round(yearly_hours, 2),
+                'shifts': yearly_shifts,
+                'utilization_percentage': round(yearly_utilization, 2)
+            }
+        })
+    
+    return JsonResponse({
+        'employees': employees_data,
+        'month': month,
+        'year': year,
+        'total_working_days': total_working_days
+    })

@@ -17,6 +17,12 @@ export default [
     meta: { requiresCompany: true }
   },
   {
+    path: '/company/:companyId/employees',
+    name: 'employees',
+    component: () => import('@/views/Employees.vue'),
+    meta: { requiresCompany: true }
+  },
+  {
     path: '/company/:companyId/day/:date',
     name: 'day-view',
     component: () => import('@/views/DayView.vue'),

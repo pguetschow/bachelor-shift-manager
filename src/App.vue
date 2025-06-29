@@ -38,6 +38,15 @@
             <li class="nav-item">
               <router-link 
                 class="nav-link" 
+                :to="{ name: 'employees', params: { companyId: $route.params.companyId } }"
+                v-if="$route.params.companyId"
+              >
+                <i class="bi bi-people"></i> Mitarbeiter
+              </router-link>
+            </li>
+            <li class="nav-item">
+              <router-link 
+                class="nav-link" 
                 :to="{ name: 'analytics', params: { companyId: $route.params.companyId } }"
                 v-if="$route.params.companyId"
               >
