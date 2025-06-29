@@ -54,6 +54,10 @@ COPY rostering_app/ ./rostering_app/
 COPY rostering_project/ ./rostering_project/
 COPY manage.py ./
 
+# Copy start.sh script and make it executable
+COPY start.sh ./
+RUN chmod +x start.sh
+
 # Collect static files
 RUN python manage.py collectstatic --noinput
 
@@ -65,5 +69,5 @@ USER appuser
 # Expose port
 EXPOSE 8000
 
-# Run Django with Gunicorn
-CMD gunicorn rostering_project.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+# Use start.sh script instead of directly running Gunicorn
+CMD ["./start.sh"]
