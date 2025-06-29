@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import mimetypes
 
 # Build paths inside the project
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -106,6 +107,10 @@ STATICFILES_FINDERS = [
     'django.contrib.staticfiles.finders.FileSystemFinder',
     'django.contrib.staticfiles.finders.AppDirectoriesFinder',
 ]
+
+# MIME type configuration for proper asset serving
+mimetypes.add_type("text/css", ".css", True)
+mimetypes.add_type("application/javascript", ".js", True)
 
 # CORS settings
 # For development, allow all localhost origins

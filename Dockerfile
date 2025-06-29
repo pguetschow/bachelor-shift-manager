@@ -55,6 +55,9 @@ COPY rostering_project/ ./rostering_project/
 COPY scheduling_core/ ./scheduling_core/
 COPY manage.py ./
 
+# Ensure dist directory is available (in case it was built locally)
+COPY dist/ ./dist/ 2>/dev/null || true
+
 # Copy start.sh script and make it executable
 COPY start.sh ./
 RUN chmod +x start.sh

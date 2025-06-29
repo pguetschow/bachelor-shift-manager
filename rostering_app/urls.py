@@ -1,11 +1,18 @@
 from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.static import serve
 from . import views
 
 urlpatterns = [
     # Serve Vue.js frontend at root
     path('', views.serve_vue_app, name='serve_vue_app'),
+    
+    # Serve Vue.js assets from /assets/ path
+    path('assets/<path:path>', serve, {
+        'document_root': settings.BASE_DIR / 'dist' / 'assets',
+        'show_indexes': False,
+    }, name='vue_assets'),
     
     # API endpoints for Vue.js frontend
     path('api/companies/', views.api_companies, name='api_companies'),
