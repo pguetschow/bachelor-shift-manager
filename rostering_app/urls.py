@@ -2,6 +2,9 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Serve Vue.js frontend at root
+    path('', views.serve_vue_app, name='serve_vue_app'),
+    
     # API endpoints for Vue.js frontend
     path('api/companies/', views.api_companies, name='api_companies'),
     path('api/companies/<int:company_id>/', views.api_company_detail, name='api_company_detail'),

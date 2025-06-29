@@ -95,6 +95,11 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'static'
 
+# Add the dist directory for Vue.js built files
+STATICFILES_DIRS = [
+    BASE_DIR / 'dist',
+]
+
 # CORS settings
 # For development, allow all localhost origins
 CORS_ALLOW_ALL_ORIGINS = True

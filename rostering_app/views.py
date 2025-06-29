@@ -812,12 +812,57 @@ def api_run_benchmark(request):
 @require_http_methods(["POST"])
 def api_reset_benchmark(request):
     """API endpoint to reset benchmark status."""
-    from .models import BenchmarkStatus
+    try:
+        # Reset benchmark status for all companies
+        from rostering_app.models import CompanyBenchmarkStatus
+        CompanyBenchmarkStatus.objects.all().delete()
+        
+        return JsonResponse({'status': 'success', 'message': 'Benchmark status reset successfully'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+def serve_vue_app(request):
+    """Serve the Vue.js frontend application."""
+    from django.shortcuts import render
+    from django.conf import settings
+    from django.http import HttpResponse
+    import os
     
-    benchmark_status = BenchmarkStatus.get_current()
-    benchmark_status.reset()
+    # Path to the built Vue.js index.html file
+    index_path = os.path.join(settings.BASE_DIR, 'dist', 'index.html')
     
-    return JsonResponse({
-        "status": "reset",
-        "message": "Benchmark status has been reset to idle."
-    })
+    # Check if the built file exists
+    if os.path.exists(index_path):
+        with open(index_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return HttpResponse(content, content_type='text/html')
+    else:
+        # Fallback: return a simple message if the built file doesn't exist
+        return HttpResponse(
+            '''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Shift Manager</title>
+                <style>
+                    body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                    .container { max-width: 600px; margin: 0 auto; }
+                    .error { color: #d32f2f; background: #ffebee; padding: 20px; border-radius: 5px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Shift Manager</h1>
+                    <div class="error">
+                        <h2>Frontend Not Built</h2>
+                        <p>The Vue.js frontend has not been built yet.</p>
+                        <p>Please run <code>npm run build</code> to build the application.</p>
+                    </div>
+                    <p><a href="/admin/">Django Admin</a></p>
+                </div>
+            </body>
+            </html>
+            ''',
+            content_type='text/html'
+        )

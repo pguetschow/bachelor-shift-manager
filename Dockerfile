@@ -37,6 +37,9 @@ ENV NODE_ENV=production
 # Build SSR version of the frontend
 RUN npm run build:ssr
 
+# Also build the regular version for static serving
+RUN npm run build
+
 # Install Python dependencies in a virtual environment
 COPY requirements.txt ./
 RUN python3.11 -m venv /opt/venv \
