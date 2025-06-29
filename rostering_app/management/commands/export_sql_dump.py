@@ -37,8 +37,13 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Database file not found: {db_path}"))
             return
         
-        # Determine tables to export - only schedule entries (shift results)
-        tables = ['rostering_app_scheduleentry']
+        # Determine tables to export - all tables
+        tables = [
+            'rostering_app_company',
+            'rostering_app_employee', 
+            'rostering_app_shift',
+            'rostering_app_scheduleentry'
+        ]
         
         # Build SQLite dump command
         dump_file = os.path.join(output_dir, 'benchmark_dump.sql')
@@ -101,8 +106,11 @@ class Command(BaseCommand):
             # Copy schema
             source_conn.backup(temp_conn)
             
-            # Clear only schedule entries from temp database (keep fixture data)
+            # Clear all data from temp database
             temp_conn.execute("DELETE FROM rostering_app_scheduleentry")
+            temp_conn.execute("DELETE FROM rostering_app_shift")
+            temp_conn.execute("DELETE FROM rostering_app_employee")
+            temp_conn.execute("DELETE FROM rostering_app_company")
             
             # Find matching companies
             cursor = source_conn.execute(
@@ -115,14 +123,43 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"No companies found matching: {company_filter}"))
                 return
             
-            # Copy only schedule entries for matching companies
+            # Copy all data for matching companies
             for company_id in company_ids:
-                # Copy schedule entries for this company with valid employee references
-                cursor = source_conn.execute("""
-                    SELECT se.* FROM rostering_app_scheduleentry se
-                    INNER JOIN rostering_app_employee e ON se.employee_id = e.id
-                    WHERE se.company_id = ?
-                """, (company_id,))
+                # Copy company
+                cursor = source_conn.execute(
+                    "SELECT * FROM rostering_app_company WHERE id = ?", (company_id,)
+                )
+                company_data = cursor.fetchone()
+                if company_data:
+                    temp_conn.execute(
+                        "INSERT INTO rostering_app_company VALUES (?, ?, ?, ?, ?, ?)", 
+                        company_data
+                    )
+                
+                # Copy employees for this company
+                cursor = source_conn.execute(
+                    "SELECT * FROM rostering_app_employee WHERE company_id = ?", (company_id,)
+                )
+                for employee_data in cursor.fetchall():
+                    temp_conn.execute(
+                        "INSERT INTO rostering_app_employee VALUES (?, ?, ?, ?, ?, ?)", 
+                        employee_data
+                    )
+                
+                # Copy shifts for this company
+                cursor = source_conn.execute(
+                    "SELECT * FROM rostering_app_shift WHERE company_id = ?", (company_id,)
+                )
+                for shift_data in cursor.fetchall():
+                    temp_conn.execute(
+                        "INSERT INTO rostering_app_shift VALUES (?, ?, ?, ?, ?, ?)", 
+                        shift_data
+                    )
+                
+                # Copy schedule entries for this company
+                cursor = source_conn.execute(
+                    "SELECT * FROM rostering_app_scheduleentry WHERE company_id = ?", (company_id,)
+                )
                 for schedule_data in cursor.fetchall():
                     temp_conn.execute(
                         "INSERT INTO rostering_app_scheduleentry VALUES (?, ?, ?, ?, ?, ?)", 
@@ -152,14 +189,7 @@ class Command(BaseCommand):
                     
                     f.write(f"-- Data for table: {table}\n")
                     
-                    if table == 'rostering_app_scheduleentry':
-                        # For schedule entries, only export those with valid employee references
-                        cursor = conn.execute("""
-                            SELECT se.* FROM rostering_app_scheduleentry se
-                            INNER JOIN rostering_app_employee e ON se.employee_id = e.id
-                        """)
-                    else:
-                        cursor = conn.execute(f"SELECT * FROM {table}")
+                    cursor = conn.execute(f"SELECT * FROM {table}")
                     
                     columns = [description[0] for description in cursor.description]
                     

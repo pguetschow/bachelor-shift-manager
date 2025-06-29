@@ -58,9 +58,6 @@ class Command(BaseCommand):
                 self._show_dry_run_summary(sql_statements)
                 return
             
-            # Ensure fixture data is loaded before importing schedule entries
-            self._ensure_fixture_data_loaded()
-            
             # Import the data
             import_results = self._import_sql_statements(sql_statements, clear_existing)
             
@@ -256,34 +253,20 @@ class Command(BaseCommand):
         return import_results
 
     def _clear_existing_data(self):
-        """Clear existing benchmark data from the database."""
-        self.stdout.write("Clearing existing schedule entries...")
+        """Clear existing data from the database."""
+        self.stdout.write("Clearing existing data...")
         
         with connection.cursor() as cursor:
             # Disable foreign key constraints for clearing
             cursor.execute("PRAGMA foreign_keys=OFF")
             
-            # Clear only schedule entries (keep fixture data)
+            # Clear all data in the correct order (respecting foreign keys)
             cursor.execute("DELETE FROM rostering_app_scheduleentry")
+            cursor.execute("DELETE FROM rostering_app_shift")
+            cursor.execute("DELETE FROM rostering_app_employee")
+            cursor.execute("DELETE FROM rostering_app_company")
             
             # Re-enable foreign key constraints
             cursor.execute("PRAGMA foreign_keys=ON")
         
-        self.stdout.write("Existing schedule entries cleared")
-
-    def _ensure_fixture_data_loaded(self):
-        """Ensure fixture data is loaded before importing schedule entries."""
-        self.stdout.write("Loading fixture data...")
-        
-        # Load fixture data in the correct order
-        from django.core.management import call_command
-        
-        # Load companies first
-        call_command('loaddata', 'companies')
-        
-        # Load data for each company size
-        for company_size in ['small_company', 'medium_company', 'large_company']:
-            call_command('loaddata', f'{company_size}/employees')
-            call_command('loaddata', f'{company_size}/shifts')
-        
-        self.stdout.write("Fixture data loaded") 
+        self.stdout.write("Existing data cleared") 
