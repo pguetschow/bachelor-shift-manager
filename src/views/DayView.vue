@@ -376,4 +376,95 @@ watch(() => route.params.date, () => {
 .shift-night {
   background: var(--shift-night-gradient);
 }
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .day-info-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    padding: 0.75rem 0;
+  }
+  
+  .day-info-item .label {
+    font-size: 0.875rem;
+  }
+  
+  .day-info-item .value {
+    font-size: 1rem;
+  }
+  
+  .shift-column-card .card-header {
+    padding: 0.75rem;
+  }
+  
+  .shift-column-card .card-header h6 {
+    font-size: 1rem;
+  }
+  
+  .shift-time {
+    font-size: 0.8rem;
+  }
+  
+  .staffing-info {
+    margin-bottom: 1rem;
+  }
+  
+  .section-title {
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .employee-list {
+    max-height: 150px;
+  }
+  
+  .employee-item {
+    padding: 0.375rem 0;
+  }
+  
+  .employee-info {
+    gap: 0.375rem;
+  }
+  
+  .employee-name {
+    font-size: 0.875rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .shift-column-card {
+    margin-bottom: 1rem;
+  }
+  
+  .shift-column-card .card-body {
+    padding: 0.75rem;
+  }
+  
+  .staffing-limits small {
+    font-size: 0.75rem;
+  }
+  
+  .employee-list {
+    max-height: 120px;
+  }
+}
+
+@media (max-width: 480px) {
+  .day-info-item {
+    padding: 0.5rem 0;
+  }
+  
+  .shift-column-card .card-header {
+    padding: 0.5rem;
+  }
+  
+  .shift-column-card .card-header h6 {
+    font-size: 0.9rem;
+  }
+  
+  .shift-time {
+    font-size: 0.75rem;
+  }
+}
 </style> 

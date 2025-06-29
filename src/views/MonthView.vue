@@ -504,4 +504,121 @@ watch([currentYear, currentMonth], loadMonthData)
 .day-status .badge {
   font-size: 0.75rem;
 }
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .calendar-day-header {
+    padding: 0.5rem 0.25rem;
+    font-size: 0.875rem;
+    min-height: 2.5rem;
+  }
+  
+  .calendar-day {
+    min-height: 6rem;
+    padding: 0.125rem;
+  }
+  
+  .calendar-day-number {
+    font-size: 0.875rem;
+    margin-bottom: 0.125rem;
+  }
+  
+  .shift-indicators {
+    gap: 0.0625rem;
+  }
+  
+  .shift-indicator {
+    padding: 0.0625rem;
+    font-size: 0.625rem;
+  }
+  
+  .shift-name {
+    font-size: 0.5rem;
+  }
+  
+  .current {
+    font-size: 0.625rem;
+  }
+  
+  .limit-icons i {
+    font-size: 0.5rem;
+  }
+  
+  .shift-count {
+    font-size: 0.75rem;
+  }
+  
+  .day-status {
+    margin-top: 0.25rem;
+  }
+  
+  .day-status .badge {
+    font-size: 0.625rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .calendar-day-header {
+    padding: 0.375rem 0.125rem;
+    font-size: 0.75rem;
+    min-height: 2rem;
+  }
+  
+  .calendar-day {
+    min-height: 5rem;
+    padding: 0.0625rem;
+  }
+  
+  .calendar-day-number {
+    font-size: 0.75rem;
+    margin-bottom: 0.0625rem;
+  }
+  
+  .shift-indicator {
+    font-size: 0.5rem;
+    padding: 0.03125rem;
+  }
+  
+  .shift-name {
+    font-size: 0.4375rem;
+  }
+  
+  .current {
+    font-size: 0.5rem;
+  }
+  
+  .limit-icons i {
+    font-size: 0.4375rem;
+  }
+  
+  .shift-count {
+    font-size: 0.625rem;
+  }
+  
+  .day-status .badge {
+    font-size: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .calendar-day {
+    min-height: 4rem;
+  }
+  
+  .calendar-day-number {
+    font-size: 0.625rem;
+  }
+  
+  .shift-indicator {
+    font-size: 0.4375rem;
+  }
+  
+  .shift-name {
+    font-size: 0.375rem;
+  }
+  
+  .current {
+    font-size: 0.4375rem;
+  }
+}
 </style> 

@@ -440,8 +440,6 @@ const loadEmployeeData = async () => {
       scheduleStore.selectedAlgorithm
     )
     
-    console.log('Data loaded, weekly workload:', weeklyWorkload.value)
-    
     // Create chart after data is loaded
     await nextTick()
     setTimeout(() => {

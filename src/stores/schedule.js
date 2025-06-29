@@ -188,9 +188,6 @@ export const useScheduleStore = defineStore('schedule', () => {
     // Use dayScheduleData which contains detailed shift information with employees
     const dayData = dayScheduleData.value
     
-    console.log('Date string:', dateStr)
-    console.log('Day schedule data:', dayData)
-    
     if (!dayData || !dayData.shifts) {
       console.log('No day schedule data available')
       return []
@@ -198,7 +195,6 @@ export const useScheduleStore = defineStore('schedule', () => {
     
     // The day schedule endpoint returns shifts as an array, not an object
     return dayData.shifts.map(shift => {
-      console.log('Shift data:', shift)
       return {
         id: shift.id || shift.name,
         name: shift.name,
