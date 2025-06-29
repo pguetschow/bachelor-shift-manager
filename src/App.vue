@@ -55,7 +55,7 @@
             </li>
           </ul>
           
-          <span class="navbar-text" v-if="company">
+          <span class="navbar-text" v-if="company && !isCompanySelectionPage">
             <i class="bi bi-building"></i> {{ company.name }}
             <algorithm-selector 
               v-if="availableAlgorithms.length"
@@ -90,6 +90,7 @@ const scheduleStore = useScheduleStore()
 const company = computed(() => companyStore.currentCompany)
 const availableAlgorithms = computed(() => scheduleStore.availableAlgorithms)
 const selectedAlgorithm = computed(() => scheduleStore.selectedAlgorithm)
+const isCompanySelectionPage = computed(() => route.name === 'company-selection')
 
 const onAlgorithmChange = (algorithm) => {
   scheduleStore.setSelectedAlgorithm(algorithm)

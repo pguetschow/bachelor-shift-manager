@@ -118,3 +118,42 @@ class BenchmarkStatus(models.Model):
         self.completed_at = None
         self.error_message = ''
         self.save()
+
+class CompanyBenchmarkStatus(models.Model):
+    """Track the benchmark completion status for individual companies."""
+    company_name = models.CharField(max_length=100, unique=True)
+    test_case = models.CharField(max_length=50)  # small_company, medium_company, large_company
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name_plural = "Company Benchmark Status"
+    
+    def __str__(self):
+        return f"{self.company_name} - {'Completed' if self.completed else 'Pending'}"
+    
+    @classmethod
+    def get_or_create_for_company(cls, company_name, test_case):
+        """Get or create status for a specific company."""
+        status, created = cls.objects.get_or_create(
+            company_name=company_name,
+            defaults={'test_case': test_case, 'completed': False}
+        )
+        return status
+    
+    def mark_completed(self, success=True, error_message=''):
+        """Mark company benchmark as completed."""
+        self.completed = success
+        self.completed_at = timezone.now() if success else None
+        self.error_message = error_message
+        self.save()
+    
+    def reset(self):
+        """Reset to pending state."""
+        self.completed = False
+        self.completed_at = None
+        self.error_message = ''
+        self.save()

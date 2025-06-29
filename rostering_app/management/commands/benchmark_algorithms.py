@@ -13,7 +13,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from rostering_app.models import ScheduleEntry, Employee, Shift, Company, BenchmarkStatus
+from rostering_app.models import ScheduleEntry, Employee, Shift, Company, BenchmarkStatus, CompanyBenchmarkStatus
 
 # Import scheduling algorithms
 import sys
@@ -54,6 +54,14 @@ class Command(BaseCommand):
         # Start benchmark
         load_fixtures = options.get('load_fixtures', False)
         benchmark_status.start_benchmark(load_fixtures=load_fixtures)
+        
+        # Reset all company benchmark statuses when starting new benchmark
+        CompanyBenchmarkStatus.objects.all().update(
+            completed=False,
+            completed_at=None,
+            error_message=''
+        )
+        self.stdout.write("Reset all company benchmark statuses")
         
         try:
             # Test configurations
@@ -162,8 +170,16 @@ class Command(BaseCommand):
                     else:
                         algorithms.append(algorithm_class())
                 
+                # Get or create company benchmark status
+                company_status = CompanyBenchmarkStatus.get_or_create_for_company(
+                    company_name, test_case['name']
+                )
+                
                 # Benchmark algorithms
                 results = {}
+                company_success = True
+                company_error = ""
+                
                 for algorithm in algorithms:
                     self.stdout.write(f"\nTesting {algorithm.name}...")
 
@@ -198,11 +214,16 @@ class Command(BaseCommand):
                             'status': 'failed',
                             'error': str(e)
                         }
+                        company_success = False
+                        company_error = str(e)
                         self.stdout.write(self.style.ERROR(
                             f"✗ {algorithm.name} failed: {str(e)}"
                         ))
                         # Print the full traceback to the console
                         traceback.print_exc()
+
+                # Mark company as completed
+                company_status.mark_completed(success=company_success, error_message=company_error)
 
                 # Store results
                 all_results[test_case['name']] = {

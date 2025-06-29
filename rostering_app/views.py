@@ -699,18 +699,72 @@ def api_company_employee_statistics(request, company_id):
 @csrf_exempt
 @require_http_methods(["GET"])
 def api_benchmark_status(request):
-    """API endpoint to get current benchmark status."""
-    from .models import BenchmarkStatus
+    """API endpoint to get comprehensive benchmark status including individual company status."""
+    from .models import BenchmarkStatus, CompanyBenchmarkStatus
+    import os
+    import json
     
+    # Get overall benchmark status
     status = BenchmarkStatus.get_current()
     
+    # Company name mapping from benchmark command
+    company_name_mapping = {
+        'small_company': 'Kleines Unternehmen',
+        'medium_company': 'Mittleres Unternehmen', 
+        'large_company': 'Großes Unternehmen'
+    }
+    
+    # Check export directory for results
+    export_dir = 'export'
+    has_overall_results = False
+    overall_file = None
+    
+    if os.path.exists(export_dir):
+        overall_file = os.path.join(export_dir, 'benchmark_results.json')
+        has_overall_results = os.path.exists(overall_file)
+    
+    # Get individual company benchmark statuses
+    company_statuses = CompanyBenchmarkStatus.objects.all()
+    company_status_data = {}
+    
+    for status_obj in company_statuses:
+        company_status_data[status_obj.company_name] = {
+            'completed': status_obj.completed,
+            'completed_at': status_obj.completed_at.isoformat() if status_obj.completed_at else None,
+            'error_message': status_obj.error_message,
+            'test_case': status_obj.test_case,
+            'updated_at': status_obj.updated_at.isoformat()
+        }
+    
+    # Check individual company result files
+    results_status = {}
+    for test_case, company_name in company_name_mapping.items():
+        test_dir = os.path.join(export_dir, test_case) if os.path.exists(export_dir) else None
+        results_file = os.path.join(test_dir, 'results.json') if test_dir else None
+        
+        has_results = results_file and os.path.exists(results_file)
+        results_status[company_name] = {
+            'has_results': has_results,
+            'test_case': test_case,
+            'results_file': results_file if has_results else None
+        }
+    
     return JsonResponse({
+        # Overall benchmark status
         'status': status.status,
         'started_at': status.started_at.isoformat() if status.started_at else None,
         'completed_at': status.completed_at.isoformat() if status.completed_at else None,
         'load_fixtures': status.load_fixtures,
         'error_message': status.error_message,
-        'updated_at': status.updated_at.isoformat()
+        'updated_at': status.updated_at.isoformat(),
+        
+        # Individual company statuses
+        'company_statuses': company_status_data,
+        
+        # Results file status
+        'results_status': results_status,
+        'has_overall_results': has_overall_results,
+        'overall_file': overall_file if has_overall_results else None
     })
 
 
