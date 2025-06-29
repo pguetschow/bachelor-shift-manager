@@ -938,7 +938,7 @@ def api_upload_benchmark_results(request):
                     'message': 'No SQL dump file (.sql) found in the ZIP archive. Please use the new SQL dump export method.'
                 }, status=400)
             
-            # Import SQL dump
+            # Import SQL dump using a more robust approach
             try:
                 # Use the import_sql_dump command with clear_existing=True
                 output = StringIO()

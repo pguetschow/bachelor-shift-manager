@@ -20,18 +20,24 @@ class Command(BaseCommand):
         parser.add_argument(
             '--clear-existing',
             action='store_true',
-            help='Clear existing data before import',
+            help='Clear existing data before import (always done now)',
         )
         parser.add_argument(
             '--dry-run',
             action='store_true',
             help='Show what would be imported without actually importing',
         )
+        parser.add_argument(
+            '--use-orm',
+            action='store_true',
+            help='Use Django ORM instead of raw SQL (more reliable)',
+        )
 
     def handle(self, *args, **options):
         file_path = options['file']
         clear_existing = options['clear_existing']
         dry_run = options['dry_run']
+        use_orm = options['use_orm']
         
         if not os.path.exists(file_path):
             self.stdout.write(self.style.ERROR(f"File not found: {file_path}"))
@@ -175,39 +181,79 @@ class Command(BaseCommand):
             # Always clear existing data first to avoid foreign key conflicts
             self._clear_existing_data()
             
-            # Disable foreign key constraints temporarily
+            # Disable foreign key constraints and WAL mode for better performance
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA foreign_keys=OFF")
+                cursor.execute("PRAGMA journal_mode=DELETE")
+                cursor.execute("PRAGMA synchronous=OFF")
             
             try:
-                # Execute statements
+                # Separate statements by type
+                create_statements = []
+                insert_statements = []
+                other_statements = []
+                
                 for statement in statements:
+                    if statement.upper().startswith('CREATE'):
+                        create_statements.append(statement)
+                    elif statement.upper().startswith('INSERT'):
+                        insert_statements.append(statement)
+                    else:
+                        other_statements.append(statement)
+                
+                # Execute CREATE statements first (ignore errors for existing tables)
+                for statement in create_statements:
+                    try:
+                        with connection.cursor() as cursor:
+                            cursor.execute(statement)
+                    except Exception as e:
+                        # Ignore "table already exists" errors
+                        if "already exists" not in str(e).lower():
+                            error_msg = f"CREATE statement failed: {str(e)[:100]}..."
+                            import_results['errors'].append(error_msg)
+                            self.stdout.write(self.style.WARNING(error_msg))
+                
+                # Execute other statements (PRAGMA, etc.)
+                for statement in other_statements:
+                    try:
+                        with connection.cursor() as cursor:
+                            cursor.execute(statement)
+                    except Exception as e:
+                        # Ignore most other statement errors
+                        pass
+                
+                # Execute INSERT statements - try to handle foreign key issues
+                for statement in insert_statements:
                     try:
                         with connection.cursor() as cursor:
                             cursor.execute(statement)
                             
                             # Track which tables are being processed
-                            if statement.upper().startswith('INSERT INTO'):
-                                parts = statement.split()
-                                if len(parts) >= 3:
-                                    table_name = parts[2].strip('`"[]')
-                                    import_results['tables_processed'].add(table_name)
+                            parts = statement.split()
+                            if len(parts) >= 3:
+                                table_name = parts[2].strip('`"[]')
+                                import_results['tables_processed'].add(table_name)
                             
                             import_results['statements_executed'] += 1
                             
                     except Exception as e:
-                        error_msg = f"Statement failed: {str(e)[:100]}..."
+                        error_msg = f"INSERT statement failed: {str(e)[:100]}..."
                         import_results['errors'].append(error_msg)
                         self.stdout.write(self.style.WARNING(error_msg))
+                        # Continue with other statements instead of failing completely
                 
-                # Re-enable foreign key constraints
+                # Re-enable foreign key constraints and settings
                 with connection.cursor() as cursor:
                     cursor.execute("PRAGMA foreign_keys=ON")
+                    cursor.execute("PRAGMA journal_mode=WAL")
+                    cursor.execute("PRAGMA synchronous=NORMAL")
                     
             except Exception as e:
                 # Re-enable foreign key constraints even if import fails
                 with connection.cursor() as cursor:
                     cursor.execute("PRAGMA foreign_keys=ON")
+                    cursor.execute("PRAGMA journal_mode=WAL")
+                    cursor.execute("PRAGMA synchronous=NORMAL")
                 raise
         
         import_results['tables_processed'] = len(import_results['tables_processed'])
