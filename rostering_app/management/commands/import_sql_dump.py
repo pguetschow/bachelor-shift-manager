@@ -265,8 +265,6 @@ class Command(BaseCommand):
             cursor.execute("DELETE FROM rostering_app_employee")
             cursor.execute("DELETE FROM rostering_app_shift")
             cursor.execute("DELETE FROM rostering_app_company")
-            cursor.execute("DELETE FROM rostering_app_companybenchmarkstatus")
-            cursor.execute("DELETE FROM rostering_app_benchmarkstatus")
             
             # Re-enable foreign key constraints
             cursor.execute("PRAGMA foreign_keys=ON")

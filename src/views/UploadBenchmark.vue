@@ -8,7 +8,6 @@
         <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
           <h2 class="text-lg font-semibold text-blue-900 mb-4">Instructions</h2>
           <ol class="list-decimal list-inside space-y-2 text-blue-800">
-            <li>Run benchmarks locally using: <code class="bg-blue-100 px-2 py-1 rounded">python manage.py benchmark_algorithms --load-fixtures</code></li>
             <li>Export results as SQL dump using: <code class="bg-blue-100 px-2 py-1 rounded">python manage.py export_sql_dump --include-schedules</code></li>
             <li>Upload the generated ZIP file below</li>
             <li>Results will be imported into the deployed database</li>
@@ -84,7 +83,6 @@
                 <li>Employees: {{ importSummary.employees_imported }}</li>
                 <li>Shifts: {{ importSummary.shifts_imported }}</li>
                 <li>Schedule Entries: {{ importSummary.schedule_entries_imported }}</li>
-                <li>Company Statuses: {{ importSummary.company_statuses_imported }}</li>
               </ul>
               <div v-if="importSummary.errors.length > 0" class="mt-3">
                 <h4 class="font-semibold text-red-900 mb-1">Errors:</h4>
@@ -149,7 +147,6 @@ export default {
       employees_imported: 0,
       shifts_imported: 0,
       schedule_entries_imported: 0,
-      company_statuses_imported: 0,
       errors: []
     })
 
@@ -227,7 +224,6 @@ export default {
         employees_imported: 0,
         shifts_imported: 0,
         schedule_entries_imported: 0,
-        company_statuses_imported: 0,
         errors: []
       })
     }

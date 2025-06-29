@@ -132,8 +132,6 @@ class Command(BaseCommand):
             temp_conn.execute("DELETE FROM rostering_app_shift")
             temp_conn.execute("DELETE FROM rostering_app_employee")
             temp_conn.execute("DELETE FROM rostering_app_scheduleentry")
-            temp_conn.execute("DELETE FROM rostering_app_benchmarkstatus")
-            temp_conn.execute("DELETE FROM rostering_app_companybenchmarkstatus")
             
             # Find matching companies
             cursor = source_conn.execute(
@@ -188,32 +186,6 @@ class Command(BaseCommand):
                         "INSERT INTO rostering_app_scheduleentry VALUES (?, ?, ?, ?, ?, ?)", 
                         schedule_data
                     )
-            
-            # Copy benchmark statuses for matching companies
-            for company_id in company_ids:
-                cursor = source_conn.execute(
-                    "SELECT name FROM rostering_app_company WHERE id = ?", (company_id,)
-                )
-                company_name = cursor.fetchone()[0]
-                
-                cursor = source_conn.execute(
-                    "SELECT * FROM rostering_app_companybenchmarkstatus WHERE company_name LIKE ?", 
-                    (f'%{company_name}%',)
-                )
-                for status_data in cursor.fetchall():
-                    temp_conn.execute(
-                        "INSERT INTO rostering_app_companybenchmarkstatus VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                        status_data
-                    )
-            
-            # Copy overall benchmark status
-            cursor = source_conn.execute("SELECT * FROM rostering_app_benchmarkstatus")
-            benchmark_data = cursor.fetchone()
-            if benchmark_data:
-                temp_conn.execute(
-                    "INSERT INTO rostering_app_benchmarkstatus VALUES (?, ?, ?, ?, ?, ?)", 
-                    benchmark_data
-                )
             
             temp_conn.commit()
             
