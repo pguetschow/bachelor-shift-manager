@@ -1,124 +1,66 @@
 <template>
   <div class="container">
     <!-- Header -->
-    <div class="row mb-4">
-      <div class="col">
-        <h2 class="mb-3">
-          <i class="bi bi-speedometer2 text-primary"></i>
-          Dashboard - {{ company?.name }}
-        </h2>
-        <nav aria-label="breadcrumb">
-          <ol class="breadcrumb">
-            <li class="breadcrumb-item">
-              <router-link to="/">Unternehmen</router-link>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Dashboard</li>
-          </ol>
-        </nav>
-      </div>
-    </div>
+    <PageHeader 
+      title="Dashboard"
+      icon="bi bi-speedometer2"
+      :breadcrumbs="[
+        { text: 'Dashboard' }
+      ]"
+    />
 
     <!-- Month Navigation -->
-    <div class="row mb-4">
-      <div class="col">
-        <div class="d-flex justify-content-between align-items-center">
-          <button 
-            @click="previousMonth" 
-            class="btn btn-outline-primary"
-          >
-            <i class="bi bi-chevron-left"></i> Vorheriger Monat
-          </button>
-          
-          <h4 class="mb-0">
-            {{ currentMonthName }} {{ scheduleStore.currentYear }}
-          </h4>
-          
-          <button 
-            @click="nextMonth" 
-            class="btn btn-outline-primary"
-          >
-            Nächster Monat <i class="bi bi-chevron-right"></i>
-          </button>
-        </div>
-      </div>
-    </div>
+    <MonthNavigation 
+      :current-year="scheduleStore.currentYear"
+      :current-month="scheduleStore.currentMonth"
+      @previous="previousMonth"
+      @next="nextMonth"
+    />
 
     <!-- Loading State -->
-    <div v-if="loading" class="spinner-container">
-      <div class="loading-spinner"></div>
-    </div>
+    <LoadingState :loading="loading" />
 
     <!-- Error State -->
-    <div v-else-if="error" class="alert alert-danger" role="alert">
-      {{ error }}
-    </div>
+    <ErrorState :error="error" />
 
     <!-- Dashboard Content -->
-    <div v-else>
+    <div v-if="!loading && !error">
       <!-- Statistics Cards -->
       <div class="row mb-4">
         <div class="col-md-3 mb-3">
-          <div class="card stat-card">
-            <div class="card-body">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <h6 class="card-subtitle mb-2 text-muted">Mitarbeiter</h6>
-                  <h3 class="card-title mb-0">{{ coverageStats.total_employees || 0 }}</h3>
-                </div>
-                <div class="text-primary">
-                  <i class="bi bi-people-fill fs-1"></i>
-                </div>
-              </div>
-            </div>
-          </div>
+          <StatCard 
+            subtitle="Mitarbeiter"
+            :value="coverageStats.total_employees || 0"
+            icon="bi bi-people-fill"
+            icon-color="text-primary"
+          />
         </div>
 
         <div class="col-md-3 mb-3">
-          <div class="card stat-card">
-            <div class="card-body">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <h6 class="card-subtitle mb-2 text-muted">Schichten</h6>
-                  <h3 class="card-title mb-0">{{ coverageStats.total_shifts || 0 }}</h3>
-                </div>
-                <div class="text-success">
-                  <i class="bi bi-calendar-check fs-1"></i>
-                </div>
-              </div>
-            </div>
-          </div>
+          <StatCard 
+            subtitle="Schichten"
+            :value="coverageStats.total_shifts || 0"
+            icon="bi bi-calendar-check"
+            icon-color="text-success"
+          />
         </div>
 
         <div class="col-md-3 mb-3">
-          <div class="card stat-card">
-            <div class="card-body">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <h6 class="card-subtitle mb-2 text-muted">Arbeitstage</h6>
-                  <h3 class="card-title mb-0">{{ coverageStats.working_days || 0 }}</h3>
-                </div>
-                <div class="text-warning">
-                  <i class="bi bi-calendar-week fs-1"></i>
-                </div>
-              </div>
-            </div>
-          </div>
+          <StatCard 
+            subtitle="Arbeitstage"
+            :value="coverageStats.working_days || 0"
+            icon="bi bi-calendar-week"
+            icon-color="text-warning"
+          />
         </div>
 
         <div class="col-md-3 mb-3">
-          <div class="card stat-card">
-            <div class="card-body">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <h6 class="card-subtitle mb-2 text-muted">Abdeckung</h6>
-                  <h3 class="card-title mb-0">{{ formatNumber(coverageStats.coverage_percentage || 0) }}%</h3>
-                </div>
-                <div class="text-info">
-                  <i class="bi bi-pie-chart fs-1"></i>
-                </div>
-              </div>
-            </div>
-          </div>
+          <StatCard 
+            subtitle="Abdeckung"
+            :value="formatNumber(coverageStats.coverage_percentage || 0) + '%'"
+            icon="bi bi-pie-chart"
+            icon-color="text-info"
+          />
         </div>
       </div>
 
@@ -150,32 +92,25 @@
                   <tbody>
                     <tr v-for="stat in coverageStats.shifts" :key="stat.shift.id">
                       <td>
-                        <span class="shift-badge" :class="getShiftBadgeClass(stat.shift.name)">
-                          {{ getShiftDisplayName(stat.shift.name) }}
-                        </span>
+                        <ShiftBadge :shift-name="stat.shift.name" />
                       </td>
-                      <td>{{ formatTime(stat.shift.start_time) }} - {{ formatTime(stat.shift.end_time) }}</td>
+                      <td>
+                        <TimeDisplay 
+                          :time="stat.shift.start_time" 
+                          format="time-range" 
+                          :end-time="stat.shift.end_time" 
+                        />
+                      </td>
                       <td>{{ stat.shift.min_staff }} / {{ stat.shift.max_staff }}</td>
                       <td>{{ stat.avg_staff }}</td>
                       <td>
-                        <div class="progress" style="height: 20px;">
-                          <div 
-                            class="progress-bar" 
-                            :class="getProgressBarClass(stat.coverage_percentage)"
-                            role="progressbar"
-                            :style="{ width: formatNumber(stat.coverage_percentage) + '%' }"
-                            :aria-valuenow="formatNumber(stat.coverage_percentage)"
-                            aria-valuemin="0"
-                            aria-valuemax="100"
-                          >
-                            {{ formatNumber(stat.coverage_percentage) }}%
-                          </div>
-                        </div>
+                        <ProgressBar 
+                          :percentage="formatNumber(stat.coverage_percentage)"
+                          :height="20"
+                        />
                       </td>
                       <td>
-                        <span class="badge" :class="getStatusBadgeClass(stat.status)">
-                          {{ getStatusText(stat.status) }}
-                        </span>
+                        <StatusBadge :status="stat.status" />
                       </td>
                     </tr>
                   </tbody>
@@ -266,25 +201,31 @@
 <script setup>
 import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
 import { useCompanyStore } from '@/stores/company'
 import { useScheduleStore } from '@/stores/schedule'
+import { useFormatters } from '@/composables/useFormatters'
+
+// Components
+import PageHeader from '@/components/PageHeader.vue'
+import MonthNavigation from '@/components/MonthNavigation.vue'
+import LoadingState from '@/components/LoadingState.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import StatCard from '@/components/StatCard.vue'
+import ShiftBadge from '@/components/ShiftBadge.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
+import ProgressBar from '@/components/ProgressBar.vue'
+import TimeDisplay from '@/components/TimeDisplay.vue'
 
 const route = useRoute()
 const companyStore = useCompanyStore()
 const scheduleStore = useScheduleStore()
+const { formatNumber } = useFormatters()
 
 const company = computed(() => companyStore.currentCompany)
 const loading = computed(() => scheduleStore.loading)
 const error = computed(() => scheduleStore.error)
 const coverageStats = computed(() => scheduleStore.getCoverageStats())
 const topEmployees = computed(() => scheduleStore.getTopEmployees())
-
-const currentMonthName = computed(() => {
-  const date = new Date(scheduleStore.currentYear, scheduleStore.currentMonth - 1)
-  return format(date, 'MMMM', { locale: de })
-})
 
 const previousMonth = () => {
   const newDate = new Date(scheduleStore.currentYear, scheduleStore.currentMonth - 2)
@@ -296,66 +237,6 @@ const nextMonth = () => {
   const newDate = new Date(scheduleStore.currentYear, scheduleStore.currentMonth)
   scheduleStore.setCurrentDate(newDate)
   loadDashboardData()
-}
-
-const formatNumber = (num) => {
-  if (num === null || num === undefined) return '0'
-  return parseFloat(num).toFixed(3).replace(/\.?0+$/, '')
-}
-
-const getPercentage = (value, total) => {
-  if (!total || total === 0) return 0
-  return parseFloat(formatNumber((value / total) * 100))
-}
-
-const formatTime = (timeString) => {
-  if (!timeString) return ''
-  // Remove seconds if present and format as HH:mm
-  return timeString.substring(0, 5)
-}
-
-const getShiftDisplayName = (shiftName) => {
-  const shiftMap = {
-    'EarlyShift': 'Frühschicht',
-    'MorningShift': 'Morgenschicht',
-    'LateShift': 'Spätschicht',
-    'NightShift': 'Nachtschicht'
-  }
-  return shiftMap[shiftName] || shiftName
-}
-
-const getShiftBadgeClass = (shiftName) => {
-  const classMap = {
-    'EarlyShift': 'shift-early',
-    'MorningShift': 'shift-morning',
-    'LateShift': 'shift-late',
-    'NightShift': 'shift-night'
-  }
-  return classMap[shiftName] || 'shift-default'
-}
-
-const getProgressBarClass = (coveragePercentage) => {
-  if (coveragePercentage < 80) return 'bg-danger'
-  if (coveragePercentage < 95) return 'bg-warning'
-  return 'bg-success'
-}
-
-const getStatusBadgeClass = (status) => {
-  switch (status) {
-    case 'ok': return 'bg-success'
-    case 'understaffed': return 'bg-danger'
-    case 'overstaffed': return 'bg-warning'
-    default: return 'bg-primary'
-  }
-}
-
-const getStatusText = (status) => {
-  switch (status) {
-    case 'ok': return 'OK'
-    case 'understaffed': return 'Unterbesetzt'
-    case 'overstaffed': return 'Überbesetzt'
-    default: return 'Voll'
-  }
 }
 
 const loadDashboardData = async () => {
@@ -377,18 +258,6 @@ watch(() => scheduleStore.selectedAlgorithm, loadDashboardData)
 </script>
 
 <style scoped>
-.shift-badge {
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  display: inline-block;
-}
-
-.progress {
-  border-radius: 0.25rem;
-}
-
 .table th {
   border-top: none;
   font-weight: 600;

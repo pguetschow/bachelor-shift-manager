@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isToday } from 'date-fns'
 import { api } from '@/services/api'
 
 export const useScheduleStore = defineStore('schedule', () => {
@@ -12,6 +13,7 @@ export const useScheduleStore = defineStore('schedule', () => {
   const loading = ref(false)
   const error = ref(null)
   const currentDate = ref(new Date())
+  const selectedDate = ref(new Date())
 
   const currentYear = computed(() => currentDate.value.getFullYear())
   const currentMonth = computed(() => currentDate.value.getMonth() + 1)
@@ -121,6 +123,10 @@ export const useScheduleStore = defineStore('schedule', () => {
     currentDate.value = new Date(date)
   }
 
+  function setSelectedDate(date) {
+    selectedDate.value = new Date(date)
+  }
+
   function getScheduleForDate(date) {
     const dateStr = date.toISOString().split('T')[0]
     return scheduleData.value.schedule_data?.[dateStr] || null
@@ -139,6 +145,74 @@ export const useScheduleStore = defineStore('schedule', () => {
     return scheduleData.value.top_employees || []
   }
 
+  function getCalendarWeeks() {
+    if (!currentYear.value || !currentMonth.value) return []
+    
+    const monthStart = startOfMonth(new Date(currentYear.value, currentMonth.value - 1))
+    const monthEnd = endOfMonth(monthStart)
+    const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 })
+    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
+    
+    const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd })
+    const weeks = []
+    
+    for (let i = 0; i < days.length; i += 7) {
+      const week = days.slice(i, i + 7).map(day => {
+        if (!isSameMonth(day, monthStart)) {
+          return null
+        }
+        
+        const dateStr = format(day, 'yyyy-MM-dd')
+        const dayScheduleData = scheduleData.value.schedule_data?.[dateStr] || {}
+        
+        return {
+          day: day.getDate(),
+          date: day,
+          dateStr,
+          shifts: dayScheduleData.shifts || {},
+          is_today: isToday(day),
+          is_holiday: dayScheduleData.is_holiday || false,
+          is_sunday: day.getDay() === 0,
+          is_non_working: dayScheduleData.is_non_working || false
+        }
+      })
+      weeks.push(week)
+    }
+    
+    return weeks
+  }
+
+  function getDayShifts() {
+    const dateStr = format(selectedDate.value, 'yyyy-MM-dd')
+    
+    // Use dayScheduleData which contains detailed shift information with employees
+    const dayData = dayScheduleData.value
+    
+    console.log('Date string:', dateStr)
+    console.log('Day schedule data:', dayData)
+    
+    if (!dayData || !dayData.shifts) {
+      console.log('No day schedule data available')
+      return []
+    }
+    
+    // The day schedule endpoint returns shifts as an array, not an object
+    return dayData.shifts.map(shift => {
+      console.log('Shift data:', shift)
+      return {
+        id: shift.id || shift.name,
+        name: shift.name,
+        status: shift.status || 'ok',
+        start_time: shift.start_time || '',
+        end_time: shift.end_time || '',
+        assigned_count: shift.assigned_count || 0,
+        max_staff: shift.max_staff || 0,
+        min_staff: shift.min_staff || 0,
+        assigned_employees: shift.assigned_employees || []
+      }
+    })
+  }
+
   return {
     scheduleData,
     dayScheduleData,
@@ -149,6 +223,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     loading,
     error,
     currentDate,
+    selectedDate,
     currentYear,
     currentMonth,
     loadScheduleData,
@@ -158,9 +233,12 @@ export const useScheduleStore = defineStore('schedule', () => {
     loadAvailableAlgorithms,
     setSelectedAlgorithm,
     setCurrentDate,
+    setSelectedDate,
     getScheduleForDate,
     getEmployeeSchedule,
     getCoverageStats,
-    getTopEmployees
+    getTopEmployees,
+    getCalendarWeeks,
+    getDayShifts
   }
 }) 

@@ -1,70 +1,37 @@
 <template>
   <div class="container">
     <!-- Header -->
-    <div class="row mb-4">
-      <div class="col">
-        <h2 class="mb-3">
-          <i class="bi bi-calendar-day text-primary"></i>
-          Tagesansicht - {{ formatDate(selectedDate) }}
-        </h2>
-        <nav aria-label="breadcrumb">
-          <ol class="breadcrumb">
-            <li class="breadcrumb-item">
-              <router-link to="/">Unternehmen</router-link>
-            </li>
-            <li class="breadcrumb-item">
-              <router-link :to="{ name: 'dashboard', params: { companyId: $route.params.companyId } }">
-                Dashboard
-              </router-link>
-            </li>
-            <li class="breadcrumb-item">
-              <router-link :to="{ name: 'month-view', params: { companyId: $route.params.companyId } }">
-                Monatsansicht
-              </router-link>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Tagesansicht</li>
-          </ol>
-        </nav>
-      </div>
-    </div>
+    <PageHeader 
+      title="Tagesansicht"
+      icon="bi bi-calendar-day"
+      :breadcrumbs="[
+        { 
+          text: 'Dashboard', 
+          to: { name: 'dashboard', params: { companyId: $route.params.companyId } } 
+        },
+        { 
+          text: 'Monatsansicht', 
+          to: { name: 'month-view', params: { companyId: $route.params.companyId } } 
+        },
+        { text: 'Tagesansicht' }
+      ]"
+    />
 
     <!-- Date Navigation -->
-    <div class="row mb-4">
-      <div class="col">
-        <div class="d-flex justify-content-between align-items-center">
-          <button 
-            @click="previousDay" 
-            class="btn btn-outline-primary"
-          >
-            <i class="bi bi-chevron-left"></i> Vorheriger Tag
-          </button>
-          
-          <h4 class="mb-0">
-            {{ formatDate(selectedDate) }}
-          </h4>
-          
-          <button 
-            @click="nextDay" 
-            class="btn btn-outline-primary"
-          >
-            Nächster Tag <i class="bi bi-chevron-right"></i>
-          </button>
-        </div>
-      </div>
-    </div>
+    <DateNavigation 
+      :date="selectedDate"
+      @previous="previousDay"
+      @next="nextDay"
+    />
 
     <!-- Loading State -->
-    <div v-if="loading" class="spinner-container">
-      <div class="loading-spinner"></div>
-    </div>
+    <LoadingState :loading="loading" />
 
     <!-- Error State -->
-    <div v-else-if="error" class="alert alert-danger" role="alert">
-      {{ error }}
-    </div>
+    <ErrorState :error="error" />
 
     <!-- Day Content -->
-    <div v-else>
+    <div v-if="!loading && !error">
       <!-- Day Info Card -->
       <div class="row mb-4">
         <div class="col-12">
@@ -92,30 +59,22 @@
                   <div class="day-info-item">
                     <span class="label">Typ:</span>
                     <span class="value">
-                      <span 
+                      <StatusBadge 
                         v-if="isHoliday" 
-                        class="badge bg-danger"
-                      >
-                        Feiertag
-                      </span>
-                      <span 
+                        status="holiday"
+                      />
+                      <StatusBadge 
                         v-else-if="isSundayDay" 
-                        class="badge bg-secondary"
-                      >
-                        Sonntag
-                      </span>
-                      <span 
+                        status="sunday"
+                      />
+                      <StatusBadge 
                         v-else-if="isNonWorking" 
-                        class="badge bg-warning"
-                      >
-                        Nicht-Arbeitstag
-                      </span>
-                      <span 
+                        status="non_working"
+                      />
+                      <StatusBadge 
                         v-else 
-                        class="badge bg-success"
-                      >
-                        Arbeitstag
-                      </span>
+                        status="working"
+                      />
                     </span>
                   </div>
                 </div>
@@ -144,16 +103,15 @@
                 <h6 class="card-title mb-0">
                   {{ getShiftDisplayName(shift.name) }}
                 </h6>
-                <span 
-                  class="badge"
-                  :class="getStatusBadgeClass(shift.status)"
-                >
-                  {{ getStatusText(shift.status) }}
-                </span>
+                <StatusBadge :status="shift.status" />
               </div>
               <div class="shift-time mt-2">
                 <i class="bi bi-clock"></i>
-                {{ formatTime(shift.start_time) }} - {{ formatTime(shift.end_time) }}
+                <TimeDisplay 
+                  :time="shift.start_time" 
+                  format="time-range" 
+                  :end-time="shift.end_time" 
+                />
               </div>
             </div>
             <div class="card-body">
@@ -163,13 +121,11 @@
                   <span class="label">Besetzung:</span>
                   <span class="value">{{ shift.assigned_count }}/{{ shift.max_staff }}</span>
                 </div>
-                <div class="progress mt-2">
-                  <div 
-                    class="progress-bar" 
-                    :class="getProgressBarClass(shift.status)"
-                    :style="{ width: getStaffingPercentage(shift) + '%' }"
-                  ></div>
-                </div>
+                <ProgressBar 
+                  :percentage="getStaffingPercentage(shift)"
+                  :height="8"
+                  :show-label="false"
+                />
                 <div class="staffing-limits mt-1">
                   <small class="text-muted">
                     Min: {{ shift.min_staff }} | Max: {{ shift.max_staff }}
@@ -180,7 +136,7 @@
               <!-- Assigned Employees -->
               <div class="assigned-employees">
                 <h6 class="section-title">Zugewiesene Mitarbeiter</h6>
-                <div v-if="shift.assigned_employees.length === 0" class="text-muted text-center py-3">
+                <div v-if="!shift.assigned_employees || shift.assigned_employees.length === 0" class="text-muted text-center py-3">
                   <i class="bi bi-people"></i>
                   <div>Keine Mitarbeiter zugewiesen</div>
                 </div>
@@ -201,183 +157,92 @@
           </div>
         </div>
       </div>
-
-      <!-- No Shifts Message -->
-      <div v-if="shifts.length === 0" class="row">
-        <div class="col-12">
-          <div class="card">
-            <div class="card-body text-center">
-              <i class="bi bi-calendar-x fs-1 text-muted"></i>
-              <h5 class="mt-3">Keine Schichten für diesen Tag</h5>
-              <p class="text-muted">
-                Für diesen Tag sind keine Schichten geplant oder es handelt sich um einen Feiertag/Nicht-Arbeitstag.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, watch, ref } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { format, parseISO, addDays, subDays, isSunday } from 'date-fns'
-import { de } from 'date-fns/locale'
+import { format } from 'date-fns'
 import { useCompanyStore } from '@/stores/company'
 import { useScheduleStore } from '@/stores/schedule'
+import { useFormatters } from '@/composables/useFormatters'
+
+// Components
+import PageHeader from '@/components/PageHeader.vue'
+import DateNavigation from '@/components/DateNavigation.vue'
+import LoadingState from '@/components/LoadingState.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
+import TimeDisplay from '@/components/TimeDisplay.vue'
+import ProgressBar from '@/components/ProgressBar.vue'
 
 const route = useRoute()
 const router = useRouter()
 const companyStore = useCompanyStore()
 const scheduleStore = useScheduleStore()
+const { 
+  formatDate, 
+  getDayOfWeek, 
+  getShiftDisplayName, 
+  getShiftColorClass, 
+  getStatusBadgeClass 
+} = useFormatters()
 
 const company = computed(() => companyStore.currentCompany)
 const loading = computed(() => scheduleStore.loading)
 const error = computed(() => scheduleStore.error)
+const selectedDate = computed(() => scheduleStore.selectedDate || new Date())
+const shifts = computed(() => scheduleStore.getDayShifts() || [])
+const totalShifts = computed(() => shifts.value?.length || 0)
 
-const selectedDate = ref(new Date())
-
-// Parse date from route parameter
-const parseDateFromRoute = () => {
-  if (route.params.date) {
-    try {
-      selectedDate.value = parseISO(route.params.date)
-    } catch (e) {
-      console.error('Invalid date format:', route.params.date)
-      selectedDate.value = new Date()
-    }
-  }
-}
-
-const formatDate = (date) => {
-  return format(date, 'dd.MM.yyyy', { locale: de })
-}
-
-const getDayOfWeek = (date) => {
-  return format(date, 'EEEE', { locale: de })
-}
-
-const formatTime = (timeString) => {
-  if (!timeString) return ''
-  const time = parseISO(`2000-01-01T${timeString}`)
-  return format(time, 'HH:mm')
-}
-
-const isHoliday = computed(() => dayData.value.is_holiday || false)
-const isSundayDay = computed(() => dayData.value.is_sunday || isSunday(selectedDate.value))
-const isNonWorking = computed(() => dayData.value.is_non_working || false)
-
-const scheduleData = computed(() => {
+const isHoliday = computed(() => {
+  if (!selectedDate.value) return false
   const dateStr = format(selectedDate.value, 'yyyy-MM-dd')
-  return scheduleStore.scheduleData.schedule_data?.[dateStr] || []
+  return scheduleStore.scheduleData.schedule_data?.[dateStr]?.is_holiday || false
 })
 
-const dayData = computed(() => scheduleStore.dayScheduleData)
-
-const shifts = computed(() => {
-  return dayData.value.shifts || []
+const isSundayDay = computed(() => selectedDate.value?.getDay() === 0)
+const isNonWorking = computed(() => {
+  if (!selectedDate.value) return false
+  const dateStr = format(selectedDate.value, 'yyyy-MM-dd')
+  return scheduleStore.scheduleData.schedule_data?.[dateStr]?.is_non_working || false
 })
-
-const totalShifts = computed(() => shifts.value.length)
-
-const getShiftDisplayName = (shiftName) => {
-  const shiftMap = {
-    'EarlyShift': 'Frühschicht',
-    'MorningShift': 'Morgenschicht',
-    'LateShift': 'Spätschicht',
-    'NightShift': 'Nachtschicht'
-  }
-  return shiftMap[shiftName] || shiftName
-}
-
-const getShiftColorClass = (shiftName) => {
-  const shiftNameLower = shiftName.toLowerCase()
-  if (shiftNameLower.includes('früh') || shiftNameLower.includes('early')) {
-    return 'shift-early'
-  } else if (shiftNameLower.includes('spät') || shiftNameLower.includes('late')) {
-    return 'shift-late'
-  } else if (shiftNameLower.includes('nacht') || shiftNameLower.includes('night')) {
-    return 'shift-night'
-  } else if (shiftNameLower.includes('tag') || shiftNameLower.includes('day') || shiftNameLower.includes('morning')) {
-    return 'shift-morning'
-  }
-  // Default color for unknown shifts
-  return 'shift-default'
-}
-
-const getProgressBarClass = (status) => {
-  switch (status) {
-    case 'ok': return 'bg-success'
-    case 'understaffed': return 'bg-danger'
-    case 'overstaffed': return 'bg-warning'
-    case 'full': return 'bg-info'
-    default: return 'bg-secondary'
-  }
-}
-
-const getStatusBadgeClass = (status) => {
-  switch (status) {
-    case 'ok': return 'bg-success'
-    case 'understaffed': return 'bg-danger'
-    case 'overstaffed': return 'bg-warning'
-    case 'full': return 'bg-info'
-    default: return 'bg-secondary'
-  }
-}
-
-const getStatusText = (status) => {
-  switch (status) {
-    case 'ok': return 'Vollständig besetzt'
-    case 'understaffed': return 'Unterbesetzt'
-    case 'overstaffed': return 'Überbesetzt'
-    case 'full': return 'Voll besetzt'
-    default: return 'Unbekannt'
-  }
-}
-
-const formatNumber = (num) => {
-  if (num === null || num === undefined) return '0'
-  return parseFloat(num).toFixed(3).replace(/\.?0+$/, '')
-}
-
-const getStaffingPercentage = (shift) => {
-  return parseFloat(formatNumber((shift.assigned_count / shift.max_staff) * 100))
-}
-
-const getShiftBadgeClass = (shiftName) => {
-  switch (shiftName.toLowerCase()) {
-    case 'frühschicht': return 'bg-primary'
-    case 'spätschicht': return 'bg-success'
-    case 'nachtschicht': return 'bg-dark'
-    default: return 'bg-secondary'
-  }
-}
 
 const previousDay = () => {
-  selectedDate.value = subDays(selectedDate.value, 1)
-  updateRoute()
+  if (!selectedDate.value) return
+  const newDate = new Date(selectedDate.value)
+  newDate.setDate(newDate.getDate() - 1)
+  scheduleStore.setSelectedDate(newDate)
+  loadDayData()
 }
 
 const nextDay = () => {
-  selectedDate.value = addDays(selectedDate.value, 1)
-  updateRoute()
+  if (!selectedDate.value) return
+  const newDate = new Date(selectedDate.value)
+  newDate.setDate(newDate.getDate() + 1)
+  scheduleStore.setSelectedDate(newDate)
+  loadDayData()
 }
 
-const updateRoute = () => {
-  const dateStr = format(selectedDate.value, 'yyyy-MM-dd')
+const getStaffingPercentage = (shift) => {
+  if (!shift.max_staff || shift.max_staff === 0) return 0
+  return Math.min((shift.assigned_count / shift.max_staff) * 100, 100)
+}
+
+const navigateToEmployee = (employeeId) => {
   router.push({
-    name: 'day-view',
-    params: {
-      companyId: route.params.companyId,
-      date: dateStr
+    name: 'employee-view',
+    params: { 
+      companyId: route.params.companyId, 
+      employeeId 
     }
   })
 }
 
 const loadDayData = async () => {
-  if (route.params.companyId) {
+  if (route.params.companyId && selectedDate.value) {
     const dateStr = format(selectedDate.value, 'yyyy-MM-dd')
     await scheduleStore.loadDayScheduleData(
       route.params.companyId,
@@ -387,23 +252,10 @@ const loadDayData = async () => {
   }
 }
 
-const navigateToEmployee = (employeeId) => {
-  router.push({
-    name: 'employee-view',
-    params: {
-      companyId: route.params.companyId,
-      employeeId: employeeId
-    }
-  })
-}
+onMounted(loadDayData)
 
-onMounted(() => {
-  parseDateFromRoute()
-  loadDayData()
-})
-
-watch(() => route.params.date, parseDateFromRoute)
 watch(() => route.params.companyId, loadDayData)
+watch(() => scheduleStore.selectedAlgorithm, loadDayData)
 </script>
 
 <style scoped>
@@ -411,129 +263,96 @@ watch(() => route.params.companyId, loadDayData)
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.5rem;
+  padding: 0.5rem 0;
 }
 
 .day-info-item .label {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
 .day-info-item .value {
-  font-weight: 600;
-  color: var(--text-color);
+  font-weight: 500;
 }
 
 .shift-column-card {
-  border: none;
-  box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,.075);
-  transition: transform 0.2s;
   height: 100%;
+  transition: transform 0.2s ease-in-out;
 }
 
 .shift-column-card:hover {
   transform: translateY(-2px);
 }
 
+.shift-column-card .card-header {
+  color: white;
+  font-weight: 600;
+}
+
 .shift-time {
   font-size: 0.875rem;
-  color: rgba(255,255,255,0.9);
-  margin-bottom: 0;
-}
-
-/* Shift-specific colors - matching calendar view */
-.card-header.shift-early {
-  background-color: #3498db !important;
-  border-color: #3498db !important;
-}
-
-.card-header.shift-morning {
-  background-color: #e67e22 !important;
-  border-color: #e67e22 !important;
-}
-
-.card-header.shift-late {
-  background-color: #27ae60 !important;
-  border-color: #27ae60 !important;
-}
-
-.card-header.shift-night {
-  background-color: #34495e !important;
-  border-color: #34495e !important;
-}
-
-.card-header.shift-default {
-  background-color: #95a5a6 !important;
-  border-color: #95a5a6 !important;
-}
-
-.staffing-info {
-  display: flex;
-  flex-direction: column;
+  opacity: 0.9;
 }
 
 .staffing-info .label {
+  font-weight: 600;
   color: var(--text-muted);
-  font-size: 0.875rem;
 }
 
 .staffing-info .value {
-  font-weight: 600;
-  font-size: 1rem;
+  font-weight: 500;
 }
 
 .section-title {
   font-size: 0.875rem;
   font-weight: 600;
-  margin-bottom: 0.75rem;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  margin-bottom: 0.75rem;
 }
 
 .employee-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .employee-item {
-  display: flex;
-  align-items: center;
-  padding: 0.5rem;
-  background-color: #f8f9fa;
-  border-radius: 0.25rem;
-  border-left: 3px solid var(--primary-color);
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.employee-item:last-child {
+  border-bottom: none;
 }
 
 .employee-info {
   display: flex;
   align-items: center;
-  flex: 1;
+  gap: 0.5rem;
   cursor: pointer;
-  transition: all 0.2s ease;
-  padding: 0.25rem;
-  border-radius: 0.25rem;
+  transition: color 0.2s ease-in-out;
 }
 
 .employee-info:hover {
-  background-color: rgba(52, 152, 219, 0.1);
-  transform: translateX(2px);
+  color: var(--bs-primary);
 }
 
-.employee-info .bi-person-circle {
-  margin-right: 0.5rem;
-  color: var(--primary-color);
-}
-
-.employee-info .employee-name {
+.employee-name {
   font-weight: 500;
-  font-size: 0.875rem;
-  color: var(--primary-color);
-  text-decoration: none;
 }
 
-.employee-info:hover .employee-name {
-  text-decoration: underline;
+.shift-early {
+  background: linear-gradient(135deg, #1976d2, #1565c0);
+}
+
+.shift-morning {
+  background: linear-gradient(135deg, #7b1fa2, #6a1b9a);
+}
+
+.shift-late {
+  background: linear-gradient(135deg, #f57c00, #ef6c00);
+}
+
+.shift-night {
+  background: linear-gradient(135deg, #c2185b, #ad1457);
 }
 </style> 

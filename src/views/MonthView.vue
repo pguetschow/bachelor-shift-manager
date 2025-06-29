@@ -1,65 +1,34 @@
 <template>
   <div class="container px-3">
     <!-- Header -->
-    <div class="row mb-4">
-      <div class="col">
-        <h2 class="mb-3">
-          <i class="bi bi-calendar-month text-primary"></i>
-          Monatsansicht - {{ company?.name }}
-        </h2>
-        <nav aria-label="breadcrumb">
-          <ol class="breadcrumb">
-            <li class="breadcrumb-item">
-              <router-link to="/">Unternehmen</router-link>
-            </li>
-            <li class="breadcrumb-item">
-              <router-link :to="{ name: 'dashboard', params: { companyId: $route.params.companyId } }">
-                Dashboard
-              </router-link>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Monatsansicht</li>
-          </ol>
-        </nav>
-      </div>
-    </div>
+    <PageHeader 
+      title="Monatsansicht"
+      icon="bi bi-calendar-month"
+      :breadcrumbs="[
+        { 
+          text: 'Dashboard', 
+          to: { name: 'dashboard', params: { companyId: $route.params.companyId } } 
+        },
+        { text: 'Monatsansicht' }
+      ]"
+    />
 
     <!-- Month Navigation -->
-    <div class="row mb-4">
-      <div class="col">
-        <div class="d-flex justify-content-between align-items-center">
-          <button 
-            @click="previousMonth" 
-            class="btn btn-outline-primary"
-          >
-            <i class="bi bi-chevron-left"></i> Vorheriger Monat
-          </button>
-          
-          <h4 class="mb-0">
-            {{ currentMonthName }} {{ currentYear }}
-          </h4>
-          
-          <button 
-            @click="nextMonth" 
-            class="btn btn-outline-primary"
-          >
-            Nächster Monat <i class="bi bi-chevron-right"></i>
-          </button>
-        </div>
-      </div>
-    </div>
+    <MonthNavigation 
+      :current-year="currentYear"
+      :current-month="currentMonth"
+      @previous="previousMonth"
+      @next="nextMonth"
+    />
 
     <!-- Loading State -->
-    <div v-if="loading" class="spinner-container">
-      <div class="loading-spinner"></div>
-    </div>
+    <LoadingState :loading="loading" />
 
     <!-- Error State -->
-    <div v-else-if="error" class="alert alert-danger" role="alert">
-      {{ error }}
-    </div>
+    <ErrorState :error="error" />
 
     <!-- Calendar -->
-    <div v-else class="calendar-container">
+    <div v-if="!loading && !error" class="calendar-container">
       <!-- Calendar Header -->
       <div class="row calendar-header g-0">
         <div 
@@ -126,27 +95,21 @@
               
               <!-- Day status indicators -->
               <div class="day-status">
-                <span 
+                <StatusBadge 
                   v-if="day.is_holiday" 
-                  class="badge bg-danger"
-                  title="Feiertag"
-                >
-                  <i class="bi bi-calendar-x"></i>
-                </span>
-                <span 
+                  status="holiday"
+                  size="small"
+                />
+                <StatusBadge 
                   v-else-if="day.is_sunday && !company?.sunday_is_workday" 
-                  class="badge bg-secondary"
-                  title="Sonntag"
-                >
-                  <i class="bi bi-calendar-week"></i>
-                </span>
-                <span 
+                  status="sunday"
+                  size="small"
+                />
+                <StatusBadge 
                   v-else-if="day.is_non_working" 
-                  class="badge bg-warning"
-                  title="Nicht-Arbeitstag"
-                >
-                  <i class="bi bi-calendar-minus"></i>
-                </span>
+                  status="non_working"
+                  size="small"
+                />
               </div>
             </div>
           </div>
@@ -198,15 +161,11 @@
                 </div>
                 <div class="d-flex align-items-center mb-2">
                   <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>
-                  <span>Unter Minimum Personal</span>
+                  <span>Unterbesetzt</span>
                 </div>
                 <div class="d-flex align-items-center mb-2">
                   <i class="bi bi-exclamation-circle-fill text-danger me-2"></i>
-                  <span>Über Maximum Personal</span>
-                </div>
-                <div class="d-flex align-items-center mb-2">
-                  <span class="badge bg-secondary me-2">Sonntag/Feiertag</span>
-                  <span>Keine Schichten angezeigt</span>
+                  <span>Überbesetzt</span>
                 </div>
               </div>
             </div>
@@ -220,64 +179,36 @@
 <script setup>
 import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isToday } from 'date-fns'
+import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { useCompanyStore } from '@/stores/company'
 import { useScheduleStore } from '@/stores/schedule'
+import { useFormatters } from '@/composables/useFormatters'
+
+// Components
+import PageHeader from '@/components/PageHeader.vue'
+import MonthNavigation from '@/components/MonthNavigation.vue'
+import LoadingState from '@/components/LoadingState.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
 
 const route = useRoute()
 const router = useRouter()
 const companyStore = useCompanyStore()
 const scheduleStore = useScheduleStore()
+const { getShiftDisplayName, getShiftColorClass } = useFormatters()
 
 const company = computed(() => companyStore.currentCompany)
 const loading = computed(() => scheduleStore.loading)
 const error = computed(() => scheduleStore.error)
 const currentYear = computed(() => scheduleStore.currentYear)
 const currentMonth = computed(() => scheduleStore.currentMonth)
-
+const calendarWeeks = computed(() => scheduleStore.getCalendarWeeks())
 const weekDays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 
 const currentMonthName = computed(() => {
   const date = new Date(currentYear.value, currentMonth.value - 1)
   return format(date, 'MMMM', { locale: de })
-})
-
-const calendarWeeks = computed(() => {
-  if (!currentYear.value || !currentMonth.value) return []
-  
-  const monthStart = startOfMonth(new Date(currentYear.value, currentMonth.value - 1))
-  const monthEnd = endOfMonth(monthStart)
-  const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 })
-  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
-  
-  const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd })
-  const weeks = []
-  
-  for (let i = 0; i < days.length; i += 7) {
-    const week = days.slice(i, i + 7).map(day => {
-      if (!isSameMonth(day, monthStart)) {
-        return null
-      }
-      
-      const dateStr = format(day, 'yyyy-MM-dd')
-      const scheduleData = scheduleStore.scheduleData.schedule_data?.[dateStr] || {}
-      
-      return {
-        day: day.getDate(),
-        date: day,
-        dateStr,
-        shifts: scheduleData.shifts || {},
-        is_today: isToday(day),
-        is_holiday: scheduleData.is_holiday || false,
-        is_sunday: day.getDay() === 0,
-        is_non_working: scheduleData.is_non_working || false
-      }
-    })
-    weeks.push(week)
-  }
-  
-  return weeks
 })
 
 const getDayClasses = (day) => {
@@ -298,32 +229,6 @@ const getShiftStatusClass = (status) => {
     case 'overstaffed': return 'status-overstaffed'
     default: return 'status-ok'
   }
-}
-
-const getShiftColorClass = (shiftName) => {
-  // Map shift names to color classes
-  const shiftNameLower = shiftName.toLowerCase()
-  if (shiftNameLower.includes('früh') || shiftNameLower.includes('early')) {
-    return 'shift-early'
-  } else if (shiftNameLower.includes('spät') || shiftNameLower.includes('late')) {
-    return 'shift-late'
-  } else if (shiftNameLower.includes('nacht') || shiftNameLower.includes('night')) {
-    return 'shift-night'
-  } else if (shiftNameLower.includes('tag') || shiftNameLower.includes('day') || shiftNameLower.includes('morning')) {
-    return 'shift-morning'
-  }
-  // Default color for unknown shifts
-  return 'shift-default'
-}
-
-const getShiftDisplayName = (shiftName) => {
-  const shiftMap = {
-    'EarlyShift': 'Frühschicht',
-    'MorningShift': 'Morgenschicht',
-    'LateShift': 'Spätschicht',
-    'NightShift': 'Nachtschicht'
-  }
-  return shiftMap[shiftName] || shiftName
 }
 
 const getShiftOrder = (shiftName) => {
