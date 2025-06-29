@@ -164,7 +164,7 @@
 <script setup>
 import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { useCompanyStore } from '@/stores/company'
 import { useScheduleStore } from '@/stores/schedule'
 import { useFormatters } from '@/composables/useFormatters'
@@ -252,10 +252,31 @@ const loadDayData = async () => {
   }
 }
 
-onMounted(loadDayData)
+const initializeDate = () => {
+  // If there's a date parameter in the route, use it
+  if (route.params.date) {
+    try {
+      const parsedDate = parseISO(route.params.date)
+      scheduleStore.setSelectedDate(parsedDate)
+    } catch (error) {
+      console.error('Invalid date format in route:', route.params.date)
+      // Fall back to current date
+      scheduleStore.setSelectedDate(new Date())
+    }
+  }
+}
+
+onMounted(() => {
+  initializeDate()
+  loadDayData()
+})
 
 watch(() => route.params.companyId, loadDayData)
 watch(() => scheduleStore.selectedAlgorithm, loadDayData)
+watch(() => route.params.date, () => {
+  initializeDate()
+  loadDayData()
+})
 </script>
 
 <style scoped>
