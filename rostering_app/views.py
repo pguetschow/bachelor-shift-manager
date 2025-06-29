@@ -1,9 +1,10 @@
-import datetime
 import calendar
+import datetime
 import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
-from django.db.models import Count, Q
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range, get_non_working_days_in_range
 
@@ -75,14 +76,14 @@ def schedule_dashboard(request, company_id):
     if selected_algorithm:
         entry_filter['algorithm'] = selected_algorithm
     entries = ScheduleEntry.objects.filter(**entry_filter)
-    
+
     # Calculate coverage statistics
     coverage_stats = calculate_coverage_stats(entries, first_day, last_day, company)
     
     # Get employees with most/least hours
     employee_hours = calculate_employee_hours_with_month_boundaries(entries, first_day, last_day)
     top_employees = sorted(employee_hours.items(), key=lambda x: x[1], reverse=True)[:5]
-    
+
     context = {
         'company': company,
         'company_name': company.name,
@@ -99,7 +100,7 @@ def schedule_dashboard(request, company_id):
         'available_algorithms': available_algorithms,
         'selected_algorithm': selected_algorithm,
     }
-    
+
     return render(request, 'rostering_app/dashboard.html', context)
 
 
@@ -488,11 +489,67 @@ def api_schedule_data(request, company_id, year, month):
             'name': entry.employee.name
         })
     
+    # Calculate status for each shift on each date
+    for date_str, date_data in schedule_data.items():
+        for shift_name, shift_data in date_data['shifts'].items():
+            shift_data['status'] = get_shift_status(
+                shift_data['count'], 
+                shift_data['min_staff'], 
+                shift_data['max_staff']
+            )
+    
+    # Add empty shift data for dates without schedule entries
+    all_shifts = Shift.objects.filter(company=company)
+    current_date = first_day
+    while current_date <= last_day:
+        date_str = current_date.isoformat()
+        if date_str not in schedule_data:
+            # Add holiday and non-working day information
+            is_holiday_day = is_holiday(current_date)
+            is_sunday_day = is_sunday(current_date)
+            is_non_working = is_non_working_day(current_date, company)
+            
+            schedule_data[date_str] = {
+                'shifts': {},
+                'is_holiday': is_holiday_day,
+                'is_sunday': is_sunday_day,
+                'is_non_working': is_non_working
+            }
+        
+        # Ensure all shifts are represented for each date
+        for shift in all_shifts:
+            if shift.name not in schedule_data[date_str]['shifts']:
+                schedule_data[date_str]['shifts'][shift.name] = {
+                    'count': 0,
+                    'min_staff': shift.min_staff,
+                    'max_staff': shift.max_staff,
+                    'status': get_shift_status(0, shift.min_staff, shift.max_staff)
+                }
+        
+        current_date += datetime.timedelta(days=1)
+    
+    total_employees = Employee.objects.filter(company=company).count()
+    total_shifts = Shift.objects.filter(company=company).count()
+    
     return JsonResponse({
-        'success': True,
-        'data': schedule_data,
-        'year': year,
-        'month': month
+        'schedule_data': schedule_data,
+        'coverage_stats': {
+            'total_employees': total_employees,
+            'total_shifts': total_shifts,
+            'working_days': len(get_working_days_in_range(first_day, last_day, company)),
+            'coverage_percentage': sum(stat['coverage_percentage'] for stat in coverage_stats) / len(coverage_stats) if coverage_stats else 0,
+            'fully_staffed': sum(1 for stat in coverage_stats if stat['status'] == 'full'),
+            'understaffed': sum(1 for stat in coverage_stats if stat['status'] == 'understaffed'),
+            'shifts': coverage_stats
+        },
+        'top_employees': [
+            {
+                'id': emp_id,
+                'name': Employee.objects.get(id=emp_id).name,
+                'hours': hours
+            }
+            for emp_id, hours in top_employees
+        ]
     })
 
 
@@ -525,7 +582,14 @@ def calculate_coverage_stats(entries, start_date, end_date, company):
             coverage_percentage = round((avg_staff / shift.max_staff) * 100, 1) if shift.max_staff > 0 else 0
             
             stats.append({
-                'shift': shift,
+                'shift': {
+                    'id': shift.id,
+                    'name': shift.name,
+                    'start_time': shift.start.isoformat(),
+                    'end_time': shift.end.isoformat(),
+                    'min_staff': shift.min_staff,
+                    'max_staff': shift.max_staff
+                },
                 'coverage_percentage': coverage_percentage,
                 'avg_staff': round(avg_staff, 1),
                 'status': get_shift_status(avg_staff, shift.min_staff, shift.max_staff)
@@ -539,14 +603,14 @@ def calculate_employee_hours_with_month_boundaries(entries, month_start_date, mo
     hours = {}
     
     for entry in entries:
-        emp_name = entry.employee.name
+        emp_id = entry.employee.id
         shift = entry.shift
         shift_date = entry.date
         
         # Calculate the actual hours for this shift within the specified month
         actual_hours = calculate_shift_hours_in_month(shift, shift_date, month_start_date, month_end_date)
         
-        hours[emp_name] = hours.get(emp_name, 0) + actual_hours
+        hours[emp_id] = hours.get(emp_id, 0) + actual_hours
     
     return hours
 
@@ -612,3 +676,443 @@ def build_employee_calendar(year, month, entries, absences):
         calendar_data.append(week_data)
     
     return calendar_data
+
+
+# New API endpoints for Vue.js frontend
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_companies(request):
+    """API endpoint to get all companies."""
+    companies = Company.objects.all()
+    companies_data = []
+    
+    for company in companies:
+        employee_count = Employee.objects.filter(company=company).count()
+        shift_count = Shift.objects.filter(company=company).count()
+        
+        companies_data.append({
+            'id': company.id,
+            'name': company.name,
+            'size': company.size,
+            'description': company.description,
+            'icon': company.icon,
+            'color': company.color,
+            'sunday_is_workday': company.sunday_is_workday,
+            'employee_count': employee_count,
+            'shift_count': shift_count
+        })
+    
+    return JsonResponse(companies_data, safe=False)
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_company_detail(request, company_id):
+    """API endpoint to get a specific company."""
+    company = get_object_or_404(Company, pk=company_id)
+    employee_count = Employee.objects.filter(company=company).count()
+    shift_count = Shift.objects.filter(company=company).count()
+    
+    company_data = {
+        'id': company.id,
+        'name': company.name,
+        'size': company.size,
+        'description': company.description,
+        'icon': company.icon,
+        'color': company.color,
+        'sunday_is_workday': company.sunday_is_workday,
+        'employee_count': employee_count,
+        'shift_count': shift_count
+    }
+    
+    return JsonResponse(company_data)
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_company_algorithms(request, company_id):
+    """API endpoint to get available algorithms for a company."""
+    company = get_object_or_404(Company, pk=company_id)
+    available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
+    available_algorithms = sorted([alg for alg in available_algorithms if alg])
+    
+    return JsonResponse({
+        'algorithms': available_algorithms
+    })
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_company_schedule(request, company_id):
+    """API endpoint to get schedule data for a company."""
+    company = get_object_or_404(Company, pk=company_id)
+    
+    # Get query parameters
+    year = int(request.GET.get('year', datetime.date.today().year))
+    month = int(request.GET.get('month', datetime.date.today().month))
+    algorithm = request.GET.get('algorithm', '')
+    
+    # Calculate date range
+    first_day = datetime.date(year, month, 1)
+    last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    
+    # Get schedule entries
+    entry_filter = {
+        'company': company,
+        'date__gte': first_day,
+        'date__lte': last_day
+    }
+    if algorithm:
+        entry_filter['algorithm'] = algorithm
+    
+    entries = ScheduleEntry.objects.filter(**entry_filter)
+    
+    # Calculate statistics
+    coverage_stats = calculate_coverage_stats(entries, first_day, last_day, company)
+    employee_hours = calculate_employee_hours_with_month_boundaries(entries, first_day, last_day)
+    top_employees = sorted(employee_hours.items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    # Format schedule data by date
+    schedule_data = {}
+    for entry in entries:
+        date_str = entry.date.isoformat()
+        if date_str not in schedule_data:
+            # Add holiday and non-working day information
+            is_holiday_day = is_holiday(entry.date)
+            is_sunday_day = is_sunday(entry.date)
+            is_non_working = is_non_working_day(entry.date, company)
+            
+            schedule_data[date_str] = {
+                'shifts': {},
+                'is_holiday': is_holiday_day,
+                'is_sunday': is_sunday_day,
+                'is_non_working': is_non_working
+            }
+        
+        shift_name = entry.shift.name
+        if shift_name not in schedule_data[date_str]['shifts']:
+            schedule_data[date_str]['shifts'][shift_name] = {
+                'count': 0,
+                'min_staff': entry.shift.min_staff,
+                'max_staff': entry.shift.max_staff,
+                'status': 'ok'
+            }
+        
+        schedule_data[date_str]['shifts'][shift_name]['count'] += 1
+    
+    # Calculate status for each shift on each date
+    for date_str, date_data in schedule_data.items():
+        for shift_name, shift_data in date_data['shifts'].items():
+            shift_data['status'] = get_shift_status(
+                shift_data['count'], 
+                shift_data['min_staff'], 
+                shift_data['max_staff']
+            )
+    
+    # Add empty shift data for dates without schedule entries
+    all_shifts = Shift.objects.filter(company=company)
+    current_date = first_day
+    while current_date <= last_day:
+        date_str = current_date.isoformat()
+        if date_str not in schedule_data:
+            # Add holiday and non-working day information
+            is_holiday_day = is_holiday(current_date)
+            is_sunday_day = is_sunday(current_date)
+            is_non_working = is_non_working_day(current_date, company)
+            
+            schedule_data[date_str] = {
+                'shifts': {},
+                'is_holiday': is_holiday_day,
+                'is_sunday': is_sunday_day,
+                'is_non_working': is_non_working
+            }
+        
+        # Ensure all shifts are represented for each date
+        for shift in all_shifts:
+            if shift.name not in schedule_data[date_str]['shifts']:
+                schedule_data[date_str]['shifts'][shift.name] = {
+                    'count': 0,
+                    'min_staff': shift.min_staff,
+                    'max_staff': shift.max_staff,
+                    'status': get_shift_status(0, shift.min_staff, shift.max_staff)
+                }
+        
+        current_date += datetime.timedelta(days=1)
+    
+    total_employees = Employee.objects.filter(company=company).count()
+    total_shifts = Shift.objects.filter(company=company).count()
+    
+    return JsonResponse({
+        'schedule_data': schedule_data,
+        'coverage_stats': {
+            'total_employees': total_employees,
+            'total_shifts': total_shifts,
+            'working_days': len(get_working_days_in_range(first_day, last_day, company)),
+            'coverage_percentage': sum(stat['coverage_percentage'] for stat in coverage_stats) / len(coverage_stats) if coverage_stats else 0,
+            'fully_staffed': sum(1 for stat in coverage_stats if stat['status'] == 'full'),
+            'understaffed': sum(1 for stat in coverage_stats if stat['status'] == 'understaffed'),
+            'shifts': coverage_stats
+        },
+        'top_employees': [
+            {
+                'id': emp_id,
+                'name': Employee.objects.get(id=emp_id).name,
+                'hours': hours
+            }
+            for emp_id, hours in top_employees
+        ]
+    })
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_company_employees(request, company_id):
+    """API endpoint to get employees for a company."""
+    company = get_object_or_404(Company, pk=company_id)
+    employees = Employee.objects.filter(company=company)
+    
+    employees_data = []
+    for employee in employees:
+        employees_data.append({
+            'id': employee.id,
+            'name': employee.name,
+            'position': employee.position,
+            'max_hours_per_week': employee.max_hours_per_week,
+            'preferred_shifts': list(employee.preferred_shifts.values_list('name', flat=True))
+        })
+    
+    return JsonResponse(employees_data, safe=False)
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_company_shifts(request, company_id):
+    """API endpoint to get shifts for a company."""
+    company = get_object_or_404(Company, pk=company_id)
+    shifts = Shift.objects.filter(company=company)
+    
+    shifts_data = []
+    for shift in shifts:
+        shifts_data.append({
+            'id': shift.id,
+            'name': shift.name,
+            'start_time': shift.start.isoformat(),
+            'end_time': shift.end.isoformat(),
+            'min_staff': shift.min_staff,
+            'max_staff': shift.max_staff
+        })
+    
+    return JsonResponse(shifts_data, safe=False)
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_company_day_schedule(request, company_id, date):
+    """API endpoint to get schedule data for a specific day."""
+    company = get_object_or_404(Company, pk=company_id)
+    
+    try:
+        target_date = datetime.datetime.strptime(date, '%Y-%m-%d').date()
+    except ValueError:
+        return JsonResponse({'error': 'Invalid date format'}, status=400)
+    
+    # Get schedule entries for the specific date
+    entries = ScheduleEntry.objects.filter(
+        company=company,
+        date=target_date
+    )
+    
+    # Get all shifts for the company
+    all_shifts = Shift.objects.filter(company=company)
+    
+    # Format shifts data with employee assignments
+    shifts_data = []
+    for shift in all_shifts:
+        shift_entries = entries.filter(shift=shift)
+        assigned_employees = []
+        
+        for entry in shift_entries:
+            assigned_employees.append({
+                'id': entry.employee.id,
+                'name': entry.employee.name,
+                'algorithm': entry.algorithm or 'Unknown'
+            })
+        
+        shifts_data.append({
+            'id': shift.id,
+            'name': shift.name,
+            'start_time': shift.start.isoformat(),
+            'end_time': shift.end.isoformat(),
+            'min_staff': shift.min_staff,
+            'max_staff': shift.max_staff,
+            'assigned_count': len(assigned_employees),
+            'assigned_employees': assigned_employees,
+            'status': get_shift_status(len(assigned_employees), shift.min_staff, shift.max_staff)
+        })
+    
+    # Get day information
+    is_holiday_day = is_holiday(target_date)
+    is_sunday_day = is_sunday(target_date)
+    is_non_working = is_non_working_day(target_date, company)
+    
+    return JsonResponse({
+        'date': date,
+        'is_holiday': is_holiday_day,
+        'is_sunday': is_sunday_day,
+        'is_non_working': is_non_working,
+        'shifts': shifts_data,
+        'total_assignments': sum(len(shift['assigned_employees']) for shift in shifts_data)
+    })
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_company_employee_schedule(request, company_id, employee_id):
+    """API endpoint to get schedule data for a specific employee."""
+    company = get_object_or_404(Company, pk=company_id)
+    employee = get_object_or_404(Employee, pk=employee_id, company=company)
+    
+    # Get query parameters
+    year = int(request.GET.get('year', datetime.date.today().year))
+    month = int(request.GET.get('month', datetime.date.today().month))
+    algorithm = request.GET.get('algorithm', '')
+    
+    # Calculate date range
+    first_day = datetime.date(year, month, 1)
+    last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    
+    # Get employee's schedule entries
+    entry_filter = {
+        'employee': employee,
+        'date__gte': first_day,
+        'date__lte': last_day
+    }
+    if algorithm:
+        entry_filter['algorithm'] = algorithm
+    
+    entries = ScheduleEntry.objects.filter(**entry_filter).order_by('date')
+    
+    # Format schedule data
+    schedule_data = []
+    for entry in entries:
+        schedule_data.append({
+            'id': entry.id,
+            'date': entry.date.isoformat(),
+            'shift': {
+                'id': entry.shift.id,
+                'name': entry.shift.name,
+                'start_time': entry.shift.start.isoformat(),
+                'end_time': entry.shift.end.isoformat(),
+                'min_staff': entry.shift.min_staff,
+                'max_staff': entry.shift.max_staff
+            },
+            'algorithm': entry.algorithm or 'Unknown'
+        })
+    
+    # Calculate statistics
+    total_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, first_day, last_day) for entry in entries)
+    total_shifts = entries.count()
+    average_hours_per_shift = total_hours / total_shifts if total_shifts > 0 else 0
+    
+    # Calculate weekly workload
+    weekly_workload = []
+    current_week = first_day
+    while current_week <= last_day:
+        week_end = min(current_week + datetime.timedelta(days=6), last_day)
+        week_entries = entries.filter(date__gte=current_week, date__lte=week_end)
+        week_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, current_week, week_end) for entry in week_entries)
+        weekly_workload.append(round(week_hours, 3))
+        current_week += datetime.timedelta(days=7)
+    
+    # Calculate utilization percentage based on monthly hours
+    # Calculate exact monthly hours based on working days
+    working_days = get_working_days_in_range(first_day, last_day, company)
+    total_working_days = len(working_days)
+    
+    # Calculate max monthly hours based on working days
+    # Assuming 8 hours per working day (or adjust based on company policy)
+    hours_per_working_day = 8  # This could be made configurable per company
+    max_monthly_hours = employee.max_hours_per_week * (total_working_days / 5)  # Assuming 5 working days per week
+    utilization_percentage = (total_hours / max_monthly_hours * 100) if max_monthly_hours > 0 else 0
+
+    return JsonResponse({
+        'employee': {
+            'id': employee.id,
+            'name': employee.name,
+            'position': getattr(employee, 'position', 'Mitarbeiter'),
+            'max_hours_per_week': employee.max_hours_per_week,
+            'preferred_shifts': employee.preferred_shifts
+        },
+        'schedule_data': schedule_data,
+        'statistics': {
+            'total_hours': total_hours,
+            'total_shifts': total_shifts,
+            'average_hours_per_shift': average_hours_per_shift,
+            'utilization_percentage': utilization_percentage
+        },
+        'weekly_workload': weekly_workload,
+        'month': month,
+        'year': year
+    })
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_company_employee_yearly_schedule(request, company_id, employee_id):
+    """API endpoint to get yearly schedule data for a specific employee."""
+    company = get_object_or_404(Company, pk=company_id)
+    employee = get_object_or_404(Employee, pk=employee_id, company=company)
+    
+    # Get query parameters
+    year = int(request.GET.get('year', datetime.date.today().year))
+    algorithm = request.GET.get('algorithm', '')
+    
+    # Calculate date range for the entire year
+    first_day = datetime.date(year, 1, 1)
+    last_day = datetime.date(year, 12, 31)
+    
+    # Get employee's schedule entries for the year
+    entry_filter = {
+        'employee': employee,
+        'date__gte': first_day,
+        'date__lte': last_day
+    }
+    if algorithm:
+        entry_filter['algorithm'] = algorithm
+    
+    entries = ScheduleEntry.objects.filter(**entry_filter).order_by('date')
+    
+    # Calculate yearly statistics
+    total_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, first_day, last_day) for entry in entries)
+    total_shifts = entries.count()
+    average_hours_per_shift = total_hours / total_shifts if total_shifts > 0 else 0
+    
+    # Calculate monthly breakdown
+    monthly_hours = []
+    monthly_shifts = []
+    for month in range(1, 13):
+        month_start = datetime.date(year, month, 1)
+        month_end = datetime.date(year, month, calendar.monthrange(year, month)[1])
+        month_entries = entries.filter(date__gte=month_start, date__lte=month_end)
+        month_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, month_start, month_end) for entry in month_entries)
+        monthly_hours.append(round(month_hours, 3))
+        monthly_shifts.append(month_entries.count())
+    
+    # Calculate yearly utilization
+    # 52 weeks * max_hours_per_week = yearly maximum
+    max_yearly_hours = employee.max_hours_per_week * 52
+    yearly_utilization_percentage = (total_hours / max_yearly_hours * 100) if max_yearly_hours > 0 else 0
+    
+    return JsonResponse({
+        'employee': {
+            'id': employee.id,
+            'name': employee.name,
+            'position': getattr(employee, 'position', 'Mitarbeiter'),
+            'max_hours_per_week': employee.max_hours_per_week,
+            'preferred_shifts': employee.preferred_shifts
+        },
+        'yearly_statistics': {
+            'total_hours': total_hours,
+            'total_shifts': total_shifts,
+            'average_hours_per_shift': average_hours_per_shift,
+            'max_yearly_hours': max_yearly_hours,
+            'yearly_utilization_percentage': yearly_utilization_percentage
+        },
+        'monthly_breakdown': {
+            'hours': monthly_hours,
+            'shifts': monthly_shifts
+        },
+        'year': year
+    })
