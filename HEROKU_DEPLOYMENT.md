@@ -19,7 +19,7 @@ Add these secrets to your GitHub repository (Settings → Secrets and variables 
 - `HEROKU_API_KEY`: Your Heroku API key (Account Settings → API Key)
 - `HEROKU_APP_NAME`: Your Heroku app name
 
-### 3. Set Environment Variables
+### 3. Set Environment Variables (or via Github Secrets)
 
 ```bash
 heroku config:set SECRET_KEY=your-secret-key
