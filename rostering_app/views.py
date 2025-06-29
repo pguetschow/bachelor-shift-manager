@@ -9,12 +9,34 @@ from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range, get_non_working_days_in_range, get_shift_display_name, monthly_hours
 import subprocess
 import os
+from django.core.management import call_command
+from django.conf import settings
 
 
 def load_company_fixtures(company):
     """Load fixtures for the specified company."""
-    # Placeholder for loading fixtures for the specified company
-    return True
+    try:
+        # Determine which company size fixtures to load
+        company_size = company.size.lower()
+        fixtures_dir = os.path.join(settings.BASE_DIR, 'rostering_app', 'fixtures', company_size)
+        
+        if os.path.exists(fixtures_dir):
+            # Load employees for this company
+            employees_fixture = os.path.join(fixtures_dir, 'employees.json')
+            if os.path.exists(employees_fixture):
+                call_command('loaddata', employees_fixture, verbosity=0)
+            
+            # Load shifts for this company
+            shifts_fixture = os.path.join(fixtures_dir, 'shifts.json')
+            if os.path.exists(shifts_fixture):
+                call_command('loaddata', shifts_fixture, verbosity=0)
+            
+            return True
+    except Exception as e:
+        print(f"Error loading fixtures for company {company.name}: {e}")
+        return False
+    
+    return False
 
 
 def get_shift_status(count, min_staff, max_staff):
@@ -818,6 +840,44 @@ def api_reset_benchmark(request):
         CompanyBenchmarkStatus.objects.all().delete()
         
         return JsonResponse({'status': 'success', 'message': 'Benchmark status reset successfully'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_load_fixtures(request):
+    """API endpoint to manually load fixtures."""
+    try:
+        from django.core.management import call_command
+        from django.conf import settings
+        import os
+        
+        # Get the fixtures directory
+        fixtures_dir = os.path.join(settings.BASE_DIR, 'rostering_app', 'fixtures')
+        
+        # Load companies first
+        companies_fixture = os.path.join(fixtures_dir, 'companies.json')
+        if os.path.exists(companies_fixture):
+            call_command('loaddata', companies_fixture, verbosity=0)
+        
+        # Load company-specific fixtures
+        company_dirs = ['small_company', 'medium_company', 'large_company']
+        
+        for company_dir in company_dirs:
+            company_path = os.path.join(fixtures_dir, company_dir)
+            if os.path.exists(company_path):
+                # Load employees
+                employees_fixture = os.path.join(company_path, 'employees.json')
+                if os.path.exists(employees_fixture):
+                    call_command('loaddata', employees_fixture, verbosity=0)
+                
+                # Load shifts
+                shifts_fixture = os.path.join(company_path, 'shifts.json')
+                if os.path.exists(shifts_fixture):
+                    call_command('loaddata', shifts_fixture, verbosity=0)
+        
+        return JsonResponse({'status': 'success', 'message': 'Fixtures loaded successfully'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 

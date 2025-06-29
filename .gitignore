@@ -4,3 +4,4 @@ export
 db.sqlite3
 /node_modules/
 /dist/
+/.vite/
