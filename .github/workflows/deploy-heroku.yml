@@ -8,19 +8,11 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
-    # ← tell this job which environment’s secrets to use
     environment: bachelor-shift-manager
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Debug secrets
-        run: |
-          echo "HEROKU_EMAIL     = '${{ secrets.HEROKU_EMAIL }}'"
-          echo "HEROKU_API_KEY   = '${{ secrets.HEROKU_API_KEY }}'"
-          echo "HEROKU_APP_NAME  = '${{ secrets.HEROKU_APP_NAME }}'"
 
       - name: Build, Push and Release a Docker container to Heroku
         uses: gonuit/heroku-docker-deploy@v1.3.3

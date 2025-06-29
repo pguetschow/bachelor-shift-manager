@@ -24,7 +24,7 @@ WORKDIR /app
 
 # Install Node.js dependencies and build Vue.js app
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy Vue.js source and build
 COPY src/ ./src/
