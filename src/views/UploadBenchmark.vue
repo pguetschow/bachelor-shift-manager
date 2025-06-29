@@ -8,9 +8,9 @@
         <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
           <h2 class="text-lg font-semibold text-blue-900 mb-4">Anweisungen</h2>
           <ol class="list-decimal list-inside space-y-2 text-blue-800">
-            <li>Exportieren Sie Ergebnisse als SQL-Dump mit: <code class="bg-blue-100 px-2 py-1 rounded">python manage.py export_sql_dump --include-schedules</code></li>
-            <li>Laden Sie die generierte ZIP-Datei unten hoch</li>
-            <li>Die Ergebnisse werden in die bereitgestellte Datenbank importiert</li>
+            <li>Ergebnisse als SQL-Dump exportieren mit: <code class="bg-blue-100 px-2 py-1 rounded">python manage.py export_sql_dump --include-schedules</code></li>
+            <li>Generierte ZIP-Datei unten hochladen</li>
+            <li>Ergebnisse werden in die bereitgestellte Datenbank importiert</li>
           </ol>
         </div>
 
@@ -31,7 +31,7 @@
               Benchmark-Ergebnisse hochladen
             </p>
             <p class="text-gray-500 mb-4">
-              Ziehen Sie eine ZIP-Datei hierher oder klicken Sie zur Auswahl
+              ZIP-Datei hierher ziehen oder klicken zur Auswahl
             </p>
             <input
               ref="fileInput"
@@ -42,9 +42,9 @@
             />
             <button
               @click="$refs.fileInput.click()"
-              class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium py-3 px-6 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg hover:shadow-xl"
+              class="btn btn-lg btn-primary mt-3"
             >
-              ZIP-Datei auswählen
+              ZIP-Datei hochladen
             </button>
           </div>
 
@@ -64,7 +64,7 @@
             <p class="text-lg font-medium text-green-900">Upload abgeschlossen!</p>
             <button
               @click="resetUpload"
-              class="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-medium py-3 px-6 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg hover:shadow-xl"
+              class="btn btn-lg btn-primary mt-3"
             >
               Weitere Datei hochladen
             </button>
