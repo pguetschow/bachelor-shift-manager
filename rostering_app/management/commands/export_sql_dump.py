@@ -117,10 +117,12 @@ class Command(BaseCommand):
             
             # Copy only schedule entries for matching companies
             for company_id in company_ids:
-                # Copy schedule entries for this company
-                cursor = source_conn.execute(
-                    "SELECT * FROM rostering_app_scheduleentry WHERE company_id = ?", (company_id,)
-                )
+                # Copy schedule entries for this company with valid employee references
+                cursor = source_conn.execute("""
+                    SELECT se.* FROM rostering_app_scheduleentry se
+                    INNER JOIN rostering_app_employee e ON se.employee_id = e.id
+                    WHERE se.company_id = ?
+                """, (company_id,))
                 for schedule_data in cursor.fetchall():
                     temp_conn.execute(
                         "INSERT INTO rostering_app_scheduleentry VALUES (?, ?, ?, ?, ?, ?)", 
@@ -150,7 +152,15 @@ class Command(BaseCommand):
                     
                     f.write(f"-- Data for table: {table}\n")
                     
-                    cursor = conn.execute(f"SELECT * FROM {table}")
+                    if table == 'rostering_app_scheduleentry':
+                        # For schedule entries, only export those with valid employee references
+                        cursor = conn.execute("""
+                            SELECT se.* FROM rostering_app_scheduleentry se
+                            INNER JOIN rostering_app_employee e ON se.employee_id = e.id
+                        """)
+                    else:
+                        cursor = conn.execute(f"SELECT * FROM {table}")
+                    
                     columns = [description[0] for description in cursor.description]
                     
                     for row in cursor.fetchall():

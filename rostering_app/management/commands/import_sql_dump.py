@@ -58,6 +58,9 @@ class Command(BaseCommand):
                 self._show_dry_run_summary(sql_statements)
                 return
             
+            # Ensure fixture data is loaded before importing schedule entries
+            self._ensure_fixture_data_loaded()
+            
             # Import the data
             import_results = self._import_sql_statements(sql_statements, clear_existing)
             
@@ -222,7 +225,7 @@ class Command(BaseCommand):
                         # Ignore most other statement errors
                         pass
                 
-                # Execute INSERT statements - try to handle foreign key issues
+                # Execute INSERT statements - handle foreign key issues for schedule entries
                 for statement in insert_statements:
                     try:
                         with connection.cursor() as cursor:
@@ -266,4 +269,21 @@ class Command(BaseCommand):
             # Re-enable foreign key constraints
             cursor.execute("PRAGMA foreign_keys=ON")
         
-        self.stdout.write("Existing schedule entries cleared") 
+        self.stdout.write("Existing schedule entries cleared")
+
+    def _ensure_fixture_data_loaded(self):
+        """Ensure fixture data is loaded before importing schedule entries."""
+        self.stdout.write("Loading fixture data...")
+        
+        # Load fixture data in the correct order
+        from django.core.management import call_command
+        
+        # Load companies first
+        call_command('loaddata', 'companies')
+        
+        # Load data for each company size
+        for company_size in ['small_company', 'medium_company', 'large_company']:
+            call_command('loaddata', f'{company_size}/employees')
+            call_command('loaddata', f'{company_size}/shifts')
+        
+        self.stdout.write("Fixture data loaded") 
