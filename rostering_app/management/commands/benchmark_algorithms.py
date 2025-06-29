@@ -11,8 +11,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
-from rostering_app.models import ScheduleEntry, Employee, Shift, Company
+from rostering_app.models import ScheduleEntry, Employee, Shift, Company, BenchmarkStatus, CompanyBenchmarkStatus
 
 # Import scheduling algorithms
 import sys
@@ -32,184 +33,240 @@ class Command(BaseCommand):
             action='store_true',
             help='Load fixtures into database (clears existing data)',
         )
+        parser.add_argument(
+            '--force',
+            action='store_true',
+            help='Force the benchmark to run even if it is already in progress',
+        )
 
     def handle(self, *args, **options):
-        # Test configurations
-        test_cases = [
-            {
-                'name': 'small_company',
-                'display_name': 'Kleines Unternehmen (10 MA, 2 Schichten)',
-                'employee_fixture': 'rostering_app/fixtures/small_company/employees.json',
-                'shift_fixture': 'rostering_app/fixtures/small_company/shifts.json'
-            },
-            {
-                'name': 'medium_company',
-                'display_name': 'Mittleres Unternehmen (30 MA, 3 Schichten)',
-                'employee_fixture': 'rostering_app/fixtures/medium_company/employees.json',
-                'shift_fixture': 'rostering_app/fixtures/medium_company/shifts.json'
-            },
-            {
-                'name': 'large_company',
-                'display_name': 'Großes Unternehmen (100 MA, 3 Schichten)',
-                'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
-                'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
-            }
-        ]
-
-        # Algorithm configurations - will be created per company
-        algorithm_classes = [
-            LinearProgrammingScheduler,
-            # GeneticAlgorithmScheduler,
-            # SimulatedAnnealingScheduler,
-        ]
-
-        # Create export directory
-        export_dir = 'export'
-        if not os.path.exists(export_dir):
-            os.makedirs(export_dir)
-
-        # Run benchmarks for each test case
-        all_results = {}
-
-        ScheduleEntry.objects.all().delete()
-        # Load fixtures if requested
-        if options['load_fixtures']:
-            # Clear the database first
-            Employee.objects.all().delete()
-            Shift.objects.all().delete()
-            Company.objects.all().delete()
-
-            self.stdout.write("Cleared database")
-
-            # Load company fixtures first
-            self._load_company_fixtures('rostering_app/fixtures/companies.json')
-            self.stdout.write(f"Loaded {Company.objects.count()} companies")
-            
-            # Load all fixtures for all companies before running benchmarks
-            for test_case in test_cases:
-                self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
-            
-            self.stdout.write(f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
-        else:
-            self.stdout.write("Using existing database data (no fixtures loaded)")
-
-        for test_case in test_cases:
-            self.stdout.write(f"\n{'='*60}")
-            self.stdout.write(f"Benchmarking: {test_case['display_name']}")
-            self.stdout.write(f"{'='*60}\n")
-
-            # Get the company for this test case
-            company_name_mapping = {
-                'small_company': 'Kleines Unternehmen',
-                'medium_company': 'Mittleres Unternehmen', 
-                'large_company': 'Großes Unternehmen'
-            }
-            
-            company_name = company_name_mapping.get(test_case['name'])
-            self.stdout.write(f"Looking for company: '{company_name}' for test case '{test_case['name']}'")
-            
-            if company_name:
-                company = Company.objects.filter(name=company_name).first()
-            else:
-                company = Company.objects.filter(name__icontains=test_case['name'].split('_')[0]).first()
-                
-            self.stdout.write(f"Using company: {company.name if company else 'NOT FOUND'}")
-            if company:
-                self.stdout.write(f"Company settings: sunday_is_workday={company.sunday_is_workday}")
-            
-            # Debug: show all available companies
-            all_companies = Company.objects.all()
-            self.stdout.write(f"Available companies: {[c.name for c in all_companies]}")
-            
-            # Create problem instance for this company
-            problem = self._create_problem(company)
-            self.stdout.write(f"Problem created with {len(problem.employees)} employees and {len(problem.shifts)} shifts")
-            
-            # Create algorithms for this specific company
-            algorithms = []
-            for algorithm_class in algorithm_classes:
-                if algorithm_class == LinearProgrammingScheduler:
-                    # Use the company's sunday_is_workday setting (inverted for the algorithm)
-                    algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
-                elif algorithm_class == GeneticAlgorithmScheduler:
-                    # Use the company's sunday_is_workday setting (inverted for the algorithm)
-                    algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
-                elif algorithm_class == SimulatedAnnealingScheduler:
-                    # Use the company's sunday_is_workday setting (inverted for the algorithm)
-                    algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
-                else:
-                    algorithms.append(algorithm_class())
-            
-            # Benchmark algorithms
-            results = {}
-            for algorithm in algorithms:
-                self.stdout.write(f"\nTesting {algorithm.name}...")
-
-                # Time the algorithm
-                start_time = time.time()
-                try:
-                    entries = algorithm.solve(problem)
-                    runtime = time.time() - start_time
-                    
-                    # Save to database, track algorithm
-                    self._save_entries(entries, algorithm.name)
-                    
-                    # Calculate KPIs for this company and algorithm
-                    kpis = self._calculate_kpis(company, algorithm.name)
-                    
-                    results[algorithm.name] = {
-                        'runtime': runtime,
-                        'kpis': kpis,
-                        'status': 'success',
-                        'entries_count': len(entries)
-                    }
-                    
-                    self.stdout.write(self.style.SUCCESS(
-                        f"✓ {algorithm.name} completed in {runtime:.2f}s"
-                    ))
-                    
-                except Exception as e:
-                    runtime = time.time() - start_time
-                    results[algorithm.name] = {
-                        'runtime': runtime,
-                        'kpis': None,
-                        'status': 'failed',
-                        'error': str(e)
-                    }
-                    self.stdout.write(self.style.ERROR(
-                        f"✗ {algorithm.name} failed: {str(e)}"
-                    ))
-                    # Print the full traceback to the console
-                    traceback.print_exc()
-
-            # Store results
-            all_results[test_case['name']] = {
-                'display_name': test_case['display_name'],
-                'results': results,
-                'problem_size': {
-                    'employees': len(problem.employees),
-                    'shifts': len(problem.shifts),
-                    'days': (problem.end_date - problem.start_date).days + 1
+        # Get or create benchmark status
+        benchmark_status = BenchmarkStatus.get_current()
+        
+        # Check if already running
+        if benchmark_status.status == 'running':
+            self.stdout.write(self.style.WARNING(
+                "Benchmark is already running. Use --force to override."
+            ))
+            if not options.get('force', False):
+                return
+        
+        # Start benchmark
+        load_fixtures = options.get('load_fixtures', False)
+        benchmark_status.start_benchmark(load_fixtures=load_fixtures)
+        
+        # Reset all company benchmark statuses when starting new benchmark
+        CompanyBenchmarkStatus.objects.all().update(
+            completed=False,
+            completed_at=None,
+            error_message=''
+        )
+        self.stdout.write("Reset all company benchmark statuses")
+        
+        try:
+            # Test configurations
+            test_cases = [
+                {
+                    'name': 'small_company',
+                    'display_name': 'Kleines Unternehmen (10 MA, 2 Schichten)',
+                    'employee_fixture': 'rostering_app/fixtures/small_company/employees.json',
+                    'shift_fixture': 'rostering_app/fixtures/small_company/shifts.json'
+                },
+                {
+                    'name': 'medium_company',
+                    'display_name': 'Mittleres Unternehmen (30 MA, 3 Schichten)',
+                    'employee_fixture': 'rostering_app/fixtures/medium_company/employees.json',
+                    'shift_fixture': 'rostering_app/fixtures/medium_company/shifts.json'
+                },
+                {
+                    'name': 'large_company',
+                    'display_name': 'Großes Unternehmen (100 MA, 3 Schichten)',
+                    'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
+                    'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
                 }
-            }
+            ]
+
+            # Algorithm configurations - will be created per company
+            algorithm_classes = [
+                LinearProgrammingScheduler,
+                GeneticAlgorithmScheduler,
+                SimulatedAnnealingScheduler,
+            ]
+
+            # Create export directory
+            export_dir = 'export'
+            if not os.path.exists(export_dir):
+                os.makedirs(export_dir)
+
+            # Run benchmarks for each test case
+            all_results = {}
+
+            ScheduleEntry.objects.all().delete()
+            # Load fixtures if requested
+            if load_fixtures:
+                # Clear the database first
+                Employee.objects.all().delete()
+                Shift.objects.all().delete()
+                Company.objects.all().delete()
+
+                self.stdout.write("Cleared database")
+
+                # Load company fixtures first
+                self._load_company_fixtures('rostering_app/fixtures/companies.json')
+                self.stdout.write(f"Loaded {Company.objects.count()} companies")
+                
+                # Load all fixtures for all companies before running benchmarks
+                for test_case in test_cases:
+                    self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
+                
+                self.stdout.write(f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
+            else:
+                self.stdout.write("Using existing database data (no fixtures loaded)")
+
+            for test_case in test_cases:
+                self.stdout.write(f"\n{'='*60}")
+                self.stdout.write(f"Benchmarking: {test_case['display_name']}")
+                self.stdout.write(f"{'='*60}\n")
+
+                # Get the company for this test case
+                company_name_mapping = {
+                    'small_company': 'Kleines Unternehmen',
+                    'medium_company': 'Mittleres Unternehmen', 
+                    'large_company': 'Großes Unternehmen'
+                }
+                
+                company_name = company_name_mapping.get(test_case['name'])
+                self.stdout.write(f"Looking for company: '{company_name}' for test case '{test_case['name']}'")
+                
+                if company_name:
+                    company = Company.objects.filter(name=company_name).first()
+                else:
+                    company = Company.objects.filter(name__icontains=test_case['name'].split('_')[0]).first()
+                    
+                self.stdout.write(f"Using company: {company.name if company else 'NOT FOUND'}")
+                if company:
+                    self.stdout.write(f"Company settings: sunday_is_workday={company.sunday_is_workday}")
+                
+                # Debug: show all available companies
+                all_companies = Company.objects.all()
+                self.stdout.write(f"Available companies: {[c.name for c in all_companies]}")
+                
+                # Create problem instance for this company
+                problem = self._create_problem(company)
+                self.stdout.write(f"Problem created with {len(problem.employees)} employees and {len(problem.shifts)} shifts")
+                
+                # Create algorithms for this specific company
+                algorithms = []
+                for algorithm_class in algorithm_classes:
+                    if algorithm_class == LinearProgrammingScheduler:
+                        # Use the company's sunday_is_workday setting (inverted for the algorithm)
+                        algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
+                    elif algorithm_class == GeneticAlgorithmScheduler:
+                        # Use the company's sunday_is_workday setting (inverted for the algorithm)
+                        algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
+                    elif algorithm_class == SimulatedAnnealingScheduler:
+                        # Use the company's sunday_is_workday setting (inverted for the algorithm)
+                        algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
+                    else:
+                        algorithms.append(algorithm_class())
+                
+                # Get or create company benchmark status
+                company_status = CompanyBenchmarkStatus.get_or_create_for_company(
+                    company_name, test_case['name']
+                )
+                
+                # Benchmark algorithms
+                results = {}
+                company_success = True
+                company_error = ""
+                
+                for algorithm in algorithms:
+                    self.stdout.write(f"\nTesting {algorithm.name}...")
+
+                    # Time the algorithm
+                    start_time = time.time()
+                    try:
+                        entries = algorithm.solve(problem)
+                        runtime = time.time() - start_time
+                        
+                        # Save to database, track algorithm
+                        self._save_entries(entries, algorithm.name)
+                        
+                        # Calculate KPIs for this company and algorithm
+                        kpis = self._calculate_kpis(company, algorithm.name)
+                        
+                        results[algorithm.name] = {
+                            'runtime': runtime,
+                            'kpis': kpis,
+                            'status': 'success',
+                            'entries_count': len(entries)
+                        }
+                        
+                        self.stdout.write(self.style.SUCCESS(
+                            f"✓ {algorithm.name} completed in {runtime:.2f}s"
+                        ))
+                        
+                    except Exception as e:
+                        runtime = time.time() - start_time
+                        results[algorithm.name] = {
+                            'runtime': runtime,
+                            'kpis': None,
+                            'status': 'failed',
+                            'error': str(e)
+                        }
+                        company_success = False
+                        company_error = str(e)
+                        self.stdout.write(self.style.ERROR(
+                            f"✗ {algorithm.name} failed: {str(e)}"
+                        ))
+                        # Print the full traceback to the console
+                        traceback.print_exc()
+
+                # Mark company as completed
+                company_status.mark_completed(success=company_success, error_message=company_error)
+
+                # Store results
+                all_results[test_case['name']] = {
+                    'display_name': test_case['display_name'],
+                    'results': results,
+                    'problem_size': {
+                        'employees': len(problem.employees),
+                        'shifts': len(problem.shifts),
+                        'days': (problem.end_date - problem.start_date).days + 1
+                    }
+                }
+                
+                # Save results for this test case
+                self._save_test_results(test_case['name'], results, export_dir)
+                
+                # Generate graphs for this test case
+                self._generate_test_graphs(test_case['name'], results, export_dir)
             
-            # Save results for this test case
-            self._save_test_results(test_case['name'], results, export_dir)
+            # Save overall results
+            overall_file = os.path.join(export_dir, 'benchmark_results.json')
+            with open(overall_file, 'w', encoding='utf-8') as f:
+                json.dump(all_results, f, indent=4, default=str)
             
-            # Generate graphs for this test case
-            self._generate_test_graphs(test_case['name'], results, export_dir)
-        
-        # Save overall results
-        overall_file = os.path.join(export_dir, 'benchmark_results.json')
-        with open(overall_file, 'w', encoding='utf-8') as f:
-            json.dump(all_results, f, indent=4, default=str)
-        
-        # Generate comparison graphs across all test cases
-        self._generate_comparison_graphs(all_results, export_dir)
-        
-        self.stdout.write(self.style.SUCCESS(
-            f"\nBenchmark complete! Results saved to {export_dir}/"
-        ))
+            # Generate comparison graphs across all test cases
+            self._generate_comparison_graphs(all_results, export_dir)
+            
+            # Mark benchmark as completed successfully
+            benchmark_status.complete_benchmark(success=True)
+            
+            self.stdout.write(self.style.SUCCESS(
+                f"\nBenchmark complete! Results saved to {export_dir}/"
+            ))
+            
+        except Exception as e:
+            # Mark benchmark as failed
+            error_message = f"Benchmark failed: {str(e)}\n{traceback.format_exc()}"
+            benchmark_status.complete_benchmark(success=False, error_message=error_message)
+            
+            self.stdout.write(self.style.ERROR(
+                f"Benchmark failed: {str(e)}"
+            ))
+            traceback.print_exc()
+            raise
 
     def _load_fixtures(self, employee_file: str, shift_file: str):
         """Load fixture data into database."""

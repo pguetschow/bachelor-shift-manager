@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Django Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shift-manager-backend
+    restart: unless-stopped
+    environment:
+      - DEBUG=False
+      - DJANGO_SETTINGS_MODULE=rostering_project.settings
+    volumes:
+      - ./data:/app/data
+      - ./static:/app/static
+    ports:
+      - "8000:8000"
+    networks:
+      - shift-manager-network
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  # Vue.js Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: shift-manager-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - shift-manager-network
+
+  # PostgreSQL Database (optional - can replace SQLite)
+  # Uncomment if you want to use PostgreSQL instead of SQLite
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: shift-manager-db
+  #   restart: unless-stopped
+  #   environment:
+  #     - POSTGRES_DB=shift_manager
+  #     - POSTGRES_USER=shift_manager
+  #     - POSTGRES_PASSWORD=shift_manager_password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   networks:
+  #     - shift-manager-network
+
+networks:
+  shift-manager-network:
+    driver: bridge
+
+volumes:
+  postgres_data: 
