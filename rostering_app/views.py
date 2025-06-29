@@ -6,7 +6,7 @@ from django.http import JsonResponse, Http404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
-from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range, get_non_working_days_in_range
+from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range, get_non_working_days_in_range, get_shift_display_name, monthly_hours
 
 
 def load_company_fixtures(company):
@@ -1022,10 +1022,8 @@ def api_company_employee_schedule(request, company_id, employee_id):
     working_days = get_working_days_in_range(first_day, last_day, company)
     total_working_days = len(working_days)
     
-    # Calculate max monthly hours based on working days
-    # Assuming 8 hours per working day (or adjust based on company policy)
-    hours_per_working_day = 8  # This could be made configurable per company
-    max_monthly_hours = employee.max_hours_per_week * (total_working_days / 5)  # Assuming 5 working days per week
+    # Calculate max monthly hours using the new function
+    max_monthly_hours = monthly_hours(year, month, employee.max_hours_per_week, company)
     utilization_percentage = (total_hours / max_monthly_hours * 100) if max_monthly_hours > 0 else 0
 
     return JsonResponse({
@@ -1080,20 +1078,23 @@ def api_company_employee_yearly_schedule(request, company_id, employee_id):
     average_hours_per_shift = total_hours / total_shifts if total_shifts > 0 else 0
     
     # Calculate monthly breakdown
-    monthly_hours = []
+    monthly_hours_list = []
     monthly_shifts = []
     for month in range(1, 13):
         month_start = datetime.date(year, month, 1)
         month_end = datetime.date(year, month, calendar.monthrange(year, month)[1])
         month_entries = entries.filter(date__gte=month_start, date__lte=month_end)
         month_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, month_start, month_end) for entry in month_entries)
-        monthly_hours.append(round(month_hours, 3))
+        monthly_hours_list.append(round(month_hours, 3))
         monthly_shifts.append(month_entries.count())
     
-    # Calculate yearly utilization
-    # 52 weeks * max_hours_per_week = yearly maximum
-    max_yearly_hours = employee.max_hours_per_week * 52
-    yearly_utilization_percentage = (total_hours / max_yearly_hours * 100) if max_yearly_hours > 0 else 0
+    # Calculate yearly utilization using monthly hours calculation
+    total_possible_yearly_hours = 0
+    for month in range(1, 13):
+        month_possible_hours = monthly_hours(year, month, employee.max_hours_per_week, company)
+        total_possible_yearly_hours += month_possible_hours
+    
+    yearly_utilization = (total_hours / total_possible_yearly_hours * 100) if total_possible_yearly_hours > 0 else 0
     
     return JsonResponse({
         'employee': {
@@ -1107,11 +1108,11 @@ def api_company_employee_yearly_schedule(request, company_id, employee_id):
             'total_hours': total_hours,
             'total_shifts': total_shifts,
             'average_hours_per_shift': average_hours_per_shift,
-            'max_yearly_hours': max_yearly_hours,
-            'yearly_utilization_percentage': yearly_utilization_percentage
+            'max_yearly_hours': total_possible_yearly_hours,
+            'yearly_utilization_percentage': yearly_utilization
         },
         'monthly_breakdown': {
-            'hours': monthly_hours,
+            'hours': monthly_hours_list,
             'shifts': monthly_shifts
         },
         'year': year
@@ -1166,23 +1167,21 @@ def api_company_employee_statistics(request, company_id):
         year_entries = ScheduleEntry.objects.filter(**year_entry_filter)
         
         # Calculate monthly statistics
-        monthly_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, month_start, month_end) for entry in month_entries)
+        monthly_hours_worked = sum(calculate_shift_hours_in_month(entry.shift, entry.date, month_start, month_end) for entry in month_entries)
         monthly_shifts = month_entries.count()
         
         # Calculate yearly statistics
         yearly_hours = sum(calculate_shift_hours_in_month(entry.shift, entry.date, year_start, year_end) for entry in year_entries)
         yearly_shifts = year_entries.count()
         
-        # Calculate possible work hours for the month
-        # Assuming 8 hours per working day (could be made configurable)
-        hours_per_working_day = 8
-        possible_monthly_hours = total_working_days * hours_per_working_day
+        # Calculate possible work hours for the month using the new function
+        possible_monthly_hours = monthly_hours(year, month, employee.max_hours_per_week, company)
         
         # Calculate absences (days without shifts)
         absence_days = total_working_days - monthly_shifts
         
         # Calculate utilization percentages
-        monthly_utilization = (monthly_hours / possible_monthly_hours * 100) if possible_monthly_hours > 0 else 0
+        monthly_utilization = (monthly_hours_worked / possible_monthly_hours * 100) if possible_monthly_hours > 0 else 0
         yearly_utilization = (yearly_hours / (employee.max_hours_per_week * 52) * 100) if employee.max_hours_per_week > 0 else 0
         
         employees_data.append({
@@ -1191,8 +1190,8 @@ def api_company_employee_statistics(request, company_id):
             'position': getattr(employee, 'position', 'Mitarbeiter'),
             'max_hours_per_week': employee.max_hours_per_week,
             'monthly_stats': {
-                'possible_hours': possible_monthly_hours,
-                'worked_hours': round(monthly_hours, 2),
+                'possible_hours': round(possible_monthly_hours, 2),
+                'worked_hours': round(monthly_hours_worked, 2),
                 'shifts': monthly_shifts,
                 'absences': absence_days,
                 'utilization_percentage': round(monthly_utilization, 2)

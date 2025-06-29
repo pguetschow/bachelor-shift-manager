@@ -1,6 +1,7 @@
 """Utility functions for the rostering app."""
 from datetime import date, datetime, timedelta
-from typing import Set, List
+from typing import Set, List, Optional
+import calendar
 
 
 def get_german_holidays_2025() -> Set[date]:
@@ -103,6 +104,57 @@ def get_non_working_days_in_range(start_date: date, end_date: date, company) -> 
             non_working_days.append(current)
         current = current + timedelta(days=1)
     return non_working_days
+
+
+def workdays_in_month(year: int, month: int, company, holidays: Optional[Set[date]] = None) -> int:
+    """
+    Calculate the number of workdays in a month.
+    
+    Args:
+        year: The year
+        month: The month (1-12)
+        company: Company object to check Sunday work policy
+        holidays: Optional set of additional holidays to exclude
+    
+    Returns:
+        Number of workdays in the month
+    """
+    if holidays is None:
+        holidays = set()
+    
+    num_days = calendar.monthrange(year, month)[1]
+    workdays = 0
+    
+    for day in range(1, num_days + 1):
+        check_date = date(year, month, day)
+        if not is_non_working_day(check_date, company) and check_date not in holidays:
+            workdays += 1
+    
+    return workdays
+
+
+def monthly_hours(year: int, month: int, weekly_hours: float, company, holidays: Optional[Set[date]] = None) -> float:
+    """
+    Calculate possible monthly hours based on weekly hours and workdays.
+    
+    Args:
+        year: The year
+        month: The month (1-12)
+        weekly_hours: Weekly working hours (e.g., 32, 40)
+        company: Company object to check Sunday work policy
+        holidays: Optional set of additional holidays to exclude
+    
+    Returns:
+        Possible monthly hours (rounded to nearest multiple of 8)
+    """
+    workdays = workdays_in_month(year, month, company, holidays)
+    days_per_week = 7 if company.sunday_is_workday else 6
+    hours_per_day = weekly_hours / days_per_week
+    raw_hours = workdays * hours_per_day
+    
+    # Round to nearest multiple of 8
+    rounded_hours = round(raw_hours / 8) * 8
+    return rounded_hours
 
 
 def get_shift_display_name(shift_name: str) -> str:
