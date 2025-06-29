@@ -254,19 +254,16 @@ class Command(BaseCommand):
 
     def _clear_existing_data(self):
         """Clear existing benchmark data from the database."""
-        self.stdout.write("Clearing existing benchmark data...")
+        self.stdout.write("Clearing existing schedule entries...")
         
         with connection.cursor() as cursor:
             # Disable foreign key constraints for clearing
             cursor.execute("PRAGMA foreign_keys=OFF")
             
-            # Clear data in reverse dependency order
+            # Clear only schedule entries (keep fixture data)
             cursor.execute("DELETE FROM rostering_app_scheduleentry")
-            cursor.execute("DELETE FROM rostering_app_employee")
-            cursor.execute("DELETE FROM rostering_app_shift")
-            cursor.execute("DELETE FROM rostering_app_company")
             
             # Re-enable foreign key constraints
             cursor.execute("PRAGMA foreign_keys=ON")
         
-        self.stdout.write("Existing data cleared") 
+        self.stdout.write("Existing schedule entries cleared") 

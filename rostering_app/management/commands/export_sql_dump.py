@@ -18,26 +18,14 @@ class Command(BaseCommand):
             help='Output directory for export files (default: benchmark_export)',
         )
         parser.add_argument(
-            '--include-schedules',
-            action='store_true',
-            help='Include schedule entries in export (can be large)',
-        )
-        parser.add_argument(
             '--company',
             type=str,
             help='Export only specific company (by name)',
         )
-        parser.add_argument(
-            '--data-only',
-            action='store_true',
-            help='Export only data, not schema (for importing into existing database)',
-        )
 
     def handle(self, *args, **options):
         output_dir = options['output_dir']
-        include_schedules = options['include_schedules']
         company_filter = options.get('company')
-        data_only = options['data_only']
         
         # Create output directory
         if not os.path.exists(output_dir):
@@ -49,15 +37,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Database file not found: {db_path}"))
             return
         
-        # Determine tables to export
-        tables = [
-            'rostering_app_company',
-            'rostering_app_shift', 
-            'rostering_app_employee',
-        ]
-        
-        if include_schedules:
-            tables.append('rostering_app_scheduleentry')
+        # Determine tables to export - only schedule entries (shift results)
+        tables = ['rostering_app_scheduleentry']
         
         # Build SQLite dump command
         dump_file = os.path.join(output_dir, 'benchmark_dump.sql')
@@ -68,19 +49,14 @@ class Command(BaseCommand):
             temp_db_path = os.path.join(output_dir, 'temp_filtered.db')
             
             # Create filtered dump using SQLite commands
-            self._create_filtered_dump(db_path, temp_db_path, company_filter, tables, data_only)
+            self._create_filtered_dump(db_path, temp_db_path, company_filter, tables)
             source_db = temp_db_path
         else:
             source_db = db_path
         
-        # Create the SQL dump
+        # Create the SQL dump (always data-only)
         try:
-            if data_only:
-                # Export only data (INSERT statements)
-                self._export_data_only(source_db, dump_file, tables)
-            else:
-                # Export schema and data
-                self._export_full_dump(source_db, dump_file, tables)
+            self._export_data_only(source_db, dump_file, tables)
             
             # Create ZIP file for easy upload
             zip_file = os.path.join(output_dir, 'benchmark_dump.zip')
@@ -113,7 +89,7 @@ class Command(BaseCommand):
                 os.remove(temp_db_path)
             raise
 
-    def _create_filtered_dump(self, source_db, temp_db, company_filter, tables, data_only):
+    def _create_filtered_dump(self, source_db, temp_db, company_filter, tables):
         """Create a temporary database with filtered data."""
         import sqlite3
         
@@ -125,10 +101,7 @@ class Command(BaseCommand):
             # Copy schema
             source_conn.backup(temp_conn)
             
-            # Clear all data from temp database
-            temp_conn.execute("DELETE FROM rostering_app_company")
-            temp_conn.execute("DELETE FROM rostering_app_shift")
-            temp_conn.execute("DELETE FROM rostering_app_employee")
+            # Clear only schedule entries from temp database (keep fixture data)
             temp_conn.execute("DELETE FROM rostering_app_scheduleentry")
             
             # Find matching companies
@@ -142,39 +115,8 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"No companies found matching: {company_filter}"))
                 return
             
-            # Copy filtered data
+            # Copy only schedule entries for matching companies
             for company_id in company_ids:
-                # Copy company
-                cursor = source_conn.execute(
-                    "SELECT * FROM rostering_app_company WHERE id = ?", (company_id,)
-                )
-                company_data = cursor.fetchone()
-                if company_data:
-                    temp_conn.execute(
-                        "INSERT INTO rostering_app_company VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                        company_data
-                    )
-                
-                # Copy shifts for this company
-                cursor = source_conn.execute(
-                    "SELECT * FROM rostering_app_shift WHERE company_id = ?", (company_id,)
-                )
-                for shift_data in cursor.fetchall():
-                    temp_conn.execute(
-                        "INSERT INTO rostering_app_shift VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                        shift_data
-                    )
-                
-                # Copy employees for this company
-                cursor = source_conn.execute(
-                    "SELECT * FROM rostering_app_employee WHERE company_id = ?", (company_id,)
-                )
-                for employee_data in cursor.fetchall():
-                    temp_conn.execute(
-                        "INSERT INTO rostering_app_employee VALUES (?, ?, ?, ?, ?, ?)", 
-                        employee_data
-                    )
-                
                 # Copy schedule entries for this company
                 cursor = source_conn.execute(
                     "SELECT * FROM rostering_app_scheduleentry WHERE company_id = ?", (company_id,)
@@ -194,7 +136,7 @@ class Command(BaseCommand):
     def _export_data_only(self, db_path, dump_file, tables):
         """Export only data (INSERT statements) without schema."""
         with open(dump_file, 'w', encoding='utf-8') as f:
-            f.write(f"-- Benchmark Data Export\n")
+            f.write(f"-- Schedule Entries Export\n")
             f.write(f"-- Exported at: {datetime.now().isoformat()}\n")
             f.write(f"-- Data only export (no schema)\n\n")
             
@@ -202,55 +144,6 @@ class Command(BaseCommand):
             conn = sqlite3.connect(db_path)
             
             try:
-                for table in tables:
-                    if not self._table_exists(conn, table):
-                        continue
-                    
-                    f.write(f"-- Data for table: {table}\n")
-                    
-                    cursor = conn.execute(f"SELECT * FROM {table}")
-                    columns = [description[0] for description in cursor.description]
-                    
-                    for row in cursor.fetchall():
-                        values = []
-                        for value in row:
-                            if value is None:
-                                values.append('NULL')
-                            elif isinstance(value, str):
-                                # Escape single quotes
-                                escaped_value = value.replace("'", "''")
-                                values.append(f"'{escaped_value}'")
-                            else:
-                                values.append(str(value))
-                        
-                        f.write(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(values)});\n")
-                    
-                    f.write(f"\n")
-                    
-            finally:
-                conn.close()
-
-    def _export_full_dump(self, db_path, dump_file, tables):
-        """Export full schema and data using Python's built-in SQLite."""
-        import sqlite3
-        
-        with open(dump_file, 'w', encoding='utf-8') as f:
-            f.write(f"-- Benchmark Full Export\n")
-            f.write(f"-- Exported at: {datetime.now().isoformat()}\n")
-            f.write(f"-- Full schema and data export\n\n")
-            
-            conn = sqlite3.connect(db_path)
-            
-            try:
-                # Export schema
-                f.write("-- Schema\n")
-                cursor = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-                for row in cursor.fetchall():
-                    if row[0]:  # sql can be None for some system tables
-                        f.write(f"{row[0]};\n")
-                f.write("\n")
-                
-                # Export data for each table
                 for table in tables:
                     if not self._table_exists(conn, table):
                         continue
