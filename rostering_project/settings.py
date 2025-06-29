@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rostering_app',
+    'scheduling_core',
     'corsheaders',
 ]
 

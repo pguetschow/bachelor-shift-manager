@@ -52,6 +52,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Copy Django project
 COPY rostering_app/ ./rostering_app/
 COPY rostering_project/ ./rostering_project/
+COPY scheduling_core/ ./scheduling_core/
 COPY manage.py ./
 
 # Copy start.sh script and make it executable

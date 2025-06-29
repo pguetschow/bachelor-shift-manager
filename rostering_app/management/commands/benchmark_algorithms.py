@@ -16,8 +16,6 @@ from django.utils import timezone
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company, BenchmarkStatus, CompanyBenchmarkStatus
 
 # Import scheduling algorithms
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
 from scheduling_core.linear_programming import LinearProgrammingScheduler
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
