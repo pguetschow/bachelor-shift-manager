@@ -989,124 +989,122 @@ def _import_benchmark_data(export_data):
         'errors': []
     }
     
-    # Import companies
+    # Clear all existing data first
+    try:
+        ScheduleEntry.objects.all().delete()
+        Employee.objects.all().delete()
+        Shift.objects.all().delete()
+        Company.objects.all().delete()
+        CompanyBenchmarkStatus.objects.all().delete()
+    except Exception as e:
+        import_results['errors'].append(f"Failed to clear existing data: {str(e)}")
+        return import_results
+    
+    # Import companies first (no foreign key dependencies)
+    company_id_mapping = {}  # Map old IDs to new company objects
     for company_data in export_data['companies']:
         try:
-            company, created = Company.objects.get_or_create(
-                id=company_data['id'],
-                defaults={
-                    'name': company_data['name'],
-                    'size': company_data['size'],
-                    'description': company_data['description'],
-                    'icon': company_data['icon'],
-                    'color': company_data['color'],
-                    'sunday_is_workday': company_data['sunday_is_workday'],
-                }
+            company = Company.objects.create(
+                name=company_data['name'],
+                size=company_data['size'],
+                description=company_data['description'],
+                icon=company_data['icon'],
+                color=company_data['color'],
+                sunday_is_workday=company_data['sunday_is_workday'],
             )
-            if not created:
-                # Update existing company
-                company.name = company_data['name']
-                company.size = company_data['size']
-                company.description = company_data['description']
-                company.icon = company_data['icon']
-                company.color = company_data['color']
-                company.sunday_is_workday = company_data['sunday_is_workday']
-                company.save()
+            
+            # Store mapping from old ID to new company object
+            company_id_mapping[company_data['id']] = company
             import_results['companies_imported'] += 1
         except Exception as e:
             import_results['errors'].append(f"Company {company_data['name']}: {str(e)}")
     
-    # Import employees
+    # Import employees (depend on companies)
+    employee_id_mapping = {}  # Map old IDs to new employee objects
     for employee_data in export_data['employees']:
         try:
-            employee, created = Employee.objects.get_or_create(
-                id=employee_data['id'],
-                defaults={
-                    'company_id': employee_data['company_id'],
-                    'name': employee_data['name'],
-                    'max_hours_per_week': employee_data['max_hours_per_week'],
-                    'absences': employee_data['absences'],
-                    'preferred_shifts': employee_data['preferred_shifts'],
-                }
+            # Get the company using the mapping
+            company = company_id_mapping.get(employee_data['company_id'])
+            if not company:
+                import_results['errors'].append(f"Employee {employee_data['name']}: Company not found")
+                continue
+            
+            employee = Employee.objects.create(
+                company=company,
+                name=employee_data['name'],
+                max_hours_per_week=employee_data['max_hours_per_week'],
+                absences=employee_data['absences'],
+                preferred_shifts=employee_data['preferred_shifts'],
             )
-            if not created:
-                # Update existing employee
-                employee.company_id = employee_data['company_id']
-                employee.name = employee_data['name']
-                employee.max_hours_per_week = employee_data['max_hours_per_week']
-                employee.absences = employee_data['absences']
-                employee.preferred_shifts = employee_data['preferred_shifts']
-                employee.save()
+            
+            # Store mapping from old ID to new employee object
+            employee_id_mapping[employee_data['id']] = employee
             import_results['employees_imported'] += 1
         except Exception as e:
             import_results['errors'].append(f"Employee {employee_data['name']}: {str(e)}")
     
-    # Import shifts
+    # Import shifts (depend on companies)
+    shift_id_mapping = {}  # Map old IDs to new shift objects
     for shift_data in export_data['shifts']:
         try:
-            shift, created = Shift.objects.get_or_create(
-                id=shift_data['id'],
-                defaults={
-                    'company_id': shift_data['company_id'],
-                    'name': shift_data['name'],
-                    'start': datetime.fromisoformat(shift_data['start']).time(),
-                    'end': datetime.fromisoformat(shift_data['end']).time(),
-                    'min_staff': shift_data['min_staff'],
-                    'max_staff': shift_data['max_staff'],
-                }
+            # Get the company using the mapping
+            company = company_id_mapping.get(shift_data['company_id'])
+            if not company:
+                import_results['errors'].append(f"Shift {shift_data['name']}: Company not found")
+                continue
+            
+            shift = Shift.objects.create(
+                company=company,
+                name=shift_data['name'],
+                start=datetime.fromisoformat(shift_data['start']).time(),
+                end=datetime.fromisoformat(shift_data['end']).time(),
+                min_staff=shift_data['min_staff'],
+                max_staff=shift_data['max_staff'],
             )
-            if not created:
-                # Update existing shift
-                shift.company_id = shift_data['company_id']
-                shift.name = shift_data['name']
-                shift.start = datetime.fromisoformat(shift_data['start']).time()
-                shift.end = datetime.fromisoformat(shift_data['end']).time()
-                shift.min_staff = shift_data['min_staff']
-                shift.max_staff = shift_data['max_staff']
-                shift.save()
+            
+            # Store mapping from old ID to new shift object
+            shift_id_mapping[shift_data['id']] = shift
             import_results['shifts_imported'] += 1
         except Exception as e:
             import_results['errors'].append(f"Shift {shift_data['name']}: {str(e)}")
     
-    # Import schedule entries if present
+    # Import schedule entries if present (depend on employees, shifts, and companies)
     if 'schedule_entries' in export_data and export_data['schedule_entries']:
-        # Clear existing schedule entries for imported companies
-        company_ids = [c['id'] for c in export_data['companies']]
-        ScheduleEntry.objects.filter(company_id__in=company_ids).delete()
-        
         for entry_data in export_data['schedule_entries']:
             try:
+                # Get the related objects using mappings
+                employee = employee_id_mapping.get(entry_data['employee_id'])
+                shift = shift_id_mapping.get(entry_data['shift_id'])
+                company = company_id_mapping.get(entry_data['company_id']) if entry_data['company_id'] else None
+                
+                if not employee:
+                    import_results['errors'].append(f"Schedule entry: Employee not found")
+                    continue
+                if not shift:
+                    import_results['errors'].append(f"Schedule entry: Shift not found")
+                    continue
+                
                 ScheduleEntry.objects.create(
-                    id=entry_data['id'],
-                    employee_id=entry_data['employee_id'],
+                    employee=employee,
                     date=datetime.fromisoformat(entry_data['date']).date(),
-                    shift_id=entry_data['shift_id'],
-                    company_id=entry_data['company_id'],
+                    shift=shift,
+                    company=company,
                     algorithm=entry_data['algorithm'],
                 )
                 import_results['schedule_entries_imported'] += 1
             except Exception as e:
-                import_results['errors'].append(f"Schedule entry {entry_data['id']}: {str(e)}")
+                import_results['errors'].append(f"Schedule entry: {str(e)}")
     
     # Import company benchmark statuses
     for status_data in export_data['company_benchmark_statuses']:
         try:
-            status, created = CompanyBenchmarkStatus.objects.get_or_create(
+            status = CompanyBenchmarkStatus.objects.create(
                 company_name=status_data['company_name'],
-                defaults={
-                    'test_case': status_data['test_case'],
-                    'completed': status_data['completed'],
-                    'completed_at': datetime.fromisoformat(status_data['completed_at']) if status_data['completed_at'] else None,
-                    'error_message': status_data['error_message'],
-                }
+                test_case=status_data['test_case'],
+                completed=status_data['completed'],
+                completed_at=datetime.fromisoformat(status_data['completed_at']) if status_data['completed_at'] else None,
+                error_message=status_data['error_message'],
             )
-            if not created:
-                # Update existing status
-                status.test_case = status_data['test_case']
-                status.completed = status_data['completed']
-                status.completed_at = datetime.fromisoformat(status_data['completed_at']) if status_data['completed_at'] else None
-                status.error_message = status_data['error_message']
-                status.save()
             import_results['company_statuses_imported'] += 1
         except Exception as e:
             import_results['errors'].append(f"Company status {status_data['company_name']}: {str(e)}")
