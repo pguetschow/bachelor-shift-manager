@@ -97,13 +97,6 @@ export const analyticsAPI = {
   }
 }
 
-export const benchmarkAPI = {
-  getStatus: () => api.get('/api/benchmark-status/'),
-  run: (options = {}) => api.post('/api/run-benchmark/', options),
-  reset: () => api.post('/api/reset-benchmark/'),
-  loadFixtures: () => api.post('/api/load-fixtures/')
-}
-
 export const uploadAPI = {
   uploadBenchmarkResults: (formData) => {
     return api.post('/api/upload-benchmark-results/', formData, {
@@ -120,6 +113,5 @@ export const apiService = {
   ...companyAPI,
   ...scheduleAPI,
   ...analyticsAPI,
-  ...benchmarkAPI,
   ...uploadAPI
 } 

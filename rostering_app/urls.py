@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, re_path
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.static import serve
@@ -25,12 +25,12 @@ urlpatterns = [
     path('api/companies/<int:company_id>/employees/<int:employee_id>/schedule/', views.api_company_employee_schedule, name='api_company_employee_schedule'),
     path('api/companies/<int:company_id>/employees/<int:employee_id>/yearly/', views.api_company_employee_yearly_schedule, name='api_company_employee_yearly_schedule'),
     path('api/companies/<int:company_id>/employee-statistics/', views.api_company_employee_statistics, name='api_company_employee_statistics'),
-    path('api/run-benchmark/', views.api_run_benchmark, name='api_run_benchmark'),
-    path('api/benchmark-status/', views.api_benchmark_status, name='api_benchmark_status'),
-    path('api/reset-benchmark/', views.api_reset_benchmark, name='api_reset_benchmark'),
     path('api/load-fixtures/', views.api_load_fixtures, name='api_load_fixtures'),
     path('api/upload-benchmark-results/', views.api_upload_benchmark_results, name='api_upload_benchmark_results'),
     path('api/upload-status/', views.api_upload_status, name='api_upload_status'),
+    
+    # Catch-all route for Vue.js routes - must be last
+    re_path(r'^(?!api/|admin/|assets/|static/).*$', views.serve_vue_app, name='vue_catch_all'),
 ]
 
 # Serve static files in development
