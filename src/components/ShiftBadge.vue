@@ -70,27 +70,27 @@ const getShiftColorClass = (shiftName) => {
 }
 
 .shift-early {
-  background-color: #e3f2fd;
-  color: #1976d2;
-  border: 1px solid #bbdefb;
+  background-color: var(--shift-early-light);
+  color: var(--shift-early-color);
+  border: 1px solid var(--shift-early-border);
 }
 
 .shift-morning {
-  background-color: #f3e5f5;
-  color: #7b1fa2;
-  border: 1px solid #e1bee7;
+  background-color: var(--shift-morning-light);
+  color: var(--shift-morning-color);
+  border: 1px solid var(--shift-morning-border);
 }
 
 .shift-late {
-  background-color: #fff3e0;
-  color: #f57c00;
-  border: 1px solid #ffcc02;
+  background-color: var(--shift-late-light);
+  color: var(--shift-late-color);
+  border: 1px solid var(--shift-late-border);
 }
 
 .shift-night {
-  background-color: #fce4ec;
-  color: #c2185b;
-  border: 1px solid #f8bbd9;
+  background-color: var(--shift-night-light);
+  color: var(--shift-night-color);
+  border: 1px solid var(--shift-night-border);
 }
 
 .shift-default {

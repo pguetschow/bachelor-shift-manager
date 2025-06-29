@@ -452,23 +452,23 @@ watch([currentYear, currentMonth], loadMonthData)
 
 /* Shift-specific colors */
 .shift-indicator.shift-early {
-  background-color: #3498db;
-  border-color: #3498db;
+  background-color: var(--shift-early-color);
+  border-color: var(--shift-early-color);
 }
 
 .shift-indicator.shift-morning {
-  background-color: #e67e22;
-  border-color: #e67e22;
+  background-color: var(--shift-morning-color);
+  border-color: var(--shift-morning-color);
 }
 
 .shift-indicator.shift-late {
-  background-color: #27ae60;
-  border-color: #27ae60;
+  background-color: var(--shift-late-color);
+  border-color: var(--shift-late-color);
 }
 
 .shift-indicator.shift-night {
-  background-color: #34495e;
-  border-color: #34495e;
+  background-color: var(--shift-night-color);
+  border-color: var(--shift-night-color);
 }
 
 .shift-indicator.shift-default {

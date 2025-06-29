@@ -362,18 +362,18 @@ watch(() => route.params.date, () => {
 }
 
 .shift-early {
-  background: linear-gradient(135deg, #1976d2, #1565c0);
+  background: var(--shift-early-gradient);
 }
 
 .shift-morning {
-  background: linear-gradient(135deg, #7b1fa2, #6a1b9a);
+  background: var(--shift-morning-gradient);
 }
 
 .shift-late {
-  background: linear-gradient(135deg, #f57c00, #ef6c00);
+  background: var(--shift-late-gradient);
 }
 
 .shift-night {
-  background: linear-gradient(135deg, #c2185b, #ad1457);
+  background: var(--shift-night-gradient);
 }
 </style> 

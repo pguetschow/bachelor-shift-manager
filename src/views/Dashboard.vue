@@ -105,7 +105,7 @@
                       <td>{{ stat.avg_staff }}</td>
                       <td>
                         <ProgressBar 
-                          :percentage="formatNumber(stat.coverage_percentage)"
+                          :percentage="stat.coverage_percentage"
                           :height="20"
                         />
                       </td>
@@ -141,53 +141,6 @@
                     <i class="bi bi-person-circle"></i> {{ employee.name }}
                   </div>
                   <span class="badge bg-primary rounded-pill">{{ formatNumber(employee.hours) }}h</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick Actions -->
-      <div class="row">
-        <div class="col-12">
-          <div class="card">
-            <div class="card-header">
-              <h5 class="card-title mb-0">
-                <i class="bi bi-lightning"></i> Schnellaktionen
-              </h5>
-            </div>
-            <div class="card-body">
-              <div class="row g-3">
-                <div class="col-md-3">
-                  <router-link 
-                    :to="{ name: 'month-view', params: { companyId: $route.params.companyId } }"
-                    class="btn btn-outline-primary w-100"
-                  >
-                    <i class="bi bi-calendar-month"></i>
-                    Monatsansicht
-                  </router-link>
-                </div>
-                <div class="col-md-3">
-                  <router-link 
-                    :to="{ name: 'analytics', params: { companyId: $route.params.companyId } }"
-                    class="btn btn-outline-success w-100"
-                  >
-                    <i class="bi bi-graph-up"></i>
-                    Analysen
-                  </router-link>
-                </div>
-                <div class="col-md-3">
-                  <button class="btn btn-outline-warning w-100">
-                    <i class="bi bi-download"></i>
-                    Export
-                  </button>
-                </div>
-                <div class="col-md-3">
-                  <button class="btn btn-outline-info w-100">
-                    <i class="bi bi-gear"></i>
-                    Einstellungen
-                  </button>
                 </div>
               </div>
             </div>
