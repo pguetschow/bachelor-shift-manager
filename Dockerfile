@@ -63,4 +63,4 @@ USER appuser
 EXPOSE 8000
 
 # Run Django with Gunicorn
-MD ["gunicorn", "rostering_project.wsgi:application", "--bind", "0.0.0.0:$PORT", "--workers", "2", "--timeout", "120"]
+CMD ["gunicorn", "rostering_project.wsgi:application", "--bind", "0.0.0.0:$PORT", "--workers", "2", "--timeout", "120"]
