@@ -697,17 +697,73 @@ def api_company_employee_statistics(request, company_id):
 
 
 @csrf_exempt
+@require_http_methods(["GET"])
+def api_benchmark_status(request):
+    """API endpoint to get current benchmark status."""
+    from .models import BenchmarkStatus
+    
+    status = BenchmarkStatus.get_current()
+    
+    return JsonResponse({
+        'status': status.status,
+        'started_at': status.started_at.isoformat() if status.started_at else None,
+        'completed_at': status.completed_at.isoformat() if status.completed_at else None,
+        'load_fixtures': status.load_fixtures,
+        'error_message': status.error_message,
+        'updated_at': status.updated_at.isoformat()
+    })
+
+
+@csrf_exempt
 @require_http_methods(["POST"])
 def api_run_benchmark(request):
+    """API endpoint to start benchmark with status tracking."""
+    from .models import BenchmarkStatus
+    
     try:
         data = json.loads(request.body.decode())
         load_fixtures = data.get('load_fixtures', False)
+        force = data.get('force', False)
     except Exception:
         load_fixtures = False
+        force = False
     
+    # Check current status
+    benchmark_status = BenchmarkStatus.get_current()
+    
+    if benchmark_status.status == 'running' and not force:
+        return JsonResponse({
+            "status": "error",
+            "message": "Benchmark is already running. Use force=true to override."
+        }, status=409)
+    
+    # Build command
     cmd = ["python", "manage.py", "benchmark_algorithms"]
     if load_fixtures:
         cmd.append("--load-fixtures")
+    if force:
+        cmd.append("--force")
+    
     # Run in background
     subprocess.Popen(cmd, cwd=os.path.dirname(os.path.dirname(__file__)))
-    return JsonResponse({"status": "started", "load_fixtures": load_fixtures})
+    
+    return JsonResponse({
+        "status": "started", 
+        "load_fixtures": load_fixtures,
+        "force": force
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_reset_benchmark(request):
+    """API endpoint to reset benchmark status."""
+    from .models import BenchmarkStatus
+    
+    benchmark_status = BenchmarkStatus.get_current()
+    benchmark_status.reset()
+    
+    return JsonResponse({
+        "status": "reset",
+        "message": "Benchmark status has been reset to idle."
+    })

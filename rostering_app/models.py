@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import JSONField  # Use JSONField (available in Django 3.1+)
+from django.utils import timezone
 
 class Company(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -61,3 +62,59 @@ class ScheduleEntry(models.Model):
 
     def __str__(self):
         return f"{self.date} - {self.employee.name} - {self.shift.name} - {self.company.name if self.company else 'No Company'}"
+
+class BenchmarkStatus(models.Model):
+    """Track the status of benchmark runs."""
+    STATUS_CHOICES = [
+        ('idle', 'Idle'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='idle')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    load_fixtures = models.BooleanField(default=False)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name_plural = "Benchmark Status"
+    
+    def __str__(self):
+        return f"Benchmark {self.status} at {self.updated_at}"
+    
+    @classmethod
+    def get_current(cls):
+        """Get the current benchmark status, creating one if none exists."""
+        status, created = cls.objects.get_or_create(
+            id=1,  # Always use ID 1 for singleton
+            defaults={'status': 'idle'}
+        )
+        return status
+    
+    def start_benchmark(self, load_fixtures=False):
+        """Start a new benchmark run."""
+        self.status = 'running'
+        self.started_at = timezone.now()
+        self.completed_at = None
+        self.load_fixtures = load_fixtures
+        self.error_message = ''
+        self.save()
+    
+    def complete_benchmark(self, success=True, error_message=''):
+        """Mark benchmark as completed."""
+        self.status = 'completed' if success else 'failed'
+        self.completed_at = timezone.now()
+        self.error_message = error_message
+        self.save()
+    
+    def reset(self):
+        """Reset to idle state."""
+        self.status = 'idle'
+        self.started_at = None
+        self.completed_at = None
+        self.error_message = ''
+        self.save()
