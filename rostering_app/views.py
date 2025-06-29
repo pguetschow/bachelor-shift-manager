@@ -836,6 +836,11 @@ def serve_vue_app(request):
     if os.path.exists(index_path):
         with open(index_path, 'r', encoding='utf-8') as f:
             content = f.read()
+        
+        # Update asset paths to use Django's static file serving
+        content = content.replace('src="/', 'src="/static/')
+        content = content.replace('href="/', 'href="/static/')
+        
         return HttpResponse(content, content_type='text/html')
     else:
         # Fallback: return a simple message if the built file doesn't exist

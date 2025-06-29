@@ -100,6 +100,12 @@ STATICFILES_DIRS = [
     BASE_DIR / 'dist',
 ]
 
+# Ensure static files are served in production
+STATICFILES_FINDERS = [
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+]
+
 # CORS settings
 # For development, allow all localhost origins
 CORS_ALLOW_ALL_ORIGINS = True
