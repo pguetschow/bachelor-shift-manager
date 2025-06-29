@@ -194,7 +194,13 @@ const company = computed(() => companyStore.currentCompany)
 const loading = computed(() => scheduleStore.loading)
 const error = computed(() => scheduleStore.error)
 const selectedDate = computed(() => scheduleStore.selectedDate || new Date())
-const shifts = computed(() => scheduleStore.getDayShifts() || [])
+const shifts = computed(() => {
+  const raw = scheduleStore.getDayShifts() || []
+  if (raw.length && raw[0].shift) {
+    return raw.map(s => s.shift)
+  }
+  return raw
+})
 const totalShifts = computed(() => shifts.value?.length || 0)
 
 const isHoliday = computed(() => {

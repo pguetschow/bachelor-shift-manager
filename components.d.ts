@@ -9,6 +9,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AlgorithmSelector: typeof import('./src/components/AlgorithmSelector.vue')['default']
     DateNavigation: typeof import('./src/components/DateNavigation.vue')['default']
+    DebugBanner: typeof import('./src/components/DebugBanner.vue')['default']
     ErrorState: typeof import('./src/components/ErrorState.vue')['default']
     LoadingState: typeof import('./src/components/LoadingState.vue')['default']
     MonthNavigation: typeof import('./src/components/MonthNavigation.vue')['default']

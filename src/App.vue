@@ -71,6 +71,7 @@
     <main class="main-content">
       <router-view />
     </main>
+    <DebugBanner />
   </div>
 </template>
 
@@ -80,6 +81,7 @@ import { useRoute } from 'vue-router'
 import { useCompanyStore } from '@/stores/company'
 import { useScheduleStore } from '@/stores/schedule'
 import AlgorithmSelector from '@/components/AlgorithmSelector.vue'
+import DebugBanner from './components/DebugBanner.vue'
 
 const route = useRoute()
 const companyStore = useCompanyStore()

@@ -183,30 +183,15 @@ export const useScheduleStore = defineStore('schedule', () => {
   }
 
   function getDayShifts() {
-    const dateStr = format(selectedDate.value, 'yyyy-MM-dd')
-    
-    // Use dayScheduleData which contains detailed shift information with employees
     const dayData = dayScheduleData.value
-    
+
     if (!dayData || !dayData.shifts) {
       console.log('No day schedule data available')
       return []
     }
-    
-    // The day schedule endpoint returns shifts as an array, not an object
-    return dayData.shifts.map(shift => {
-      return {
-        id: shift.id || shift.name,
-        name: shift.name,
-        status: shift.status || 'ok',
-        start_time: shift.start_time || '',
-        end_time: shift.end_time || '',
-        assigned_count: shift.assigned_count || 0,
-        max_staff: shift.max_staff || 0,
-        min_staff: shift.min_staff || 0,
-        assigned_employees: shift.assigned_employees || []
-      }
-    })
+
+    // Unwrap if each shift is nested under a 'shift' key
+    return dayData.shifts.map(s => s.shift ? s.shift : s)
   }
 
   return {
