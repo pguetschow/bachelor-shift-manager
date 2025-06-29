@@ -8,7 +8,14 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production'
 
 DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'backend']
+ALLOWED_HOSTS = [
+    'localhost', 
+    '127.0.0.1', 
+    '0.0.0.0', 
+    'backend',
+    'bachelor-shift-manager-2c19b47af666.herokuapp.com',
+    '.herokuapp.com',  # Allow all herokuapp.com subdomains
+]
 
 # Application definition
 INSTALLED_APPS = [
