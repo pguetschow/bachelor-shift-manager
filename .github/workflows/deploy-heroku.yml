@@ -8,6 +8,10 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    # ← tell this job which environment’s secrets to use
+    environment: bachelor-shift-manager
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
