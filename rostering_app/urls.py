@@ -29,6 +29,8 @@ urlpatterns = [
     path('api/benchmark-status/', views.api_benchmark_status, name='api_benchmark_status'),
     path('api/reset-benchmark/', views.api_reset_benchmark, name='api_reset_benchmark'),
     path('api/load-fixtures/', views.api_load_fixtures, name='api_load_fixtures'),
+    path('api/upload-benchmark-results/', views.api_upload_benchmark_results, name='api_upload_benchmark_results'),
+    path('api/upload-status/', views.api_upload_status, name='api_upload_status'),
 ]
 
 # Serve static files in development

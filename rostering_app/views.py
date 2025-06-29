@@ -882,6 +882,272 @@ def api_load_fixtures(request):
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_upload_benchmark_results(request):
+    """API endpoint to upload benchmark results from local export."""
+    from django.core.files.uploadedfile import UploadedFile
+    from django.db import transaction
+    import zipfile
+    import tempfile
+    import os
+    
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.FILES:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'No file uploaded. Please provide a ZIP file.'
+            }, status=400)
+        
+        uploaded_file = request.FILES['file']
+        
+        # Validate file type
+        if not uploaded_file.name.endswith('.zip'):
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Please upload a ZIP file containing benchmark export data.'
+            }, status=400)
+        
+        # Extract and process the ZIP file
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save uploaded file temporarily
+            temp_zip_path = os.path.join(temp_dir, 'upload.zip')
+            with open(temp_zip_path, 'wb') as f:
+                for chunk in uploaded_file.chunks():
+                    f.write(chunk)
+            
+            # Extract ZIP file
+            with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
+                zipf.extractall(temp_dir)
+            
+            # Look for the JSON file
+            json_file = None
+            for file_name in os.listdir(temp_dir):
+                if file_name.endswith('.json'):
+                    json_file = os.path.join(temp_dir, file_name)
+                    break
+            
+            if not json_file:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'No JSON file found in the ZIP archive.'
+                }, status=400)
+            
+            # Load and validate JSON data
+            with open(json_file, 'r', encoding='utf-8') as f:
+                import json
+                export_data = json.load(f)
+            
+            # Validate required fields
+            required_fields = ['metadata', 'companies', 'employees', 'shifts', 'company_benchmark_statuses']
+            for field in required_fields:
+                if field not in export_data:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'Missing required field: {field}'
+                    }, status=400)
+            
+            # Import data with transaction
+            with transaction.atomic():
+                import_results = _import_benchmark_data(export_data)
+            
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Benchmark results uploaded successfully',
+                'import_summary': import_results
+            })
+            
+    except zipfile.BadZipFile:
+        return JsonResponse({
+            'status': 'error',
+            'message': 'Invalid ZIP file format.'
+        }, status=400)
+    except json.JSONDecodeError as e:
+        return JsonResponse({
+            'status': 'error',
+            'message': f'Invalid JSON format: {str(e)}'
+        }, status=400)
+    except Exception as e:
+        return JsonResponse({
+            'status': 'error',
+            'message': f'Upload failed: {str(e)}'
+        }, status=500)
+
+
+def _import_benchmark_data(export_data):
+    """Import benchmark data from export format."""
+    from datetime import datetime
+    from .models import Company, Employee, Shift, ScheduleEntry, BenchmarkStatus, CompanyBenchmarkStatus
+    
+    import_results = {
+        'companies_imported': 0,
+        'employees_imported': 0,
+        'shifts_imported': 0,
+        'schedule_entries_imported': 0,
+        'company_statuses_imported': 0,
+        'errors': []
+    }
+    
+    # Import companies
+    for company_data in export_data['companies']:
+        try:
+            company, created = Company.objects.get_or_create(
+                id=company_data['id'],
+                defaults={
+                    'name': company_data['name'],
+                    'size': company_data['size'],
+                    'description': company_data['description'],
+                    'icon': company_data['icon'],
+                    'color': company_data['color'],
+                    'sunday_is_workday': company_data['sunday_is_workday'],
+                }
+            )
+            if not created:
+                # Update existing company
+                company.name = company_data['name']
+                company.size = company_data['size']
+                company.description = company_data['description']
+                company.icon = company_data['icon']
+                company.color = company_data['color']
+                company.sunday_is_workday = company_data['sunday_is_workday']
+                company.save()
+            import_results['companies_imported'] += 1
+        except Exception as e:
+            import_results['errors'].append(f"Company {company_data['name']}: {str(e)}")
+    
+    # Import employees
+    for employee_data in export_data['employees']:
+        try:
+            employee, created = Employee.objects.get_or_create(
+                id=employee_data['id'],
+                defaults={
+                    'company_id': employee_data['company_id'],
+                    'name': employee_data['name'],
+                    'max_hours_per_week': employee_data['max_hours_per_week'],
+                    'absences': employee_data['absences'],
+                    'preferred_shifts': employee_data['preferred_shifts'],
+                }
+            )
+            if not created:
+                # Update existing employee
+                employee.company_id = employee_data['company_id']
+                employee.name = employee_data['name']
+                employee.max_hours_per_week = employee_data['max_hours_per_week']
+                employee.absences = employee_data['absences']
+                employee.preferred_shifts = employee_data['preferred_shifts']
+                employee.save()
+            import_results['employees_imported'] += 1
+        except Exception as e:
+            import_results['errors'].append(f"Employee {employee_data['name']}: {str(e)}")
+    
+    # Import shifts
+    for shift_data in export_data['shifts']:
+        try:
+            shift, created = Shift.objects.get_or_create(
+                id=shift_data['id'],
+                defaults={
+                    'company_id': shift_data['company_id'],
+                    'name': shift_data['name'],
+                    'start': datetime.fromisoformat(shift_data['start']).time(),
+                    'end': datetime.fromisoformat(shift_data['end']).time(),
+                    'min_staff': shift_data['min_staff'],
+                    'max_staff': shift_data['max_staff'],
+                }
+            )
+            if not created:
+                # Update existing shift
+                shift.company_id = shift_data['company_id']
+                shift.name = shift_data['name']
+                shift.start = datetime.fromisoformat(shift_data['start']).time()
+                shift.end = datetime.fromisoformat(shift_data['end']).time()
+                shift.min_staff = shift_data['min_staff']
+                shift.max_staff = shift_data['max_staff']
+                shift.save()
+            import_results['shifts_imported'] += 1
+        except Exception as e:
+            import_results['errors'].append(f"Shift {shift_data['name']}: {str(e)}")
+    
+    # Import schedule entries if present
+    if 'schedule_entries' in export_data and export_data['schedule_entries']:
+        # Clear existing schedule entries for imported companies
+        company_ids = [c['id'] for c in export_data['companies']]
+        ScheduleEntry.objects.filter(company_id__in=company_ids).delete()
+        
+        for entry_data in export_data['schedule_entries']:
+            try:
+                ScheduleEntry.objects.create(
+                    id=entry_data['id'],
+                    employee_id=entry_data['employee_id'],
+                    date=datetime.fromisoformat(entry_data['date']).date(),
+                    shift_id=entry_data['shift_id'],
+                    company_id=entry_data['company_id'],
+                    algorithm=entry_data['algorithm'],
+                )
+                import_results['schedule_entries_imported'] += 1
+            except Exception as e:
+                import_results['errors'].append(f"Schedule entry {entry_data['id']}: {str(e)}")
+    
+    # Import company benchmark statuses
+    for status_data in export_data['company_benchmark_statuses']:
+        try:
+            status, created = CompanyBenchmarkStatus.objects.get_or_create(
+                company_name=status_data['company_name'],
+                defaults={
+                    'test_case': status_data['test_case'],
+                    'completed': status_data['completed'],
+                    'completed_at': datetime.fromisoformat(status_data['completed_at']) if status_data['completed_at'] else None,
+                    'error_message': status_data['error_message'],
+                }
+            )
+            if not created:
+                # Update existing status
+                status.test_case = status_data['test_case']
+                status.completed = status_data['completed']
+                status.completed_at = datetime.fromisoformat(status_data['completed_at']) if status_data['completed_at'] else None
+                status.error_message = status_data['error_message']
+                status.save()
+            import_results['company_statuses_imported'] += 1
+        except Exception as e:
+            import_results['errors'].append(f"Company status {status_data['company_name']}: {str(e)}")
+    
+    # Update overall benchmark status if metadata is present
+    if 'metadata' in export_data and 'benchmark_status' in export_data['metadata']:
+        try:
+            benchmark_status = BenchmarkStatus.get_current()
+            bs_data = export_data['metadata']['benchmark_status']
+            
+            benchmark_status.status = bs_data['status']
+            if bs_data['started_at']:
+                benchmark_status.started_at = datetime.fromisoformat(bs_data['started_at'])
+            if bs_data['completed_at']:
+                benchmark_status.completed_at = datetime.fromisoformat(bs_data['completed_at'])
+            benchmark_status.load_fixtures = bs_data['load_fixtures']
+            benchmark_status.error_message = bs_data['error_message']
+            benchmark_status.save()
+        except Exception as e:
+            import_results['errors'].append(f"Benchmark status: {str(e)}")
+    
+    return import_results
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_upload_status(request):
+    """API endpoint to get upload status and instructions."""
+    return JsonResponse({
+        'status': 'ready',
+        'message': 'Upload endpoint is ready',
+        'instructions': {
+            'format': 'ZIP file containing benchmark_export.json',
+            'max_size': '50MB',
+            'endpoint': '/api/upload-benchmark-results/',
+            'method': 'POST',
+            'content_type': 'multipart/form-data'
+        }
+    })
+
+
 def serve_vue_app(request):
     """Serve the Vue.js frontend application."""
     from django.shortcuts import render
