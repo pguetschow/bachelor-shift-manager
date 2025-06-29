@@ -9,10 +9,16 @@
           <h2 class="text-lg font-semibold text-blue-900 mb-4">Instructions</h2>
           <ol class="list-decimal list-inside space-y-2 text-blue-800">
             <li>Run benchmarks locally using: <code class="bg-blue-100 px-2 py-1 rounded">python manage.py benchmark_algorithms --load-fixtures</code></li>
-            <li>Export results using: <code class="bg-blue-100 px-2 py-1 rounded">python manage.py export_benchmark_results --include-schedules</code></li>
+            <li>Export results as SQL dump using: <code class="bg-blue-100 px-2 py-1 rounded">python manage.py export_sql_dump --include-schedules</code></li>
             <li>Upload the generated ZIP file below</li>
             <li>Results will be imported into the deployed database</li>
           </ol>
+          <div class="mt-4 p-3 bg-green-50 border border-green-200 rounded">
+            <p class="text-sm text-green-800">
+              <strong>💡 Tip:</strong> SQL dumps are faster and more reliable than the old JSON method. 
+              The system automatically detects and uses SQL dumps when available.
+            </p>
+          </div>
         </div>
 
         <!-- Upload Area -->

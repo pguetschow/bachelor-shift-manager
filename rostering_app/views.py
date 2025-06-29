@@ -11,6 +11,7 @@ import subprocess
 import os
 from django.core.management import call_command
 from django.conf import settings
+from io import StringIO
 
 
 def load_company_fixtures(company):
@@ -891,13 +892,16 @@ def api_upload_benchmark_results(request):
     import zipfile
     import tempfile
     import os
+    import subprocess
+    from django.core.management import call_command
+    from io import StringIO
     
     try:
         # Check if file was uploaded
         if 'file' not in request.FILES:
             return JsonResponse({
                 'status': 'error',
-                'message': 'No file uploaded. Please provide a ZIP file.'
+                'message': 'No file uploaded. Please provide a ZIP file containing SQL dump.'
             }, status=400)
         
         uploaded_file = request.FILES['file']
@@ -906,7 +910,7 @@ def api_upload_benchmark_results(request):
         if not uploaded_file.name.endswith('.zip'):
             return JsonResponse({
                 'status': 'error',
-                'message': 'Please upload a ZIP file containing benchmark export data.'
+                'message': 'Please upload a ZIP file containing SQL dump data.'
             }, status=400)
         
         # Extract and process the ZIP file
@@ -921,52 +925,49 @@ def api_upload_benchmark_results(request):
             with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
                 zipf.extractall(temp_dir)
             
-            # Look for the JSON file
-            json_file = None
+            # Look for SQL dump file
+            sql_file = None
             for file_name in os.listdir(temp_dir):
-                if file_name.endswith('.json'):
-                    json_file = os.path.join(temp_dir, file_name)
+                if file_name.endswith('.sql'):
+                    sql_file = os.path.join(temp_dir, file_name)
                     break
             
-            if not json_file:
+            if not sql_file:
                 return JsonResponse({
                     'status': 'error',
-                    'message': 'No JSON file found in the ZIP archive.'
+                    'message': 'No SQL dump file (.sql) found in the ZIP archive. Please use the new SQL dump export method.'
                 }, status=400)
             
-            # Load and validate JSON data
-            with open(json_file, 'r', encoding='utf-8') as f:
-                import json
-                export_data = json.load(f)
-            
-            # Validate required fields
-            required_fields = ['metadata', 'companies', 'employees', 'shifts', 'company_benchmark_statuses']
-            for field in required_fields:
-                if field not in export_data:
-                    return JsonResponse({
-                        'status': 'error',
-                        'message': f'Missing required field: {field}'
-                    }, status=400)
-            
-            # Import data with transaction
-            with transaction.atomic():
-                import_results = _import_benchmark_data(export_data)
-            
-            return JsonResponse({
-                'status': 'success',
-                'message': 'Benchmark results uploaded successfully',
-                'import_summary': import_results
-            })
+            # Import SQL dump
+            try:
+                # Use the import_sql_dump command
+                output = StringIO()
+                call_command('import_sql_dump', file=sql_file, clear_existing=True, stdout=output)
+                
+                # Parse the output to get import results
+                output_text = output.getvalue()
+                
+                return JsonResponse({
+                    'status': 'success',
+                    'message': 'Benchmark results uploaded successfully via SQL dump',
+                    'import_method': 'sql_dump',
+                    'import_summary': {
+                        'method': 'sql_dump',
+                        'file_processed': os.path.basename(sql_file),
+                        'output': output_text
+                    }
+                })
+                
+            except Exception as e:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f'SQL dump import failed: {str(e)}'
+                }, status=400)
             
     except zipfile.BadZipFile:
         return JsonResponse({
             'status': 'error',
             'message': 'Invalid ZIP file format.'
-        }, status=400)
-    except json.JSONDecodeError as e:
-        return JsonResponse({
-            'status': 'error',
-            'message': f'Invalid JSON format: {str(e)}'
         }, status=400)
     except Exception as e:
         return JsonResponse({
@@ -975,178 +976,20 @@ def api_upload_benchmark_results(request):
         }, status=500)
 
 
-def _import_benchmark_data(export_data):
-    """Import benchmark data from export format."""
-    from datetime import datetime
-    from .models import Company, Employee, Shift, ScheduleEntry, BenchmarkStatus, CompanyBenchmarkStatus
-    
-    import_results = {
-        'companies_imported': 0,
-        'employees_imported': 0,
-        'shifts_imported': 0,
-        'schedule_entries_imported': 0,
-        'company_statuses_imported': 0,
-        'errors': []
-    }
-    
-    # Validate export data structure
-    if not export_data.get('companies'):
-        import_results['errors'].append("No companies found in export data")
-        return import_results
-    
-    # Clear all existing data first
-    try:
-        ScheduleEntry.objects.all().delete()
-        Employee.objects.all().delete()
-        Shift.objects.all().delete()
-        Company.objects.all().delete()
-        CompanyBenchmarkStatus.objects.all().delete()
-    except Exception as e:
-        import_results['errors'].append(f"Failed to clear existing data: {str(e)}")
-        return import_results
-    
-    # Import companies first (no foreign key dependencies)
-    company_id_mapping = {}  # Map old IDs to new company objects
-    for company_data in export_data['companies']:
-        try:
-            company = Company.objects.create(
-                name=company_data['name'],
-                size=company_data['size'],
-                description=company_data['description'],
-                icon=company_data['icon'],
-                color=company_data['color'],
-                sunday_is_workday=company_data['sunday_is_workday'],
-            )
-            
-            # Store mapping from old ID to new company object
-            company_id_mapping[company_data['id']] = company
-            import_results['companies_imported'] += 1
-        except Exception as e:
-            import_results['errors'].append(f"Company {company_data.get('name', 'Unknown')}: {str(e)}")
-    
-    # Import employees (depend on companies)
-    employee_id_mapping = {}  # Map old IDs to new employee objects
-    for employee_data in export_data.get('employees', []):
-        try:
-            # Get the company using the mapping
-            company = company_id_mapping.get(employee_data['company_id'])
-            if not company:
-                import_results['errors'].append(f"Employee {employee_data.get('name', 'Unknown')}: Company not found")
-                continue
-            
-            employee = Employee.objects.create(
-                company=company,
-                name=employee_data['name'],
-                max_hours_per_week=employee_data['max_hours_per_week'],
-                absences=employee_data['absences'],
-                preferred_shifts=employee_data['preferred_shifts'],
-            )
-            
-            # Store mapping from old ID to new employee object
-            employee_id_mapping[employee_data['id']] = employee
-            import_results['employees_imported'] += 1
-        except Exception as e:
-            import_results['errors'].append(f"Employee {employee_data.get('name', 'Unknown')}: {str(e)}")
-    
-    # Import shifts (depend on companies)
-    shift_id_mapping = {}  # Map old IDs to new shift objects
-    for shift_data in export_data.get('shifts', []):
-        try:
-            # Get the company using the mapping
-            company = company_id_mapping.get(shift_data['company_id'])
-            if not company:
-                import_results['errors'].append(f"Shift {shift_data.get('name', 'Unknown')}: Company not found")
-                continue
-            
-            shift = Shift.objects.create(
-                company=company,
-                name=shift_data['name'],
-                start=datetime.fromisoformat(shift_data['start']).time(),
-                end=datetime.fromisoformat(shift_data['end']).time(),
-                min_staff=shift_data['min_staff'],
-                max_staff=shift_data['max_staff'],
-            )
-            
-            # Store mapping from old ID to new shift object
-            shift_id_mapping[shift_data['id']] = shift
-            import_results['shifts_imported'] += 1
-        except Exception as e:
-            import_results['errors'].append(f"Shift {shift_data.get('name', 'Unknown')}: {str(e)}")
-    
-    # Import schedule entries if present (depend on employees, shifts, and companies)
-    if 'schedule_entries' in export_data and export_data['schedule_entries']:
-        for entry_data in export_data['schedule_entries']:
-            try:
-                # Get the related objects using mappings
-                employee = employee_id_mapping.get(entry_data['employee_id'])
-                shift = shift_id_mapping.get(entry_data['shift_id'])
-                company = company_id_mapping.get(entry_data['company_id']) if entry_data['company_id'] else None
-                
-                if not employee:
-                    import_results['errors'].append(f"Schedule entry: Employee not found")
-                    continue
-                if not shift:
-                    import_results['errors'].append(f"Schedule entry: Shift not found")
-                    continue
-                
-                ScheduleEntry.objects.create(
-                    employee=employee,
-                    date=datetime.fromisoformat(entry_data['date']).date(),
-                    shift=shift,
-                    company=company,
-                    algorithm=entry_data['algorithm'],
-                )
-                import_results['schedule_entries_imported'] += 1
-            except Exception as e:
-                import_results['errors'].append(f"Schedule entry: {str(e)}")
-    
-    # Import company benchmark statuses
-    for status_data in export_data.get('company_benchmark_statuses', []):
-        try:
-            status = CompanyBenchmarkStatus.objects.create(
-                company_name=status_data['company_name'],
-                test_case=status_data['test_case'],
-                completed=status_data['completed'],
-                completed_at=datetime.fromisoformat(status_data['completed_at']) if status_data['completed_at'] else None,
-                error_message=status_data['error_message'],
-            )
-            import_results['company_statuses_imported'] += 1
-        except Exception as e:
-            import_results['errors'].append(f"Company status {status_data.get('company_name', 'Unknown')}: {str(e)}")
-    
-    # Update overall benchmark status if metadata is present
-    if 'metadata' in export_data and 'benchmark_status' in export_data['metadata']:
-        try:
-            benchmark_status = BenchmarkStatus.get_current()
-            bs_data = export_data['metadata']['benchmark_status']
-            
-            benchmark_status.status = bs_data['status']
-            if bs_data['started_at']:
-                benchmark_status.started_at = datetime.fromisoformat(bs_data['started_at'])
-            if bs_data['completed_at']:
-                benchmark_status.completed_at = datetime.fromisoformat(bs_data['completed_at'])
-            benchmark_status.load_fixtures = bs_data['load_fixtures']
-            benchmark_status.error_message = bs_data['error_message']
-            benchmark_status.save()
-        except Exception as e:
-            import_results['errors'].append(f"Benchmark status: {str(e)}")
-    
-    return import_results
-
-
 @csrf_exempt
 @require_http_methods(["GET"])
 def api_upload_status(request):
     """API endpoint to get upload status and instructions."""
     return JsonResponse({
         'status': 'ready',
-        'message': 'Upload endpoint is ready',
+        'message': 'Upload endpoint is ready for SQL dumps',
         'instructions': {
-            'format': 'ZIP file containing benchmark_export.json',
+            'format': 'ZIP file containing benchmark_dump.sql',
             'max_size': '50MB',
             'endpoint': '/api/upload-benchmark-results/',
             'method': 'POST',
-            'content_type': 'multipart/form-data'
+            'content_type': 'multipart/form-data',
+            'export_command': 'python manage.py export_sql_dump --include-schedules'
         }
     })
 

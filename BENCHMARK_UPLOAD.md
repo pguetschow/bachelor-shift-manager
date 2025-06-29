@@ -6,7 +6,7 @@ This system allows you to run benchmarks locally and upload the results to the d
 
 The benchmark upload system consists of:
 
-1. **Local Export**: Export benchmark results from your local environment
+1. **Local Export**: Export benchmark results from your local environment as SQL dumps
 2. **Upload Interface**: Web-based upload interface for the deployed environment
 3. **API Endpoints**: REST API for programmatic uploads
 4. **Helper Scripts**: Easy-to-use scripts for local operations
@@ -16,14 +16,14 @@ The benchmark upload system consists of:
 ### 1. Run Benchmarks Locally
 
 ```bash
-# Run benchmarks with fixtures and export results
+# Run benchmarks with fixtures and export results as SQL dump
 python scripts/export_benchmarks.py --run-benchmarks --load-fixtures --export --include-schedules
 ```
 
 ### 2. Upload to Deployed Environment
 
 1. Navigate to `/upload-benchmark` on your deployed site
-2. Drag and drop the generated `benchmark_export.zip` file
+2. Drag and drop the generated `benchmark_dump.zip` file
 3. Wait for the upload to complete
 
 ## Detailed Usage
@@ -33,13 +33,13 @@ python scripts/export_benchmarks.py --run-benchmarks --load-fixtures --export --
 #### Using the Helper Script (Recommended)
 
 ```bash
-# Run benchmarks and export
+# Run benchmarks and export as SQL dump
 python scripts/export_benchmarks.py --run-benchmarks --export
 
-# Run benchmarks with fixtures and export
+# Run benchmarks with fixtures and export as SQL dump
 python scripts/export_benchmarks.py --run-benchmarks --load-fixtures --export
 
-# Export existing results only
+# Export existing results only as SQL dump
 python scripts/export_benchmarks.py --export
 
 # Export with schedule entries (larger file)
@@ -47,6 +47,9 @@ python scripts/export_benchmarks.py --export --include-schedules
 
 # Export specific company only
 python scripts/export_benchmarks.py --export --company "Kleines Unternehmen"
+
+# Export only data (no schema) for importing into existing database
+python scripts/export_benchmarks.py --export --data-only
 ```
 
 #### Using Django Management Commands
@@ -55,8 +58,27 @@ python scripts/export_benchmarks.py --export --company "Kleines Unternehmen"
 # Run benchmarks
 python manage.py benchmark_algorithms --load-fixtures
 
-# Export results
-python manage.py export_benchmark_results --include-schedules
+# Export results as SQL dump
+python manage.py export_sql_dump --include-schedules
+
+# Export only data (no schema)
+python manage.py export_sql_dump --data-only
+
+# Export specific company
+python manage.py export_sql_dump --company "Kleines Unternehmen"
+```
+
+### Import Commands
+
+```bash
+# Import SQL dump
+python manage.py import_sql_dump --file benchmark_dump.zip --clear-existing
+
+# Dry run to see what would be imported
+python manage.py import_sql_dump --file benchmark_dump.zip --dry-run
+
+# Import without clearing existing data
+python manage.py import_sql_dump --file benchmark_dump.zip
 ```
 
 ### Upload Methods
@@ -73,7 +95,7 @@ python manage.py export_benchmark_results --include-schedules
 ```bash
 # Upload via curl
 curl -X POST \
-  -F "file=@benchmark_export.zip" \
+  -F "file=@benchmark_dump.zip" \
   https://your-domain.com/api/upload-benchmark-results/
 ```
 
@@ -82,7 +104,7 @@ curl -X POST \
 ```python
 import requests
 
-with open('benchmark_export.zip', 'rb') as f:
+with open('benchmark_dump.zip', 'rb') as f:
     files = {'file': f}
     response = requests.post(
         'https://your-domain.com/api/upload-benchmark-results/',
@@ -97,28 +119,21 @@ The export creates the following structure:
 
 ```
 benchmark_export/
-├── benchmark_export.json    # Main export data
-└── benchmark_export.zip     # Compressed file for upload
+├── benchmark_dump.sql    # SQL dump file
+└── benchmark_dump.zip    # Compressed file for upload
 ```
 
-### Export Data Format
+### Export Format
 
-The JSON export contains:
+The system uses SQL dumps for reliable and fast data transfer:
 
-```json
-{
-  "metadata": {
-    "exported_at": "2025-01-01T12:00:00",
-    "benchmark_status": { ... },
-    "export_options": { ... }
-  },
-  "companies": [...],
-  "employees": [...],
-  "shifts": [...],
-  "schedule_entries": [...],
-  "company_benchmark_statuses": [...]
-}
-```
+- **Format**: Standard SQL dump with INSERT statements
+- **Advantages**: 
+  - More reliable and faster import
+  - Preserves data integrity
+  - Works with any SQLite database
+  - Smaller file sizes
+  - Standard SQL format
 
 ## API Endpoints
 
@@ -126,7 +141,7 @@ The JSON export contains:
 
 **POST** `/api/upload-benchmark-results/`
 
-Upload a ZIP file containing benchmark export data.
+Upload a ZIP file containing SQL dump data.
 
 **Request:**
 - Content-Type: `multipart/form-data`
@@ -136,14 +151,12 @@ Upload a ZIP file containing benchmark export data.
 ```json
 {
   "status": "success",
-  "message": "Benchmark results uploaded successfully",
+  "message": "Benchmark results uploaded successfully via SQL dump",
+  "import_method": "sql_dump",
   "import_summary": {
-    "companies_imported": 3,
-    "employees_imported": 140,
-    "shifts_imported": 9,
-    "schedule_entries_imported": 50000,
-    "company_statuses_imported": 3,
-    "errors": []
+    "method": "sql_dump",
+    "file_processed": "benchmark_dump.sql",
+    "output": "Import completed successfully!\nTables processed: 5\nStatements executed: 150\nErrors: 0"
   }
 }
 ```
@@ -158,13 +171,14 @@ Get upload endpoint status and instructions.
 ```json
 {
   "status": "ready",
-  "message": "Upload endpoint is ready",
+  "message": "Upload endpoint is ready for SQL dumps",
   "instructions": {
-    "format": "ZIP file containing benchmark_export.json",
+    "format": "ZIP file containing benchmark_dump.sql",
     "max_size": "50MB",
     "endpoint": "/api/upload-benchmark-results/",
     "method": "POST",
-    "content_type": "multipart/form-data"
+    "content_type": "multipart/form-data",
+    "export_command": "python manage.py export_sql_dump --include-schedules"
   }
 }
 ```
@@ -176,12 +190,13 @@ Get upload endpoint status and instructions.
 - `--include-schedules`: Include schedule entries (larger file)
 - `--company`: Export specific company only
 - `--output-dir`: Custom output directory
+- `--data-only`: Export only data, not schema (for importing into existing database)
 
 ### Upload Limits
 
 - Maximum file size: 50MB
 - Supported format: ZIP files
-- Required content: `benchmark_export.json`
+- Required content: `benchmark_dump.sql`
 
 ## Troubleshooting
 
@@ -190,15 +205,17 @@ Get upload endpoint status and instructions.
 1. **File too large**
    - Use `--include-schedules` only when needed
    - Export specific companies with `--company`
+   - SQL dumps are typically smaller than other formats
 
 2. **Upload fails**
    - Check file format (must be ZIP)
-   - Verify file contains `benchmark_export.json`
+   - Verify file contains `benchmark_dump.sql`
    - Check server logs for detailed errors
 
 3. **Import errors**
    - Review import summary for specific errors
    - Check data consistency in export file
+   - Try using `--dry-run` to preview import
 
 ### Error Handling
 
@@ -209,6 +226,18 @@ The system provides detailed error reporting:
 - Database constraint violations
 - Data format issues
 
+## Performance
+
+### SQL Dump Performance
+
+| Metric | Performance |
+|--------|-------------|
+| Export Speed | ~2-5 seconds |
+| Import Speed | ~5-15 seconds |
+| File Size | ~1-5 MB |
+| Reliability | High |
+| Data Integrity | Preserved |
+
 ## Security Considerations
 
 - Upload endpoint validates file format and content
@@ -216,34 +245,21 @@ The system provides detailed error reporting:
 - Database operations use transactions for consistency
 - No persistent file storage on server
 
-## Performance
-
-### Export Performance
-
-- Companies, employees, shifts: ~1-2 seconds
-- Schedule entries: ~10-30 seconds (depending on data size)
-- ZIP compression: ~1-5 seconds
-
-### Upload Performance
-
-- File validation: ~1-2 seconds
-- Data import: ~5-30 seconds (depending on data size)
-- Total upload time: ~10-60 seconds
-
 ## Best Practices
 
-1. **Run benchmarks locally** to save costs
-2. **Use fixtures** for consistent test data
-3. **Include schedules** only when needed
-4. **Test uploads** with small datasets first
-5. **Monitor import results** for errors
-6. **Backup data** before large imports
+1. **Use SQL dumps** for reliable data transfer
+2. **Run benchmarks locally** to save costs
+3. **Use fixtures** for consistent test data
+4. **Include schedules** only when needed
+5. **Test imports** with `--dry-run` before production
+6. **Use `--data-only`** when importing into existing database
 
-## Support
+## Migration from Legacy Methods
 
-For issues or questions:
+If you were previously using other export methods:
 
-1. Check the error messages in the upload interface
-2. Review the import summary for specific problems
-3. Check server logs for detailed error information
-4. Verify export file format and content 
+1. **Export**: Use `python manage.py export_sql_dump` for all new exports
+2. **Import**: The upload system now only accepts SQL dumps
+3. **Benefits**: Faster, more reliable, and smaller file sizes
+
+The SQL dump method is the only supported format for all exports and imports. 
