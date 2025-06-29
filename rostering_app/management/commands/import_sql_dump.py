@@ -172,29 +172,43 @@ class Command(BaseCommand):
         }
         
         with transaction.atomic():
-            # Clear existing data if requested
-            if clear_existing:
-                self._clear_existing_data()
+            # Always clear existing data first to avoid foreign key conflicts
+            self._clear_existing_data()
             
-            # Execute statements
-            for statement in statements:
-                try:
-                    with connection.cursor() as cursor:
-                        cursor.execute(statement)
-                        
-                        # Track which tables are being processed
-                        if statement.upper().startswith('INSERT INTO'):
-                            parts = statement.split()
-                            if len(parts) >= 3:
-                                table_name = parts[2].strip('`"[]')
-                                import_results['tables_processed'].add(table_name)
-                        
-                        import_results['statements_executed'] += 1
-                        
-                except Exception as e:
-                    error_msg = f"Statement failed: {str(e)[:100]}..."
-                    import_results['errors'].append(error_msg)
-                    self.stdout.write(self.style.WARNING(error_msg))
+            # Disable foreign key constraints temporarily
+            with connection.cursor() as cursor:
+                cursor.execute("PRAGMA foreign_keys=OFF")
+            
+            try:
+                # Execute statements
+                for statement in statements:
+                    try:
+                        with connection.cursor() as cursor:
+                            cursor.execute(statement)
+                            
+                            # Track which tables are being processed
+                            if statement.upper().startswith('INSERT INTO'):
+                                parts = statement.split()
+                                if len(parts) >= 3:
+                                    table_name = parts[2].strip('`"[]')
+                                    import_results['tables_processed'].add(table_name)
+                            
+                            import_results['statements_executed'] += 1
+                            
+                    except Exception as e:
+                        error_msg = f"Statement failed: {str(e)[:100]}..."
+                        import_results['errors'].append(error_msg)
+                        self.stdout.write(self.style.WARNING(error_msg))
+                
+                # Re-enable foreign key constraints
+                with connection.cursor() as cursor:
+                    cursor.execute("PRAGMA foreign_keys=ON")
+                    
+            except Exception as e:
+                # Re-enable foreign key constraints even if import fails
+                with connection.cursor() as cursor:
+                    cursor.execute("PRAGMA foreign_keys=ON")
+                raise
         
         import_results['tables_processed'] = len(import_results['tables_processed'])
         return import_results
@@ -204,6 +218,9 @@ class Command(BaseCommand):
         self.stdout.write("Clearing existing benchmark data...")
         
         with connection.cursor() as cursor:
+            # Disable foreign key constraints for clearing
+            cursor.execute("PRAGMA foreign_keys=OFF")
+            
             # Clear data in reverse dependency order
             cursor.execute("DELETE FROM rostering_app_scheduleentry")
             cursor.execute("DELETE FROM rostering_app_employee")
@@ -211,5 +228,8 @@ class Command(BaseCommand):
             cursor.execute("DELETE FROM rostering_app_company")
             cursor.execute("DELETE FROM rostering_app_companybenchmarkstatus")
             cursor.execute("DELETE FROM rostering_app_benchmarkstatus")
+            
+            # Re-enable foreign key constraints
+            cursor.execute("PRAGMA foreign_keys=ON")
         
         self.stdout.write("Existing data cleared") 
