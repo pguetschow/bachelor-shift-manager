@@ -35,17 +35,15 @@ jobs:
         env:
           HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
 
-      - name: Debug Release container manually
-        if: ${{ always() }}
+      - name: Ensure Heroku uses the Container stack
         shell: bash
         run: |
-          set -o pipefail
-          echo "→ Running: heroku container:release web --app ${{ secrets.HEROKU_APP_NAME }}"
-          heroku container:release web --app ${{ secrets.HEROKU_APP_NAME }} || true
+          echo "→ Setting Heroku stack to container (no-op if already set)"
+          heroku stack:set container --app ${{ secrets.HEROKU_APP_NAME }}
         env:
           HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
 
-      - name: Build, Push and Release a Docker container to Heroku
+      - name: Build, Push and Release Docker container to Heroku
         uses: gonuit/heroku-docker-deploy@v1.3.3
         with:
           email:                ${{ secrets.HEROKU_EMAIL }}
