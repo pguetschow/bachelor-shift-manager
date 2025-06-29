@@ -7,6 +7,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range, get_non_working_days_in_range, get_shift_display_name, monthly_hours
+import subprocess
+import os
 
 
 def load_company_fixtures(company):
@@ -1209,3 +1211,19 @@ def api_company_employee_statistics(request, company_id):
         'year': year,
         'total_working_days': total_working_days
     })
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_run_benchmark(request):
+    try:
+        data = json.loads(request.body.decode())
+        load_fixtures = data.get('load_fixtures', False)
+    except Exception:
+        load_fixtures = False
+    
+    cmd = ["python", "manage.py", "benchmark_algorithms"]
+    if load_fixtures:
+        cmd.append("--load-fixtures")
+    # Run in background
+    subprocess.Popen(cmd, cwd=os.path.dirname(os.path.dirname(__file__)))
+    return JsonResponse({"status": "started", "load_fixtures": load_fixtures})
