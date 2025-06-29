@@ -6,8 +6,7 @@ from datetime import datetime
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from rostering_app.models import (
-    Company, Employee, Shift, ScheduleEntry, 
-    BenchmarkStatus, CompanyBenchmarkStatus
+    Company, Employee, Shift, ScheduleEntry
 )
 
 
@@ -41,19 +40,9 @@ class Command(BaseCommand):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         
-        # Get current benchmark status
-        benchmark_status = BenchmarkStatus.get_current()
-        
         # Export metadata
         metadata = {
             'exported_at': datetime.now().isoformat(),
-            'benchmark_status': {
-                'status': benchmark_status.status,
-                'started_at': benchmark_status.started_at.isoformat() if benchmark_status.started_at else None,
-                'completed_at': benchmark_status.completed_at.isoformat() if benchmark_status.completed_at else None,
-                'load_fixtures': benchmark_status.load_fixtures,
-                'error_message': benchmark_status.error_message,
-            },
             'export_options': {
                 'include_schedules': include_schedules,
                 'company_filter': company_filter,
@@ -131,24 +120,6 @@ class Command(BaseCommand):
                 }
                 schedule_data.append(entry_data)
         
-        # Export company benchmark statuses
-        company_status_query = CompanyBenchmarkStatus.objects.all()
-        if company_filter:
-            company_status_query = company_status_query.filter(company_name__icontains=company_filter)
-        
-        company_status_data = []
-        for status in company_status_query:
-            status_data = {
-                'company_name': status.company_name,
-                'test_case': status.test_case,
-                'completed': status.completed,
-                'completed_at': status.completed_at.isoformat() if status.completed_at else None,
-                'error_message': status.error_message,
-                'created_at': status.created_at.isoformat(),
-                'updated_at': status.updated_at.isoformat(),
-            }
-            company_status_data.append(status_data)
-        
         # Create export data structure
         export_data = {
             'metadata': metadata,
@@ -156,7 +127,6 @@ class Command(BaseCommand):
             'employees': employees_data,
             'shifts': shifts_data,
             'schedule_entries': schedule_data,
-            'company_benchmark_statuses': company_status_data,
         }
         
         # Save as JSON

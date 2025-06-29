@@ -54,8 +54,6 @@ class Command(BaseCommand):
             'rostering_app_company',
             'rostering_app_shift', 
             'rostering_app_employee',
-            'rostering_app_benchmarkstatus',
-            'rostering_app_companybenchmarkstatus',
         ]
         
         if include_schedules:
