@@ -989,6 +989,11 @@ def _import_benchmark_data(export_data):
         'errors': []
     }
     
+    # Validate export data structure
+    if not export_data.get('companies'):
+        import_results['errors'].append("No companies found in export data")
+        return import_results
+    
     # Clear all existing data first
     try:
         ScheduleEntry.objects.all().delete()
@@ -1017,16 +1022,16 @@ def _import_benchmark_data(export_data):
             company_id_mapping[company_data['id']] = company
             import_results['companies_imported'] += 1
         except Exception as e:
-            import_results['errors'].append(f"Company {company_data['name']}: {str(e)}")
+            import_results['errors'].append(f"Company {company_data.get('name', 'Unknown')}: {str(e)}")
     
     # Import employees (depend on companies)
     employee_id_mapping = {}  # Map old IDs to new employee objects
-    for employee_data in export_data['employees']:
+    for employee_data in export_data.get('employees', []):
         try:
             # Get the company using the mapping
             company = company_id_mapping.get(employee_data['company_id'])
             if not company:
-                import_results['errors'].append(f"Employee {employee_data['name']}: Company not found")
+                import_results['errors'].append(f"Employee {employee_data.get('name', 'Unknown')}: Company not found")
                 continue
             
             employee = Employee.objects.create(
@@ -1041,16 +1046,16 @@ def _import_benchmark_data(export_data):
             employee_id_mapping[employee_data['id']] = employee
             import_results['employees_imported'] += 1
         except Exception as e:
-            import_results['errors'].append(f"Employee {employee_data['name']}: {str(e)}")
+            import_results['errors'].append(f"Employee {employee_data.get('name', 'Unknown')}: {str(e)}")
     
     # Import shifts (depend on companies)
     shift_id_mapping = {}  # Map old IDs to new shift objects
-    for shift_data in export_data['shifts']:
+    for shift_data in export_data.get('shifts', []):
         try:
             # Get the company using the mapping
             company = company_id_mapping.get(shift_data['company_id'])
             if not company:
-                import_results['errors'].append(f"Shift {shift_data['name']}: Company not found")
+                import_results['errors'].append(f"Shift {shift_data.get('name', 'Unknown')}: Company not found")
                 continue
             
             shift = Shift.objects.create(
@@ -1066,7 +1071,7 @@ def _import_benchmark_data(export_data):
             shift_id_mapping[shift_data['id']] = shift
             import_results['shifts_imported'] += 1
         except Exception as e:
-            import_results['errors'].append(f"Shift {shift_data['name']}: {str(e)}")
+            import_results['errors'].append(f"Shift {shift_data.get('name', 'Unknown')}: {str(e)}")
     
     # Import schedule entries if present (depend on employees, shifts, and companies)
     if 'schedule_entries' in export_data and export_data['schedule_entries']:
@@ -1096,7 +1101,7 @@ def _import_benchmark_data(export_data):
                 import_results['errors'].append(f"Schedule entry: {str(e)}")
     
     # Import company benchmark statuses
-    for status_data in export_data['company_benchmark_statuses']:
+    for status_data in export_data.get('company_benchmark_statuses', []):
         try:
             status = CompanyBenchmarkStatus.objects.create(
                 company_name=status_data['company_name'],
@@ -1107,7 +1112,7 @@ def _import_benchmark_data(export_data):
             )
             import_results['company_statuses_imported'] += 1
         except Exception as e:
-            import_results['errors'].append(f"Company status {status_data['company_name']}: {str(e)}")
+            import_results['errors'].append(f"Company status {status_data.get('company_name', 'Unknown')}: {str(e)}")
     
     # Update overall benchmark status if metadata is present
     if 'metadata' in export_data and 'benchmark_status' in export_data['metadata']:

@@ -7,3 +7,4 @@ db.sqlite3
 /.vite/
 /test_export/benchmark_export.zip
 /test_export/benchmark_export.json
+/benchmark_export/
