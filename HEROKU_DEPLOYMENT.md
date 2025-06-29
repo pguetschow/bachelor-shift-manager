@@ -38,7 +38,7 @@ Push to `main` or `master` branch to trigger automatic deployment.
 - `Dockerfile`: Multi-stage Docker build for Python + Node.js
 - `.dockerignore`: Optimizes Docker build context
 
-## Features
+## Features 
 
 - ✅ Docker-based deployment
 - ✅ Python 3.11 + Node.js 18
