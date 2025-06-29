@@ -177,17 +177,17 @@ class Command(BaseCommand):
             'errors': []
         }
         
-        with transaction.atomic():
-            # Always clear existing data first to avoid foreign key conflicts
-            self._clear_existing_data()
-            
-            # Disable foreign key constraints and WAL mode for better performance
-            with connection.cursor() as cursor:
-                cursor.execute("PRAGMA foreign_keys=OFF")
-                cursor.execute("PRAGMA journal_mode=DELETE")
-                cursor.execute("PRAGMA synchronous=OFF")
-            
-            try:
+        # Disable foreign key constraints and optimize settings BEFORE transaction
+        with connection.cursor() as cursor:
+            cursor.execute("PRAGMA foreign_keys=OFF")
+            cursor.execute("PRAGMA journal_mode=DELETE")
+            cursor.execute("PRAGMA synchronous=OFF")
+        
+        try:
+            with transaction.atomic():
+                # Always clear existing data first to avoid foreign key conflicts
+                self._clear_existing_data()
+                
                 # Separate statements by type
                 create_statements = []
                 insert_statements = []
@@ -242,19 +242,12 @@ class Command(BaseCommand):
                         self.stdout.write(self.style.WARNING(error_msg))
                         # Continue with other statements instead of failing completely
                 
-                # Re-enable foreign key constraints and settings
-                with connection.cursor() as cursor:
-                    cursor.execute("PRAGMA foreign_keys=ON")
-                    cursor.execute("PRAGMA journal_mode=WAL")
-                    cursor.execute("PRAGMA synchronous=NORMAL")
-                    
-            except Exception as e:
-                # Re-enable foreign key constraints even if import fails
-                with connection.cursor() as cursor:
-                    cursor.execute("PRAGMA foreign_keys=ON")
-                    cursor.execute("PRAGMA journal_mode=WAL")
-                    cursor.execute("PRAGMA synchronous=NORMAL")
-                raise
+        finally:
+            # Re-enable foreign key constraints and settings AFTER transaction
+            with connection.cursor() as cursor:
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
         
         import_results['tables_processed'] = len(import_results['tables_processed'])
         return import_results
