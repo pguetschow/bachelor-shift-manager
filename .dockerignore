@@ -75,4 +75,12 @@ README.md
 
 # Data directories
 data/
-static/ 
+static/
+
+# Build artifacts
+dist
+build
+*.egg-info
+
+# Export directory (benchmark results)
+export/ 
