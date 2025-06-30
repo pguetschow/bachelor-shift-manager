@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Set production environment variable for Django
+export DJANGO_PRODUCTION=1
+
 # Exit on any error
 set -e
 
