@@ -14,6 +14,9 @@ RUN apt-get update \
         libpng-dev \
         pkg-config \
         build-essential \
+        default-libmysqlclient-dev \
+        default-mysql-client \
+        python3.11-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables (NODE_ENV später setzen!)
@@ -61,6 +64,10 @@ RUN chmod +x start.sh
 
 # Collect static files
 RUN python manage.py collectstatic --noinput
+
+# Copy wait-for-it.sh script and make it executable (before switching to appuser)
+COPY wait-for-it.sh /wait-for-it.sh
+RUN chmod +x /wait-for-it.sh
 
 # Create a non-root user
 RUN adduser --disabled-password --gecos '' appuser

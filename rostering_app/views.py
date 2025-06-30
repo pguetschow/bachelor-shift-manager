@@ -737,9 +737,9 @@ def api_upload_benchmark_results(request):
             
             # Import SQL dump using a more robust approach
             try:
-                # Use the import_sql_dump command with clear_existing=True
+                # Use the import_sql_dump command
                 output = StringIO()
-                call_command('import_sql_dump', file=sql_file, clear_existing=True, stdout=output)
+                call_command('import_sql_dump', file=sql_file, stdout=output)
                 
                 # Parse the output to get import results
                 output_text = output.getvalue()

@@ -33,13 +33,13 @@ python scripts/export_benchmarks.py --run-benchmarks --load-fixtures --export --
 #### Using the Helper Script (Recommended)
 
 ```bash
-# Run benchmarks and export as SQL dump
+# Run benchmarks and export as JSON dump
 python scripts/export_benchmarks.py --run-benchmarks --export
 
-# Run benchmarks with fixtures and export as SQL dump
+# Run benchmarks with fixtures and export as JSON dump
 python scripts/export_benchmarks.py --run-benchmarks --load-fixtures --export
 
-# Export existing results only as SQL dump
+# Export existing results only as JSON dump
 python scripts/export_benchmarks.py --export
 
 # Export with schedule entries (larger file)
@@ -58,7 +58,7 @@ python scripts/export_benchmarks.py --export --data-only
 # Run benchmarks
 python manage.py benchmark_algorithms --load-fixtures
 
-# Export results as SQL dump
+# Export results as JSON dump
 python manage.py export_sql_dump --include-schedules
 
 # Export only data (no schema)
@@ -71,7 +71,7 @@ python manage.py export_sql_dump --company "Kleines Unternehmen"
 ### Import Commands
 
 ```bash
-# Import SQL dump
+# Import JSON dump
 python manage.py import_sql_dump --file benchmark_dump.zip --clear-existing
 
 # Dry run to see what would be imported
@@ -119,71 +119,28 @@ The export creates the following structure:
 
 ```
 benchmark_export/
-├── benchmark_dump.sql    # SQL dump file
-└── benchmark_dump.zip    # Compressed file for upload
+├── benchmark_dump.json    # JSON dump file
+└── benchmark_dump.zip     # Compressed file for upload
 ```
 
 ### Export Format
 
-The system uses SQL dumps for reliable and fast data transfer:
+The system uses JSON dumps for reliable and fast data transfer:
 
-- **Format**: Standard SQL dump with INSERT statements
+- **Format**: Standard Django JSON dump with all data
 - **Advantages**: 
   - More reliable and faster import
   - Preserves data integrity
-  - Works with any SQLite database
+  - Works with any Django-supported database (now MySQL by default)
   - Smaller file sizes
-  - Standard SQL format
-
-## API Endpoints
-
-### Upload Benchmark Results
-
-**POST** `/api/upload-benchmark-results/`
-
-Upload a ZIP file containing SQL dump data.
-
-**Request:**
-- Content-Type: `multipart/form-data`
-- Body: ZIP file with key `file`
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Benchmark results uploaded successfully via SQL dump",
-  "import_method": "sql_dump",
-  "import_summary": {
-    "method": "sql_dump",
-    "file_processed": "benchmark_dump.sql",
-    "output": "Import completed successfully!\nTables processed: 5\nStatements executed: 150\nErrors: 0"
-  }
-}
-```
-
-### Upload Status
-
-**GET** `/api/upload-status/`
-
-Get upload endpoint status and instructions.
-
-**Response:**
-```json
-{
-  "status": "ready",
-  "message": "Upload endpoint is ready for SQL dumps",
-  "instructions": {
-    "format": "ZIP file containing benchmark_dump.sql",
-    "max_size": "50MB",
-    "endpoint": "/api/upload-benchmark-results/",
-    "method": "POST",
-    "content_type": "multipart/form-data",
-    "export_command": "python manage.py export_sql_dump --include-schedules"
-  }
-}
-```
+  - Standard JSON format
 
 ## Configuration
+
+### Database
+
+- The default database is now **MySQL**. Ensure your environment variables and Docker Compose are configured for MySQL.
+- SQLite is no longer supported.
 
 ### Export Options
 
@@ -196,7 +153,7 @@ Get upload endpoint status and instructions.
 
 - Maximum file size: 50MB
 - Supported format: ZIP files
-- Required content: `benchmark_dump.sql`
+- Required content: `benchmark_dump.json`
 
 ## Troubleshooting
 
@@ -205,11 +162,11 @@ Get upload endpoint status and instructions.
 1. **File too large**
    - Use `--include-schedules` only when needed
    - Export specific companies with `--company`
-   - SQL dumps are typically smaller than other formats
+   - JSON dumps are typically smaller than SQL dumps
 
 2. **Upload fails**
    - Check file format (must be ZIP)
-   - Verify file contains `benchmark_dump.sql`
+   - Verify file contains `benchmark_dump.json`
    - Check server logs for detailed errors
 
 3. **Import errors**
@@ -228,7 +185,7 @@ The system provides detailed error reporting:
 
 ## Performance
 
-### SQL Dump Performance
+### JSON Dump Performance
 
 | Metric | Performance |
 |--------|-------------|
@@ -247,7 +204,7 @@ The system provides detailed error reporting:
 
 ## Best Practices
 
-1. **Use SQL dumps** for reliable data transfer
+1. **Use JSON dumps** for reliable data transfer
 2. **Run benchmarks locally** to save costs
 3. **Use fixtures** for consistent test data
 4. **Include schedules** only when needed
@@ -259,7 +216,7 @@ The system provides detailed error reporting:
 If you were previously using other export methods:
 
 1. **Export**: Use `python manage.py export_sql_dump` for all new exports
-2. **Import**: The upload system now only accepts SQL dumps
+2. **Import**: The upload system now only accepts JSON dumps
 3. **Benefits**: Faster, more reliable, and smaller file sizes
 
-The SQL dump method is the only supported format for all exports and imports. 
+The JSON dump method is the only supported format for all exports and imports. 

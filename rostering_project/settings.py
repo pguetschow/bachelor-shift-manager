@@ -65,8 +65,16 @@ WSGI_APPLICATION = 'rostering_project.wsgi.application'
 # Database (default is SQLite)
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.environ.get('MYSQL_DATABASE', 'shift_manager'),
+        'USER': os.environ.get('MYSQL_USER', 'shift_manager'),
+        'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'shift_manager_password'),
+        'HOST': os.environ.get('MYSQL_HOST', 'db'),
+        'PORT': os.environ.get('MYSQL_PORT', '3306'),
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'init_command': "SET NAMES 'utf8mb4'",
+        },
     }
 }
 
