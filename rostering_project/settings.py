@@ -3,6 +3,9 @@ from pathlib import Path
 import mimetypes
 import dj_database_url
 from urllib.parse import urlparse
+import environ
+env = environ.Env()
+environ.Env.read_env()
 
 # Build paths inside the project
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -67,33 +70,20 @@ WSGI_APPLICATION = 'rostering_project.wsgi.application'
 # Database (default is SQLite)
 # if os.environ.get('DJANGO_PRODUCTION') or os.environ.get('HEROKU'):
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'HOST': 'bi9r93.stackhero-network.com',
-        'PORT': '7398',
-        'NAME': 'root',
-        'USER': 'root',
-        'PASSWORD': 'RShnuoQdI5LgBZK2QeENM7Ug0UC6WUSX',
-        'OPTIONS': {
-            'ssl_mode': 'REQUIRED',
-        },
-    }
+  'default': {
+    'ENGINE': 'django.db.backends.mysql',
+    'HOST': env('STACKHERO_MYSQL_HOST'),
+    'PORT': '7398',
+    'OPTIONS': {
+      'ssl_mode': 'REQUIRED',
+       'charset': 'utf8mb4',
+       'init_command': "SET NAMES 'utf8mb4'",
+    },
+    'NAME': 'scheduler',
+    'USER': 'root',
+    'PASSWORD': env('STACKHERO_MYSQL_ROOT_PASSWORD')
+  }
 }
-# else:
-#     DATABASES = {
-#         'default': {
-#             'ENGINE': 'django.db.backends.mysql',
-#             'NAME': os.environ.get('MYSQL_DATABASE', 'shift_manager'),
-#             'USER': os.environ.get('MYSQL_USER', 'shift_manager'),
-#             'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'shift_manager_password'),
-#             'HOST': os.environ.get('MYSQL_HOST', 'db'),
-#             'PORT': os.environ.get('MYSQL_PORT', '3306'),
-#             'OPTIONS': {
-#                 'charset': 'utf8mb4',
-#                 'init_command': "SET NAMES 'utf8mb4'",
-#             },
-#         }
-#     }
 
 # Password validation (use default validators)
 AUTH_PASSWORD_VALIDATORS = [

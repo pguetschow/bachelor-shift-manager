@@ -53,3 +53,6 @@ jobs:
           dockerfile_name:      Dockerfile
           docker_options:       "--no-cache"
           process_type:         web
+        env:
+          STACKHERO_MYSQL_HOST: ${{ secrets.STACKHERO_MYSQL_HOST }}
+          STACKHERO_MYSQL_ROOT_PASSWORD: ${{ secrets.STACKHERO_MYSQL_ROOT_PASSWORD }}
