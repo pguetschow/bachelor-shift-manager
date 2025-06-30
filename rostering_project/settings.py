@@ -64,11 +64,15 @@ TEMPLATES = [
 WSGI_APPLICATION = 'rostering_project.wsgi.application'
 
 # Database (default is SQLite)
-if os.environ.get('DJANGO_PRODUCTION') or os.environ.get('HEROKU'):  # or check for 'DATABASE_URL' in os.environ
+if os.environ.get('DJANGO_PRODUCTION') or os.environ.get('HEROKU'):
     DATABASES = {
         'default': dj_database_url.config(
-            default=os.environ.get('DATABASE_URL', 'mysql://root:RShnuoQdI5LgBZK2QeENM7Ug0UC6WUSX@bi9r93.stackhero-network.com:7398/root?useSSL=true&requireSSL=true')
+            default=os.environ.get('DATABASE_URL', 'mysql://root:RShnuoQdI5LgBZK2QeENM7Ug0UC6WUSX@bi9r93.stackhero-network.com:7398/root')
         )
+    }
+    # If your managed DB requires SSL, set the ssl option here
+    DATABASES['default']['OPTIONS'] = {
+        'ssl': {}  # Add 'ca': '/path/to/ca.pem' if your provider requires a CA cert
     }
 else:
     DATABASES = {
