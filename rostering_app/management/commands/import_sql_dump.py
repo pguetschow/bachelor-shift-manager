@@ -83,7 +83,8 @@ class Command(BaseCommand):
 
     def _extract_sql_file(self, file_path):
         """Extract SQL file from ZIP or return the file path if it's already a SQL file."""
-        if file_path.endswith('.zip'):
+        file_path_str = str(file_path)
+        if file_path_str.endswith('.zip'):
             # Extract from ZIP
             with zipfile.ZipFile(file_path, 'r') as zipf:
                 sql_files = [f for f in zipf.namelist() if f.endswith('.sql')]
@@ -95,7 +96,7 @@ class Command(BaseCommand):
                 temp_dir = tempfile.mkdtemp()
                 zipf.extract(sql_filename, temp_dir)
                 return os.path.join(temp_dir, sql_filename)
-        elif file_path.endswith('.sql'):
+        elif file_path_str.endswith('.sql'):
             # Already a SQL file
             return file_path
         else:
