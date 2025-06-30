@@ -13,11 +13,9 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from rostering_app.models import ScheduleEntry, Employee, Shift, Company, BenchmarkStatus, CompanyBenchmarkStatus
+from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 
 # Import scheduling algorithms
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
 from scheduling_core.linear_programming import LinearProgrammingScheduler
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
@@ -40,28 +38,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # Get or create benchmark status
-        benchmark_status = BenchmarkStatus.get_current()
-        
-        # Check if already running
-        if benchmark_status.status == 'running':
-            self.stdout.write(self.style.WARNING(
-                "Benchmark is already running. Use --force to override."
-            ))
-            if not options.get('force', False):
-                return
-        
-        # Start benchmark
+        # Check if already running (simplified check)
         load_fixtures = options.get('load_fixtures', False)
-        benchmark_status.start_benchmark(load_fixtures=load_fixtures)
-        
-        # Reset all company benchmark statuses when starting new benchmark
-        CompanyBenchmarkStatus.objects.all().update(
-            completed=False,
-            completed_at=None,
-            error_message=''
-        )
-        self.stdout.write("Reset all company benchmark statuses")
+        force = options.get('force', False)
         
         try:
             # Test configurations
@@ -170,11 +149,6 @@ class Command(BaseCommand):
                     else:
                         algorithms.append(algorithm_class())
                 
-                # Get or create company benchmark status
-                company_status = CompanyBenchmarkStatus.get_or_create_for_company(
-                    company_name, test_case['name']
-                )
-                
                 # Benchmark algorithms
                 results = {}
                 company_success = True
@@ -222,9 +196,6 @@ class Command(BaseCommand):
                         # Print the full traceback to the console
                         traceback.print_exc()
 
-                # Mark company as completed
-                company_status.mark_completed(success=company_success, error_message=company_error)
-
                 # Store results
                 all_results[test_case['name']] = {
                     'display_name': test_case['display_name'],
@@ -250,9 +221,6 @@ class Command(BaseCommand):
             # Generate comparison graphs across all test cases
             self._generate_comparison_graphs(all_results, export_dir)
             
-            # Mark benchmark as completed successfully
-            benchmark_status.complete_benchmark(success=True)
-            
             self.stdout.write(self.style.SUCCESS(
                 f"\nBenchmark complete! Results saved to {export_dir}/"
             ))
@@ -260,7 +228,6 @@ class Command(BaseCommand):
         except Exception as e:
             # Mark benchmark as failed
             error_message = f"Benchmark failed: {str(e)}\n{traceback.format_exc()}"
-            benchmark_status.complete_benchmark(success=False, error_message=error_message)
             
             self.stdout.write(self.style.ERROR(
                 f"Benchmark failed: {str(e)}"

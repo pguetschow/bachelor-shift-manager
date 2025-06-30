@@ -9,12 +9,35 @@ from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range, get_non_working_days_in_range, get_shift_display_name, monthly_hours
 import subprocess
 import os
+from django.core.management import call_command
+from django.conf import settings
+from io import StringIO
 
 
 def load_company_fixtures(company):
     """Load fixtures for the specified company."""
-    # Placeholder for loading fixtures for the specified company
-    return True
+    try:
+        # Determine which company size fixtures to load
+        company_size = company.size.lower()
+        fixtures_dir = os.path.join(settings.BASE_DIR, 'rostering_app', 'fixtures', company_size)
+        
+        if os.path.exists(fixtures_dir):
+            # Load employees for this company
+            employees_fixture = os.path.join(fixtures_dir, 'employees.json')
+            if os.path.exists(employees_fixture):
+                call_command('loaddata', employees_fixture, verbosity=0)
+            
+            # Load shifts for this company
+            shifts_fixture = os.path.join(fixtures_dir, 'shifts.json')
+            if os.path.exists(shifts_fixture):
+                call_command('loaddata', shifts_fixture, verbosity=0)
+            
+            return True
+    except Exception as e:
+        print(f"Error loading fixtures for company {company.name}: {e}")
+        return False
+    
+    return False
 
 
 def get_shift_status(count, min_staff, max_staff):
@@ -697,127 +720,197 @@ def api_company_employee_statistics(request, company_id):
 
 
 @csrf_exempt
-@require_http_methods(["GET"])
-def api_benchmark_status(request):
-    """API endpoint to get comprehensive benchmark status including individual company status."""
-    from .models import BenchmarkStatus, CompanyBenchmarkStatus
-    import os
-    import json
-    
-    # Get overall benchmark status
-    status = BenchmarkStatus.get_current()
-    
-    # Company name mapping from benchmark command
-    company_name_mapping = {
-        'small_company': 'Kleines Unternehmen',
-        'medium_company': 'Mittleres Unternehmen', 
-        'large_company': 'Großes Unternehmen'
-    }
-    
-    # Check export directory for results
-    export_dir = 'export'
-    has_overall_results = False
-    overall_file = None
-    
-    if os.path.exists(export_dir):
-        overall_file = os.path.join(export_dir, 'benchmark_results.json')
-        has_overall_results = os.path.exists(overall_file)
-    
-    # Get individual company benchmark statuses
-    company_statuses = CompanyBenchmarkStatus.objects.all()
-    company_status_data = {}
-    
-    for status_obj in company_statuses:
-        company_status_data[status_obj.company_name] = {
-            'completed': status_obj.completed,
-            'completed_at': status_obj.completed_at.isoformat() if status_obj.completed_at else None,
-            'error_message': status_obj.error_message,
-            'test_case': status_obj.test_case,
-            'updated_at': status_obj.updated_at.isoformat()
-        }
-    
-    # Check individual company result files
-    results_status = {}
-    for test_case, company_name in company_name_mapping.items():
-        test_dir = os.path.join(export_dir, test_case) if os.path.exists(export_dir) else None
-        results_file = os.path.join(test_dir, 'results.json') if test_dir else None
+@require_http_methods(["POST"])
+def api_load_fixtures(request):
+    """API endpoint to manually load fixtures."""
+    try:
+        from django.core.management import call_command
+        from django.conf import settings
+        import os
         
-        has_results = results_file and os.path.exists(results_file)
-        results_status[company_name] = {
-            'has_results': has_results,
-            'test_case': test_case,
-            'results_file': results_file if has_results else None
-        }
-    
-    return JsonResponse({
-        # Overall benchmark status
-        'status': status.status,
-        'started_at': status.started_at.isoformat() if status.started_at else None,
-        'completed_at': status.completed_at.isoformat() if status.completed_at else None,
-        'load_fixtures': status.load_fixtures,
-        'error_message': status.error_message,
-        'updated_at': status.updated_at.isoformat(),
+        # Get the fixtures directory
+        fixtures_dir = os.path.join(settings.BASE_DIR, 'rostering_app', 'fixtures')
         
-        # Individual company statuses
-        'company_statuses': company_status_data,
+        # Load companies first
+        companies_fixture = os.path.join(fixtures_dir, 'companies.json')
+        if os.path.exists(companies_fixture):
+            call_command('loaddata', companies_fixture, verbosity=0)
         
-        # Results file status
-        'results_status': results_status,
-        'has_overall_results': has_overall_results,
-        'overall_file': overall_file if has_overall_results else None
-    })
+        # Load company-specific fixtures
+        company_dirs = ['small_company', 'medium_company', 'large_company']
+        
+        for company_dir in company_dirs:
+            company_path = os.path.join(fixtures_dir, company_dir)
+            if os.path.exists(company_path):
+                # Load employees
+                employees_fixture = os.path.join(company_path, 'employees.json')
+                if os.path.exists(employees_fixture):
+                    call_command('loaddata', employees_fixture, verbosity=0)
+                
+                # Load shifts
+                shifts_fixture = os.path.join(company_path, 'shifts.json')
+                if os.path.exists(shifts_fixture):
+                    call_command('loaddata', shifts_fixture, verbosity=0)
+        
+        return JsonResponse({'status': 'success', 'message': 'Fixtures loaded successfully'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def api_run_benchmark(request):
-    """API endpoint to start benchmark with status tracking."""
-    from .models import BenchmarkStatus
+def api_upload_benchmark_results(request):
+    """API endpoint to upload benchmark results from local export."""
+    from django.core.files.uploadedfile import UploadedFile
+    from django.db import transaction
+    import zipfile
+    import tempfile
+    import os
+    import subprocess
+    from django.core.management import call_command
+    from io import StringIO
     
     try:
-        data = json.loads(request.body.decode())
-        load_fixtures = data.get('load_fixtures', False)
-        force = data.get('force', False)
-    except Exception:
-        load_fixtures = False
-        force = False
-    
-    # Check current status
-    benchmark_status = BenchmarkStatus.get_current()
-    
-    if benchmark_status.status == 'running' and not force:
+        # Check if file was uploaded
+        if 'file' not in request.FILES:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'No file uploaded. Please provide a ZIP file containing SQL dump.'
+            }, status=400)
+        
+        uploaded_file = request.FILES['file']
+        
+        # Validate file type
+        if not uploaded_file.name.endswith('.zip'):
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Please upload a ZIP file containing SQL dump data.'
+            }, status=400)
+        
+        # Extract and process the ZIP file
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save uploaded file temporarily
+            temp_zip_path = os.path.join(temp_dir, 'upload.zip')
+            with open(temp_zip_path, 'wb') as f:
+                for chunk in uploaded_file.chunks():
+                    f.write(chunk)
+            
+            # Extract ZIP file
+            with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
+                zipf.extractall(temp_dir)
+            
+            # Look for SQL dump file
+            sql_file = None
+            for file_name in os.listdir(temp_dir):
+                if file_name.endswith('.sql'):
+                    sql_file = os.path.join(temp_dir, file_name)
+                    break
+            
+            if not sql_file:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'No SQL dump file (.sql) found in the ZIP archive. Please use the new SQL dump export method.'
+                }, status=400)
+            
+            # Import SQL dump using a more robust approach
+            try:
+                # Use the import_sql_dump command with clear_existing=True
+                output = StringIO()
+                call_command('import_sql_dump', file=sql_file, clear_existing=True, stdout=output)
+                
+                # Parse the output to get import results
+                output_text = output.getvalue()
+                
+                return JsonResponse({
+                    'status': 'success',
+                    'message': 'Benchmark results uploaded successfully via SQL dump',
+                    'import_method': 'sql_dump',
+                    'import_summary': {
+                        'method': 'sql_dump',
+                        'file_processed': os.path.basename(sql_file),
+                        'output': output_text
+                    }
+                })
+                
+            except Exception as e:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f'SQL dump import failed: {str(e)}'
+                }, status=400)
+            
+    except zipfile.BadZipFile:
         return JsonResponse({
-            "status": "error",
-            "message": "Benchmark is already running. Use force=true to override."
-        }, status=409)
-    
-    # Build command
-    cmd = ["python", "manage.py", "benchmark_algorithms"]
-    if load_fixtures:
-        cmd.append("--load-fixtures")
-    if force:
-        cmd.append("--force")
-    
-    # Run in background
-    subprocess.Popen(cmd, cwd=os.path.dirname(os.path.dirname(__file__)))
-    
-    return JsonResponse({
-        "status": "started", 
-        "load_fixtures": load_fixtures,
-        "force": force
-    })
+            'status': 'error',
+            'message': 'Invalid ZIP file format.'
+        }, status=400)
+    except Exception as e:
+        return JsonResponse({
+            'status': 'error',
+            'message': f'Upload failed: {str(e)}'
+        }, status=500)
 
 
 @csrf_exempt
-@require_http_methods(["POST"])
-def api_reset_benchmark(request):
-    """API endpoint to reset benchmark status."""
-    from .models import BenchmarkStatus
-    
-    benchmark_status = BenchmarkStatus.get_current()
-    benchmark_status.reset()
-    
+@require_http_methods(["GET"])
+def api_upload_status(request):
+    """API endpoint to get upload status and instructions."""
     return JsonResponse({
-        "status": "reset",
-        "message": "Benchmark status has been reset to idle."
+        'status': 'ready',
+        'message': 'Upload endpoint is ready for SQL dumps',
+        'instructions': {
+            'format': 'ZIP file containing benchmark_dump.sql',
+            'max_size': '50MB',
+            'endpoint': '/api/upload-benchmark-results/',
+            'method': 'POST',
+            'content_type': 'multipart/form-data',
+            'export_command': 'python manage.py export_sql_dump --include-schedules'
+        }
     })
+
+
+def serve_vue_app(request):
+    """Serve the Vue.js frontend application."""
+    from django.shortcuts import render
+    from django.conf import settings
+    from django.http import HttpResponse
+    import os
+    
+    # Path to the built Vue.js index.html file
+    index_path = os.path.join(settings.BASE_DIR, 'dist', 'index.html')
+    
+    # Check if the built file exists
+    if os.path.exists(index_path):
+        with open(index_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Don't modify asset paths - let Django serve them from the dist directory
+        return HttpResponse(content, content_type='text/html')
+    else:
+        # Fallback: return a simple message if the built file doesn't exist
+        return HttpResponse(
+            '''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Shift Manager</title>
+                <style>
+                    body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                    .container { max-width: 600px; margin: 0 auto; }
+                    .error { color: #d32f2f; background: #ffebee; padding: 20px; border-radius: 5px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Shift Manager</h1>
+                    <div class="error">
+                        <h2>Frontend Not Built</h2>
+                        <p>The Vue.js frontend has not been built yet.</p>
+                        <p>Please run <code>npm run build</code> to build the application.</p>
+                    </div>
+                    <p><a href="/admin/">Django Admin</a></p>
+                </div>
+            </body>
+            </html>
+            ''',
+            content_type='text/html'
+        )

@@ -4,3 +4,7 @@ export
 db.sqlite3
 /node_modules/
 /dist/
+/.vite/
+/test_export/benchmark_export.zip
+/test_export/benchmark_export.json
+/benchmark_export/

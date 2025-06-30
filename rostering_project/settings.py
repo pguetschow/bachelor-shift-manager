@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import mimetypes
 
 # Build paths inside the project
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -8,7 +9,14 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production'
 
 DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'backend']
+ALLOWED_HOSTS = [
+    'localhost', 
+    '127.0.0.1', 
+    '0.0.0.0', 
+    'backend',
+    'bachelor-shift-manager-2c19b47af666.herokuapp.com',
+    '.herokuapp.com',  # Allow all herokuapp.com subdomains
+]
 
 # Application definition
 INSTALLED_APPS = [
@@ -19,6 +27,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rostering_app',
+    'scheduling_core',
     'corsheaders',
 ]
 
@@ -57,7 +66,7 @@ WSGI_APPLICATION = 'rostering_project.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'data' / 'db.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
 
@@ -87,6 +96,21 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'static'
+
+# Add the dist directory for Vue.js built files
+STATICFILES_DIRS = [
+    BASE_DIR / 'dist',
+]
+
+# Ensure static files are served in production
+STATICFILES_FINDERS = [
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+]
+
+# MIME type configuration for proper asset serving
+mimetypes.add_type("text/css", ".css", True)
+mimetypes.add_type("application/javascript", ".js", True)
 
 # CORS settings
 # For development, allow all localhost origins

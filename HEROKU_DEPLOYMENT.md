@@ -19,7 +19,7 @@ Add these secrets to your GitHub repository (Settings → Secrets and variables 
 - `HEROKU_API_KEY`: Your Heroku API key (Account Settings → API Key)
 - `HEROKU_APP_NAME`: Your Heroku app name
 
-### 3. Set Environment Variables
+### 3. Set Environment Variables (or via Github Secrets)
 
 ```bash
 heroku config:set SECRET_KEY=your-secret-key
@@ -38,7 +38,7 @@ Push to `main` or `master` branch to trigger automatic deployment.
 - `Dockerfile`: Multi-stage Docker build for Python + Node.js
 - `.dockerignore`: Optimizes Docker build context
 
-## Features
+## Features 
 
 - ✅ Docker-based deployment
 - ✅ Python 3.11 + Node.js 18

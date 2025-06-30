@@ -95,4 +95,23 @@ export const analyticsAPI = {
     if (algorithm) params.algorithm = algorithm
     return api.get(`/api/companies/${companyId}/employee-statistics/`, { params })
   }
+}
+
+export const uploadAPI = {
+  uploadBenchmarkResults: (formData) => {
+    return api.post('/api/upload-benchmark-results/', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+  },
+  getUploadStatus: () => api.get('/api/upload-status/')
+}
+
+// Main API service object
+export const apiService = {
+  ...companyAPI,
+  ...scheduleAPI,
+  ...analyticsAPI,
+  ...uploadAPI
 } 

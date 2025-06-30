@@ -39,5 +39,10 @@ export default [
     name: 'analytics',
     component: () => import('@/views/Analytics.vue'),
     meta: { requiresCompany: true }
+  },
+  {
+    path: '/upload-benchmark',
+    name: 'upload-benchmark',
+    component: () => import('@/views/UploadBenchmark.vue')
   }
 ] 

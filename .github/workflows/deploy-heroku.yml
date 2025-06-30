@@ -2,28 +2,54 @@ name: Deploy to Heroku
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+    environment: bachelor-shift-manager
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Build, Push and Release a Docker container to Heroku
-      uses: gonuit/heroku-docker-deploy@v1.3.3
-      with:
-        # Heroku credentials
-        email: ${{ secrets.HEROKU_EMAIL }}
-        heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
-        heroku_app_name: ${{ secrets.HEROKU_APP_NAME }}
-        
-        # Docker configuration
-        dockerfile_directory: ./
-        dockerfile_name: Dockerfile
-        docker_options: "--no-cache"
-        process_type: web 
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Heroku CLI
+        uses: ynab/heroku-cli-action@v1
+
+      - name: Authenticate Heroku CLI & Container Registry
+        shell: bash
+        run: |
+          cat <<EOF >> ~/.netrc
+          machine api.heroku.com
+            login ${{ secrets.HEROKU_EMAIL }}
+            password ${{ secrets.HEROKU_API_KEY }}
+          machine git.heroku.com
+            login ${{ secrets.HEROKU_EMAIL }}
+            password ${{ secrets.HEROKU_API_KEY }}
+          EOF
+
+          heroku container:login
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+
+      - name: Ensure Heroku uses the Container stack
+        shell: bash
+        run: |
+          echo "→ Setting Heroku stack to container (no-op if already set)"
+          heroku stack:set container --app ${{ secrets.HEROKU_APP_NAME }}
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+
+      - name: Build, Push and Release Docker container to Heroku
+        uses: gonuit/heroku-docker-deploy@v1.3.3
+        with:
+          email:                ${{ secrets.HEROKU_EMAIL }}
+          heroku_api_key:       ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name:      ${{ secrets.HEROKU_APP_NAME }}
+          dockerfile_directory: ./
+          dockerfile_name:      Dockerfile
+          docker_options:       "--no-cache"
+          process_type:         web
