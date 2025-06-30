@@ -15,6 +15,7 @@ RUN apt-get update \
         pkg-config \
         build-essential \
         default-libmysqlclient-dev \
+        default-mysql-client \
         python3.11-dev \
     && rm -rf /var/lib/apt/lists/*
 
