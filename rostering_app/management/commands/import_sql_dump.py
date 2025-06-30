@@ -35,7 +35,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        file_path = options['file']
+        file_path = str(options['file'])
         clear_existing = options['clear_existing']
         dry_run = options['dry_run']
         use_orm = options['use_orm']
