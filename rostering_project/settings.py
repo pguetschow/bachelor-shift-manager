@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import mimetypes
 import dj_database_url
+from urllib.parse import urlparse
 
 # Build paths inside the project
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -64,31 +65,35 @@ TEMPLATES = [
 WSGI_APPLICATION = 'rostering_project.wsgi.application'
 
 # Database (default is SQLite)
-if os.environ.get('DJANGO_PRODUCTION') or os.environ.get('HEROKU'):
-    DATABASES = {
-        'default': dj_database_url.config(
-            default=os.environ.get('DATABASE_URL', 'mysql://root:RShnuoQdI5LgBZK2QeENM7Ug0UC6WUSX@bi9r93.stackhero-network.com:7398/root')
-        )
+# if os.environ.get('DJANGO_PRODUCTION') or os.environ.get('HEROKU'):
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'HOST': 'bi9r93.stackhero-network.com',
+        'PORT': '7398',
+        'NAME': 'root',
+        'USER': 'root',
+        'PASSWORD': 'RShnuoQdI5LgBZK2QeENM7Ug0UC6WUSX',
+        'OPTIONS': {
+            'ssl_mode': 'REQUIRED',
+        },
     }
-    # If your managed DB requires SSL, set the ssl option here
-    DATABASES['default']['OPTIONS'] = {
-        'ssl': {}  # Add 'ca': '/path/to/ca.pem' if your provider requires a CA cert
-    }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.mysql',
-            'NAME': os.environ.get('MYSQL_DATABASE', 'shift_manager'),
-            'USER': os.environ.get('MYSQL_USER', 'shift_manager'),
-            'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'shift_manager_password'),
-            'HOST': os.environ.get('MYSQL_HOST', 'db'),
-            'PORT': os.environ.get('MYSQL_PORT', '3306'),
-            'OPTIONS': {
-                'charset': 'utf8mb4',
-                'init_command': "SET NAMES 'utf8mb4'",
-            },
-        }
-    }
+}
+# else:
+#     DATABASES = {
+#         'default': {
+#             'ENGINE': 'django.db.backends.mysql',
+#             'NAME': os.environ.get('MYSQL_DATABASE', 'shift_manager'),
+#             'USER': os.environ.get('MYSQL_USER', 'shift_manager'),
+#             'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'shift_manager_password'),
+#             'HOST': os.environ.get('MYSQL_HOST', 'db'),
+#             'PORT': os.environ.get('MYSQL_PORT', '3306'),
+#             'OPTIONS': {
+#                 'charset': 'utf8mb4',
+#                 'init_command': "SET NAMES 'utf8mb4'",
+#             },
+#         }
+#     }
 
 # Password validation (use default validators)
 AUTH_PASSWORD_VALIDATORS = [
