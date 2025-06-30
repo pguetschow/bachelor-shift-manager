@@ -11,6 +11,11 @@ services:
     environment:
       - DEBUG=False
       - DJANGO_SETTINGS_MODULE=rostering_project.settings
+      - MYSQL_DATABASE=shift_manager
+      - MYSQL_USER=shift_manager
+      - MYSQL_PASSWORD=shift_manager_password
+      - MYSQL_HOST=db
+      - MYSQL_PORT=3306
     volumes:
       - ./data:/app/data
       - ./static:/app/static
@@ -18,10 +23,9 @@ services:
       - "8000:8000"
     networks:
       - shift-manager-network
-    command: >
-      sh -c "python manage.py migrate &&
-             python manage.py collectstatic --noinput &&
-             python manage.py runserver 0.0.0.0:8000"
+    command: ["/wait-for-it.sh", "db", "--", "sh", "-c", "python manage.py migrate && python manage.py collectstatic --noinput && python manage.py runserver 0.0.0.0:8000"]
+    depends_on:
+      - db
 
   # Vue.js Frontend
   frontend:
@@ -37,26 +41,28 @@ services:
     networks:
       - shift-manager-network
 
-  # PostgreSQL Database (optional - can replace SQLite)
-  # Uncomment if you want to use PostgreSQL instead of SQLite
-  # db:
-  #   image: postgres:15-alpine
-  #   container_name: shift-manager-db
-  #   restart: unless-stopped
-  #   environment:
-  #     - POSTGRES_DB=shift_manager
-  #     - POSTGRES_USER=shift_manager
-  #     - POSTGRES_PASSWORD=shift_manager_password
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   ports:
-  #     - "5432:5432"
-  #   networks:
-  #     - shift-manager-network
+  # MySQL Database
+  db:
+    image: mysql:8.0
+    container_name: shift-manager-db
+    restart: unless-stopped
+    environment:
+      - MYSQL_DATABASE=shift_manager
+      - MYSQL_USER=shift_manager
+      - MYSQL_PASSWORD=shift_manager_password
+      - MYSQL_ROOT_PASSWORD=shift_manager_root
+      - MYSQL_CHARSET=utf8mb4
+      - MYSQL_COLLATION=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - shift-manager-network
 
 networks:
   shift-manager-network:
     driver: bridge
 
 volumes:
-  postgres_data: 
+  mysql_data: 
