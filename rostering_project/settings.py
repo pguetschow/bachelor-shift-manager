@@ -76,6 +76,8 @@ DATABASES = {
     'PORT': '7398',
     'OPTIONS': {
       'ssl_mode': 'REQUIRED',
+       'charset': 'utf8mb4',
+       'init_command': "SET NAMES 'utf8mb4'",
     },
     'NAME': 'scheduler',
     'USER': 'root',
