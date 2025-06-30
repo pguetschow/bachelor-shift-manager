@@ -8,3 +8,5 @@ db.sqlite3
 /test_export/benchmark_export.zip
 /test_export/benchmark_export.json
 /benchmark_export/
+/data/
+/data/

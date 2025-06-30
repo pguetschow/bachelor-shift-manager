@@ -3,7 +3,7 @@ import axios from 'axios'
 // Create axios instance with default configuration
 export const api = axios.create({
   baseURL: process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000',
-  timeout: 10000,
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
     'X-Requested-With': 'XMLHttpRequest'

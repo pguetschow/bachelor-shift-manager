@@ -42,6 +42,7 @@ class SchedulingProblem:
     shifts: List[Shift]
     start_date: date
     end_date: date
+    company: Optional[object] = None  # Add company as an optional attribute
     
     def __post_init__(self):
         """Create helper structures."""

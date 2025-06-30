@@ -5,6 +5,7 @@ import tempfile
 from django.core.management.base import BaseCommand
 from django.conf import settings
 from django.db import connection, transaction
+import sqlite3
 
 
 class Command(BaseCommand):
@@ -253,20 +254,17 @@ class Command(BaseCommand):
         return import_results
 
     def _clear_existing_data(self):
-        """Clear existing data from the database."""
-        self.stdout.write("Clearing existing data...")
-        
-        with connection.cursor() as cursor:
-            # Disable foreign key constraints for clearing
-            cursor.execute("PRAGMA foreign_keys=OFF")
-            
-            # Clear all data in the correct order (respecting foreign keys)
-            cursor.execute("DELETE FROM rostering_app_scheduleentry")
-            cursor.execute("DELETE FROM rostering_app_shift")
-            cursor.execute("DELETE FROM rostering_app_employee")
-            cursor.execute("DELETE FROM rostering_app_company")
-            
-            # Re-enable foreign key constraints
-            cursor.execute("PRAGMA foreign_keys=ON")
-        
-        self.stdout.write("Existing data cleared") 
+        """Drop all tables (for SQLite: delete the DB file and recreate it)."""
+        db_path = settings.DATABASES['default']['NAME']
+        self.stdout.write("Dropping all tables (resetting database file)...")
+        # Only safe for SQLite
+        if db_path.endswith('.sqlite3') or db_path.endswith('.db'):
+            if os.path.exists(db_path):
+                os.remove(db_path)
+            # Recreate empty DB file
+            conn = sqlite3.connect(db_path)
+            conn.close()
+            self.stdout.write("Database file reset. Ready for import.")
+        else:
+            # For other DBs, drop all tables (not implemented here)
+            raise NotImplementedError("Full drop is only implemented for SQLite. For other DBs, drop all tables manually.") 
