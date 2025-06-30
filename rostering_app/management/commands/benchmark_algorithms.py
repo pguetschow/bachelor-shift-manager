@@ -14,6 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
+from rostering_app.converters import employees_to_core, shifts_to_core
 
 # Import scheduling algorithms
 from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
@@ -315,35 +316,14 @@ class Command(BaseCommand):
 
     def _create_problem(self, company) -> SchedulingProblem:
         """Create scheduling problem from database."""
-        # Convert Django models to core data structures
-        employees = []
+        # Convert Django models to core data structures using converters
         company_employees = Employee.objects.filter(company=company)
         self.stdout.write(f"Found {company_employees.count()} employees for company {company.name}")
+        employees = employees_to_core(company_employees)
 
-        for emp in company_employees:
-            employees.append(CoreEmployee(
-                id=emp.id,
-                name=emp.name,
-                max_hours_per_week=emp.max_hours_per_week,
-                absence_dates={datetime.strptime(d, '%Y-%m-%d').date()
-                             for d in emp.absences},
-                preferred_shifts=emp.preferred_shifts
-            ))
-
-        shifts = []
         company_shifts = Shift.objects.filter(company=company)
         self.stdout.write(f"Found {company_shifts.count()} shifts for company {company.name}")
-
-        for shift in company_shifts:
-            shifts.append(CoreShift(
-                id=shift.id,
-                name=shift.name,
-                start=shift.start,
-                end=shift.end,
-                min_staff=shift.min_staff,
-                max_staff=shift.max_staff,
-                duration=shift.get_duration()
-            ))
+        shifts = shifts_to_core(company_shifts)
 
         return SchedulingProblem(
             employees=employees,

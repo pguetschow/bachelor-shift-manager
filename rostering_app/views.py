@@ -12,6 +12,13 @@ import os
 from django.core.management import call_command
 from django.conf import settings
 from io import StringIO
+from rostering_app.calculations import (
+    calculate_coverage_stats,
+    calculate_employee_hours_with_month_boundaries,
+    calculate_shift_hours_in_month,
+    calculate_shift_hours_in_date_range,
+    calculate_utilization_percentage
+)
 
 
 def load_company_fixtures(company):
@@ -50,89 +57,6 @@ def get_shift_status(count, min_staff, max_staff):
         return 'full'
     else:
         return 'ok'
-
-
-def calculate_coverage_stats(entries, start_date, end_date, company):
-    """Calculate coverage statistics for date range."""
-    stats = []
-    for shift in Shift.objects.filter(company=company):
-        shift_entries = entries.filter(shift=shift)
-        
-        # Only count working days for KPI calculations
-        working_days = get_working_days_in_range(start_date, end_date, company)
-        total_working_days = len(working_days)
-        
-        if total_working_days > 0:
-            avg_staff = shift_entries.count() / total_working_days if total_working_days > 0 else 0
-            # Calculate actual staffing percentage (how well staffed relative to max_staff)
-            coverage_percentage = round((avg_staff / shift.max_staff) * 100, 1) if shift.max_staff > 0 else 0
-            
-            stats.append({
-                'shift': {
-                    'id': shift.id,
-                    'name': shift.name,
-                    'start_time': shift.start.isoformat(),
-                    'end_time': shift.end.isoformat(),
-                    'min_staff': shift.min_staff,
-                    'max_staff': shift.max_staff
-                },
-                'coverage_percentage': coverage_percentage,
-                'avg_staff': round(avg_staff, 1),
-                'status': get_shift_status(avg_staff, shift.min_staff, shift.max_staff)
-            })
-    
-    return stats
-
-
-def calculate_employee_hours_with_month_boundaries(entries, month_start_date, month_end_date):
-    """Calculate total hours per employee, properly handling night shifts that overlap months."""
-    hours = {}
-    
-    for entry in entries:
-        emp_id = entry.employee.id
-        shift = entry.shift
-        shift_date = entry.date
-        
-        # Calculate the actual hours for this shift within the specified month
-        actual_hours = calculate_shift_hours_in_month(shift, shift_date, month_start_date, month_end_date)
-        
-        hours[emp_id] = hours.get(emp_id, 0) + actual_hours
-    
-    return hours
-
-
-def calculate_shift_hours_in_date_range(shift, shift_date, start_date, end_date):
-    """Calculate how many hours of a shift fall within the specified date range."""
-    from datetime import datetime, timedelta
-    
-    # Create datetime objects for shift start and end
-    shift_start_dt = datetime.combine(shift_date, shift.start)
-    shift_end_dt = datetime.combine(shift_date, shift.end)
-    
-    # If it's a night shift (end time < start time), the end is on the next day
-    if shift.end < shift.start:
-        shift_end_dt += timedelta(days=1)
-    
-    # Create datetime objects for date range boundaries
-    range_start_dt = datetime.combine(start_date, datetime.min.time())
-    range_end_dt = datetime.combine(end_date, datetime.max.time())
-    
-    # Calculate the overlap between the shift and the date range
-    effective_start = max(shift_start_dt, range_start_dt)
-    effective_end = min(shift_end_dt, range_end_dt)
-    
-    # If there's no overlap, return 0 hours
-    if effective_end <= effective_start:
-        return 0
-    
-    # Calculate the hours within the date range
-    duration_seconds = (effective_end - effective_start).total_seconds()
-    return duration_seconds / 3600
-
-
-def calculate_shift_hours_in_month(shift, shift_date, month_start_date, month_end_date):
-    """Calculate how many hours of a shift fall within the specified month."""
-    return calculate_shift_hours_in_date_range(shift, shift_date, month_start_date, month_end_date)
 
 
 def build_employee_calendar(year, month, entries, absences):
@@ -524,7 +448,7 @@ def api_company_employee_schedule(request, company_id, employee_id):
     
     # Calculate max monthly hours using the new function
     max_monthly_hours = monthly_hours(year, month, employee.max_hours_per_week, company)
-    utilization_percentage = (total_hours / max_monthly_hours * 100) if max_monthly_hours > 0 else 0
+    utilization_percentage = calculate_utilization_percentage(total_hours, max_monthly_hours)
     
     return JsonResponse({
         'employee': {
@@ -597,7 +521,7 @@ def api_company_employee_yearly_schedule(request, company_id, employee_id):
         month_possible_hours = monthly_hours(year, month, employee.max_hours_per_week, company)
         total_possible_yearly_hours += month_possible_hours
     
-    yearly_utilization = (total_hours / total_possible_yearly_hours * 100) if total_possible_yearly_hours > 0 else 0
+    yearly_utilization = calculate_utilization_percentage(total_hours, total_possible_yearly_hours)
     
     return JsonResponse({
         'employee': {
@@ -688,9 +612,8 @@ def api_company_employee_statistics(request, company_id):
         absence_days = total_working_days - monthly_shifts
         
         # Calculate utilization percentages
-        monthly_utilization = (monthly_hours_worked / possible_monthly_hours * 100) if possible_monthly_hours > 0 else 0
-        yearly_utilization = (
-                    yearly_hours / (employee.max_hours_per_week * 52) * 100) if employee.max_hours_per_week > 0 else 0
+        monthly_utilization = calculate_utilization_percentage(monthly_hours_worked, possible_monthly_hours)
+        yearly_utilization = calculate_utilization_percentage(yearly_hours, employee.max_hours_per_week * 52)
         
         employees_data.append({
             'id': employee.id,

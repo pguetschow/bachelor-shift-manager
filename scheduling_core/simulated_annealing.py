@@ -1,7 +1,6 @@
-"""Improved simulated annealing scheduler with aggressive coverage."""
 import random
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from datetime import timedelta, datetime
 from enum import Enum
 from collections import defaultdict
@@ -12,7 +11,8 @@ from .utils import (
     create_empty_solution,
 )
 
-from rostering_app.utils import ( is_non_working_day, get_working_days_in_range)
+from rostering_app.utils import (is_non_working_day, get_working_days_in_range)
+from rostering_app.calculations import calculate_utilization_percentage
 
 
 class CoolingSchedule(Enum):
@@ -23,7 +23,7 @@ class CoolingSchedule(Enum):
 
 
 class SimulatedAnnealingScheduler(SchedulingAlgorithm):
-    """Improved SA with focus on high coverage and utilization."""
+    """ SA with focus on high coverage and utilization."""
 
     def __init__(self, initial_temp=1000, final_temp=1, max_iterations=2000,
                  cooling_schedule=CoolingSchedule.EXPONENTIAL, sundays_off=False):
@@ -79,9 +79,9 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         return pause < 11
 
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
-        """Solve using improved simulated annealing."""
+        """Solve using simulated annealing with proper constraints."""
         self.problem = problem
-        self.company = problem.company  # Set company from problem
+        self.company = problem.company
         self.weeks = get_weeks(problem.start_date, problem.end_date)
 
         # Get working days using utils
@@ -93,10 +93,10 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         print(f"[SA] Schedule period: {problem.start_date} to {problem.end_date}")
         print(f"[SA] Total days: {self.total_days}, Working days: {len(self.working_days)}")
 
-        # Calculate employee capacities for the actual period
+        # Calculate employee capacities
         self._calculate_employee_capacities()
 
-        # Create aggressive initial solution
+        # Create initial solution
         current_solution = self._create_aggressive_initial_solution()
         current_cost = self._evaluate_aggressive(current_solution)
         current_solution.cost = current_cost
@@ -107,13 +107,13 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         # Initialize temperature
         temperature = self.initial_temp
 
-        # Track improvement metrics
+        # Track improvement
         no_improvement_count = 0
-        last_best_cost = best_cost
+        last_improvement_iteration = 0
 
         # Annealing process
         for iteration in range(self.max_iterations):
-            # Get neighbor with bias toward coverage improvement
+            # Get neighbor
             neighbor = self._get_coverage_focused_neighbor(current_solution)
             neighbor_cost = self._evaluate_aggressive(neighbor)
 
@@ -128,32 +128,36 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                     best_solution = current_solution.copy()
                     best_cost = current_cost
                     no_improvement_count = 0
+                    last_improvement_iteration = iteration
                 else:
                     no_improvement_count += 1
 
             # Cool down
             temperature = self._update_temperature(iteration, temperature)
 
-            # Early termination conditions
+            # Early termination
             if temperature < self.final_temp:
                 break
 
-            # If no improvement for many iterations, try restart
-            if no_improvement_count > 200:
+            # Restart if stuck
+            if no_improvement_count > 300:
                 current_solution = self._create_aggressive_initial_solution()
                 current_cost = self._evaluate_aggressive(current_solution)
                 no_improvement_count = 0
-                temperature = self.initial_temp * 0.5  # Restart with lower temp
+                temperature = self.initial_temp * 0.3
 
-            # Print progress
+            # Progress reporting
             if iteration % 100 == 0:
                 coverage_rate = self._calculate_coverage_rate(best_solution)
                 utilization_rate = self._calculate_utilization_rate(best_solution)
                 print(f"[SA] Iter {iteration}: Cost={best_cost:.0f}, Coverage={coverage_rate:.1%}, "
                       f"Utilization={utilization_rate:.1%}, Temp={temperature:.1f}")
 
-        # Final optimization pass - greedy fill remaining capacity
+        # Final optimization
         self._greedy_fill_gaps(best_solution)
+
+        # Validate solution doesn't exceed max_staff
+        self._validate_and_fix_overstaffing(best_solution)
 
         return best_solution.to_entries()
 
@@ -162,26 +166,20 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         self.employee_capacity = {}
 
         for emp in self.problem.employees:
-            # Get working days for this employee (excluding their absences)
             working_days = 0
-
             for work_date in self.working_days:
                 if work_date not in emp.absence_dates:
                     working_days += 1
 
-            # Calculate capacity based on actual working days
-            # Assuming daily hours = max_hours_per_week / working_days_per_week
             days_per_week = 6 if self.sundays_off else 7
             daily_hours = emp.max_hours_per_week / days_per_week
-
-            # Total capacity = working days * daily hours
             self.employee_capacity[emp.id] = working_days * daily_hours
 
     def _create_aggressive_initial_solution(self) -> Solution:
-        """Create initial solution with very aggressive staffing (90-100% of max)."""
+        """Create initial solution with aggressive but valid staffing."""
         solution = create_empty_solution(self.problem)
 
-        # Pre-calculate daily availability using working days only
+        # Pre-calculate daily availability
         daily_availability = {}
         for date in self.working_days:
             available = []
@@ -191,49 +189,49 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
             daily_availability[date] = available
 
         # Track weekly hours
-        weekly_hours = {emp.id: {week_key: 0 for week_key in self.weeks.keys()}
-                       for emp in self.problem.employees}
+        weekly_hours = defaultdict(lambda: defaultdict(float))
 
-        # First pass: Fill shifts to 100% capacity where possible
+        # Assign employees
         for date in self.working_days:
             week_key = date.isocalendar()[:2]
 
-            # Sort shifts by duration (longer shifts first for better utilization)
+            # Sort shifts by duration (longer first)
             sorted_shifts = sorted(self.problem.shifts, key=lambda s: s.duration, reverse=True)
 
             for shift in sorted_shifts:
                 key = (date, shift.id)
 
-                # Get all candidates with capacity
+                # Get candidates
                 candidates = []
                 for eid in daily_availability[date]:
                     emp = self.problem.emp_by_id[eid]
                     current_weekly = weekly_hours[eid][week_key]
 
-                    # Check if employee is already assigned today
-                    already_assigned = False
-                    for other_shift in self.problem.shifts:
-                        if eid in solution.assignments.get((date, other_shift.id), []):
-                            already_assigned = True
-                            break
+                    # Check if already assigned today
+                    already_assigned = any(
+                        eid in solution.assignments.get((date, s.id), [])
+                        for s in self.problem.shifts
+                    )
 
                     if (not already_assigned and
                         current_weekly + shift.duration <= emp.max_hours_per_week):
-                        # Score based on remaining capacity and preference
                         remaining_capacity = emp.max_hours_per_week - current_weekly
                         preference_bonus = 10 if shift.name in emp.preferred_shifts else 0
                         score = remaining_capacity + preference_bonus
                         candidates.append((eid, score))
 
-                # Sort by score (higher is better)
+                # Sort by score
                 candidates.sort(key=lambda x: x[1], reverse=True)
 
-                # Aggressively assign: aim for 95-100% of max_staff
-                target = max(shift.min_staff, int(shift.max_staff * (0.95 + random.random() * 0.05)))
-                assign_count = min(target, len(candidates))
+                # Assign up to max_staff (FIXED: ensure we don't exceed)
+                target = min(
+                    shift.max_staff,  # Never exceed max_staff
+                    max(shift.min_staff, int(shift.max_staff * 0.9)),  # Aim for 90% but respect max
+                    len(candidates)  # Can't assign more than available
+                )
 
-                if assign_count > 0:
-                    selected = [c[0] for c in candidates[:assign_count]]
+                if target > 0:
+                    selected = [c[0] for c in candidates[:target]]
                     solution.assignments[key] = selected
 
                     # Update weekly hours
@@ -245,81 +243,68 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         return solution
 
     def _evaluate_aggressive(self, solution: Solution) -> float:
-        """Aggressive evaluation function prioritizing coverage and utilization."""
+        """Evaluation function."""
         penalty = 0
 
-        # Adjusted weights for aggressive coverage
-        w_understaff = 10_000_000  # Extreme penalty for understaffing
-        w_overstaff = 1_000_000    # High penalty for overstaffing
-        w_weekly_hours = 100_000   # Penalty for exceeding weekly hours
-        w_rest_period = 100_000    # Penalty for rest violations
-        w_coverage_bonus = -1_000  # Strong bonus per staffed position
-        w_full_coverage = -5_000   # Extra bonus for 100% coverage
-        w_utilization = -2_000     # Strong bonus for high utilization
-        w_preference = -100        # Bonus for preferences
+        # Weights
+        w_understaff = 10_000_000
+        w_overstaff = 1_000_000
+        w_weekly_hours = 100_000
+        w_rest_period = 100_000
+        w_coverage_bonus = -1_000
+        w_full_coverage = -5_000
+        w_utilization = -2_000
+        w_preference = -100
 
         # Track metrics
         total_positions = 0
         filled_positions = 0
         shifts_at_max = 0
-        total_shifts = 0
 
-        # 1. Staffing constraints and coverage
+        # 1. Staffing constraints
         for current in self.working_days:
             for shift in self.problem.shifts:
                 assigned = solution.assignments.get((current, shift.id), [])
                 count = len(assigned)
-                total_shifts += 1
 
-                # Track positions
                 total_positions += shift.max_staff
                 filled_positions += min(count, shift.max_staff)
 
                 if count < shift.min_staff:
-                    # Severe penalty for understaffing
                     penalty += (shift.min_staff - count) * w_understaff
                 elif count > shift.max_staff:
-                    # Penalty for overstaffing
                     penalty += (count - shift.max_staff) * w_overstaff
                 else:
-                    # Bonus for each filled position
                     penalty += count * w_coverage_bonus
-
-                    # Extra bonus for reaching max capacity
                     if count == shift.max_staff:
                         penalty += w_full_coverage
                         shifts_at_max += 1
 
-        # 2. One shift per day constraint
+        # 2. One shift per day
         self._check_one_shift_per_day(solution, penalty, w_overstaff)
 
-        # 3. Weekly hours constraints
-        weekly_violations = self._check_weekly_hours(solution, penalty, w_weekly_hours)
+        # 3. Weekly hours
+        self._check_weekly_hours(solution, penalty, w_weekly_hours)
 
-        # 4. Rest period violations
-        rest_violations = self._check_rest_periods(solution, penalty, w_rest_period)
+        # 4. Rest periods
+        self._check_rest_periods(solution, penalty, w_rest_period)
 
-        # 5. Employee utilization bonus
+        # 5. Utilization
         emp_hours = self._calculate_employee_hours(solution)
-
         for emp in self.problem.employees:
             worked_hours = emp_hours.get(emp.id, 0)
             capacity = self.employee_capacity[emp.id]
 
             if capacity > 0:
                 utilization = worked_hours / capacity
-
-                # Strong bonus for 85-95% utilization
                 if 0.85 <= utilization <= 0.95:
                     penalty += w_utilization * utilization
                 elif utilization > 0.95:
-                    # Small penalty for slight overutilization
                     penalty += (utilization - 0.95) * 1000
                 else:
-                    # Penalty for underutilization (scaled by how far below 85%)
                     penalty += (0.85 - utilization) * abs(w_utilization) * 2
 
-        # 6. Preference bonus
+        # 6. Preferences
         for (date, shift_id), emp_ids in solution.assignments.items():
             shift = self.problem.shift_by_id[shift_id]
             for emp_id in emp_ids:
@@ -344,17 +329,16 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
 
             current += timedelta(days=1)
 
-    def _check_weekly_hours(self, solution: Solution, penalty: float, weight: float) -> int:
+    def _check_weekly_hours(self, solution: Solution, penalty: float, weight: float) -> float:
         """Check weekly hours constraints."""
-        violations = 0
+        violations = 0.0
         for emp in self.problem.employees:
             for week_key, week_dates in self.weeks.items():
-                weekly_hours = 0
+                weekly_hours = 0.0
                 for date in week_dates:
                     for shift in self.problem.shifts:
                         if emp.id in solution.assignments.get((date, shift.id), []):
                             weekly_hours += shift.duration
-
                 if weekly_hours > emp.max_hours_per_week:
                     violation = weekly_hours - emp.max_hours_per_week
                     penalty += violation * weight
@@ -388,9 +372,9 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
 
         return violations
 
-    def _calculate_employee_hours(self, solution: Solution) -> dict:
+    def _calculate_employee_hours(self, solution: Solution) -> Dict[int, float]:
         """Calculate total hours worked by each employee."""
-        emp_hours = defaultdict(float)
+        emp_hours: Dict[int, float] = defaultdict(float)
         for (date, shift_id), emp_ids in solution.assignments.items():
             shift = self.problem.shift_by_id[shift_id]
             for emp_id in emp_ids:
@@ -398,47 +382,41 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         return emp_hours
 
     def _calculate_coverage_rate(self, solution: Solution) -> float:
-        """Calculate overall coverage rate (filled/max positions)."""
+        """Calculate overall coverage rate."""
         total_positions = 0
         filled_positions = 0
-
         for current in self.working_days:
             for shift in self.problem.shifts:
                 assigned = len(solution.assignments.get((current, shift.id), []))
                 total_positions += shift.max_staff
                 filled_positions += min(assigned, shift.max_staff)
-
         return filled_positions / total_positions if total_positions > 0 else 0
 
     def _calculate_utilization_rate(self, solution: Solution) -> float:
         """Calculate average employee utilization rate."""
         emp_hours = self._calculate_employee_hours(solution)
-
         total_utilization = 0
         count = 0
-
         for emp in self.problem.employees:
             worked = emp_hours.get(emp.id, 0)
             capacity = self.employee_capacity[emp.id]
-
+            utilization = calculate_utilization_percentage(worked, capacity)
             if capacity > 0:
-                utilization = worked / capacity
-                total_utilization += utilization
+                total_utilization += utilization / 100.0
                 count += 1
-
         return total_utilization / count if count > 0 else 0
 
     def _get_coverage_focused_neighbor(self, solution: Solution) -> Solution:
         """Generate neighbor with focus on improving coverage."""
         neighbor = solution.copy()
 
-        # Weighted operations focusing on coverage improvement
+        # Operations with weights
         operations = [
-            'fill_gaps',           # Fill understaffed shifts
-            'maximize_shift',      # Bring shifts to max capacity
-            'redistribute',        # Move from overstaffed to understaffed
-            'swap_for_coverage',   # Swap to improve coverage
-            'utilization_boost'    # Increase underutilized employees
+            'fill_gaps',
+            'maximize_shift',
+            'redistribute',
+            'swap_for_coverage',
+            'utilization_boost'
         ]
         weights = [0.35, 0.25, 0.20, 0.10, 0.10]
 
@@ -458,8 +436,7 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         return neighbor
 
     def _fill_understaffed_shifts(self, solution: Solution):
-        """Focus on filling shifts that are below capacity."""
-        # Find all understaffed shifts
+        """Fill shifts that are below capacity - FIXED to respect max_staff."""
         understaffed = []
 
         for (date, shift_id), assigned in solution.assignments.items():
@@ -467,18 +444,23 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 shift = self.problem.shift_by_id[shift_id]
                 if len(assigned) < shift.max_staff:
                     gap = shift.max_staff - len(assigned)
-                    understaffed.append(((date, shift_id), gap))
+                    understaffed.append(((date, shift_id), gap, len(assigned)))
 
         if not understaffed:
             return
 
-        # Sort by gap size (bigger gaps first)
-        understaffed.sort(key=lambda x: x[1], reverse=True)
+        # Sort by current staffing level (fill emptiest first)
+        understaffed.sort(key=lambda x: x[2])
 
         # Try to fill the most understaffed shift
-        (date, shift_id), gap = understaffed[0]
+        (date, shift_id), gap, current_count = understaffed[0]
         shift = self.problem.shift_by_id[shift_id]
         assigned = solution.assignments[(date, shift_id)]
+
+        # Double-check we don't exceed max_staff
+        actual_gap = shift.max_staff - len(assigned)
+        if actual_gap <= 0:
+            return
 
         # Find available employees
         week_key = date.isocalendar()[:2]
@@ -489,12 +471,10 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 date not in emp.absence_dates):
 
                 # Check no other shift that day
-                has_shift = False
-                for other_shift in self.problem.shifts:
-                    if other_shift.id != shift_id:
-                        if emp.id in solution.assignments.get((date, other_shift.id), []):
-                            has_shift = True
-                            break
+                has_shift = any(
+                    emp.id in solution.assignments.get((date, s.id), [])
+                    for s in self.problem.shifts if s.id != shift_id
+                )
 
                 if not has_shift:
                     # Check weekly capacity
@@ -502,15 +482,18 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                     if weekly_hours + shift.duration <= emp.max_hours_per_week:
                         candidates.append(emp.id)
 
-        # Add as many as possible
+        # Add employees - ENSURE we don't exceed max_staff
         if candidates:
-            add_count = min(gap, len(candidates))
+            add_count = min(actual_gap, len(candidates))
             selected = random.sample(candidates, add_count)
-            assigned.extend(selected)
+
+            # Final safety check
+            new_total = len(assigned) + len(selected)
+            if new_total <= shift.max_staff:
+                assigned.extend(selected)
 
     def _maximize_random_shift(self, solution: Solution):
-        """Pick a random shift and try to bring it to max capacity."""
-        # Only consider shifts on working days
+        """Bring a random shift to max capacity - FIXED."""
         working_keys = [(d, s) for (d, s) in solution.assignments.keys() if d in self.working_days]
         if not working_keys:
             return
@@ -520,10 +503,14 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         shift = self.problem.shift_by_id[shift_id]
         assigned = solution.assignments[key]
 
-        if len(assigned) >= shift.max_staff:
+        # Check current staffing
+        current_count = len(assigned)
+        if current_count >= shift.max_staff:
             return
 
-        # Try to fill to max
+        # Calculate actual gap
+        gap = shift.max_staff - current_count
+
         week_key = date.isocalendar()[:2]
         candidates = []
 
@@ -531,7 +518,6 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
             if (emp.id not in assigned and
                 date not in emp.absence_dates):
 
-                # Check constraints
                 has_shift = any(
                     emp.id in solution.assignments.get((date, s.id), [])
                     for s in self.problem.shifts if s.id != shift_id
@@ -540,7 +526,6 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 if not has_shift:
                     weekly_hours = self._get_employee_weekly_hours(solution, emp.id, week_key)
                     if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                        # Prefer employees with lower utilization
                         worked = sum(
                             s.duration for (d, sid), emps in solution.assignments.items()
                             if emp.id in emps for s in [self.problem.shift_by_id[sid]]
@@ -552,9 +537,14 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         if candidates:
             # Sort by utilization (lower first)
             candidates.sort(key=lambda x: x[1])
-            need = shift.max_staff - len(assigned)
-            selected = [c[0] for c in candidates[:need]]
-            assigned.extend(selected)
+
+            # Add up to the gap
+            add_count = min(gap, len(candidates))
+            selected = [c[0] for c in candidates[:add_count]]
+
+            # Final check
+            if len(assigned) + len(selected) <= shift.max_staff:
+                assigned.extend(selected)
 
     def _redistribute_staff(self, solution: Solution):
         """Move staff from overstaffed to understaffed shifts."""
@@ -571,34 +561,38 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         if not overstaffed or not understaffed:
             return
 
-        # Try to move someone
+        # Move from overstaffed
         source_key = random.choice(overstaffed)
         source_date, source_shift_id = source_key
         source_assigned = solution.assignments[source_key]
+        source_shift = self.problem.shift_by_id[source_shift_id]
 
-        if not source_assigned:
-            return
+        # Remove excess employees first
+        while len(source_assigned) > source_shift.max_staff:
+            source_assigned.pop()
 
-        emp_id = random.choice(source_assigned)
-        emp = self.problem.emp_by_id[emp_id]
+        # Now try to redistribute if still have employees
+        if source_assigned:
+            emp_id = random.choice(source_assigned)
+            emp = self.problem.emp_by_id[emp_id]
 
-        # Find compatible target
-        random.shuffle(understaffed)
-        for target_key in understaffed:
-            target_date, target_shift_id = target_key
-            target_shift = self.problem.shift_by_id[target_shift_id]
-
-            # Check if same day (can just reassign)
-            if target_date == source_date:
+            # Find compatible target
+            random.shuffle(understaffed)
+            for target_key in understaffed:
+                target_date, target_shift_id = target_key
+                target_shift = self.problem.shift_by_id[target_shift_id]
                 target_assigned = solution.assignments[target_key]
-                if emp_id not in target_assigned:
+
+                # Check if can move
+                if (target_date == source_date and
+                    emp_id not in target_assigned and
+                    len(target_assigned) < target_shift.max_staff):
                     source_assigned.remove(emp_id)
                     target_assigned.append(emp_id)
                     return
 
     def _swap_for_better_coverage(self, solution: Solution):
-        """Swap employees to improve overall coverage."""
-        # Find a shift below max and one at/above min
+        """Swap employees to improve coverage."""
         below_max = []
         at_min_or_above = []
 
@@ -607,13 +601,12 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 shift = self.problem.shift_by_id[shift_id]
                 if len(assigned) < shift.max_staff:
                     below_max.append((date, shift_id))
-                if len(assigned) >= shift.min_staff:
+                if shift.min_staff < len(assigned) <= shift.max_staff:
                     at_min_or_above.append((date, shift_id))
 
         if not below_max or not at_min_or_above:
             return
 
-        # Try swapping
         target_key = random.choice(below_max)
         source_key = random.choice(at_min_or_above)
 
@@ -622,14 +615,15 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
 
         target_date, target_shift_id = target_key
         source_date, source_shift_id = source_key
+        target_shift = self.problem.shift_by_id[target_shift_id]
 
         source_assigned = solution.assignments[source_key]
         target_assigned = solution.assignments[target_key]
 
-        if not source_assigned:
+        if not source_assigned or len(target_assigned) >= target_shift.max_staff:
             return
 
-        # Find employee from source who can work target
+        # Find employee to move
         for emp_id in source_assigned:
             emp = self.problem.emp_by_id[emp_id]
 
@@ -637,53 +631,51 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 target_date in self.working_days and
                 emp_id not in target_assigned):
 
-                # Check constraints
                 has_other_shift = any(
                     emp_id in solution.assignments.get((target_date, s.id), [])
                     for s in self.problem.shifts if s.id != target_shift_id
                 )
 
                 if not has_other_shift:
-                    # Make the move
                     source_assigned.remove(emp_id)
                     target_assigned.append(emp_id)
                     return
 
     def _boost_underutilized_employee(self, solution: Solution):
-        """Find underutilized employee and assign more shifts."""
+        """Assign more shifts to underutilized employees - FIXED."""
         emp_hours = self._calculate_employee_hours(solution)
 
-        # Find most underutilized employee
+        # Find underutilized employees
         underutilized = []
         for emp in self.problem.employees:
             worked = emp_hours.get(emp.id, 0)
             capacity = self.employee_capacity[emp.id]
             if capacity > 0:
                 utilization = worked / capacity
-                if utilization < 0.8:  # Below 80%
+                if utilization < 0.8:
                     underutilized.append((emp.id, utilization))
 
         if not underutilized:
             return
 
-        # Sort by utilization (lowest first)
+        # Sort by utilization
         underutilized.sort(key=lambda x: x[1])
         emp_id, _ = underutilized[0]
         emp = self.problem.emp_by_id[emp_id]
 
-        # Find shifts where this employee can be added
+        # Find shifts where employee can be added
         additions = 0
-        max_additions = 3  # Limit changes per operation
+        max_additions = 3
 
         for (date, shift_id), assigned in solution.assignments.items():
             if date in self.working_days:
                 shift = self.problem.shift_by_id[shift_id]
 
+                # Check if can add
                 if (emp_id not in assigned and
-                    len(assigned) < shift.max_staff and
+                    len(assigned) < shift.max_staff and  # FIXED: check max_staff
                     date not in emp.absence_dates):
 
-                    # Check constraints
                     has_shift = any(
                         emp_id in solution.assignments.get((date, s.id), [])
                         for s in self.problem.shifts
@@ -700,9 +692,9 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                             if additions >= max_additions:
                                 return
 
-    def _get_employee_weekly_hours(self, solution: Solution, emp_id: str, week_key: Tuple) -> float:
+    def _get_employee_weekly_hours(self, solution: Solution, emp_id: int, week_key: tuple) -> float:
         """Get total hours for employee in a specific week."""
-        hours = 0
+        hours = 0.0
         for date in self.weeks.get(week_key, []):
             for shift in self.problem.shifts:
                 if emp_id in solution.assignments.get((date, shift.id), []):
@@ -710,68 +702,106 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         return hours
 
     def _greedy_fill_gaps(self, solution: Solution):
-        """Final greedy pass to fill any remaining gaps."""
+        """Final greedy pass - FIXED to respect max_staff."""
         improvements = 0
 
         for (date, shift_id), assigned in solution.assignments.items():
+            if date not in self.working_days:
+                continue
+
             shift = self.problem.shift_by_id[shift_id]
+            current_count = len(assigned)
 
-            if len(assigned) < shift.max_staff:
-                week_key = date.isocalendar()[:2]
+            # Skip if already at max
+            if current_count >= shift.max_staff:
+                continue
 
-                # Find all eligible employees
-                candidates = []
-                for emp in self.problem.employees:
-                    if (emp.id not in assigned and
-                        date not in emp.absence_dates and
-                        not self._is_non_working_day(date)):
+            gap = shift.max_staff - current_count
+            week_key = date.isocalendar()[:2]
 
-                        # Check constraints
-                        has_shift = any(
-                            emp.id in solution.assignments.get((date, s.id), [])
-                            for s in self.problem.shifts
-                        )
+            # Find eligible employees
+            candidates = []
+            for emp in self.problem.employees:
+                if (emp.id not in assigned and
+                    date not in emp.absence_dates):
 
-                        if not has_shift:
-                            weekly_hours = self._get_employee_weekly_hours(solution, emp.id, week_key)
-                            if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                                worked = sum(
-                                    s.duration for (d, sid), emps in solution.assignments.items()
-                                    if emp.id in emps for s in [self.problem.shift_by_id[sid]]
-                                )
-                                capacity = self.employee_capacity[emp.id]
-                                utilization = worked / capacity if capacity > 0 else 1
+                    has_shift = any(
+                        emp.id in solution.assignments.get((date, s.id), [])
+                        for s in self.problem.shifts
+                    )
 
-                                # Prioritize underutilized employees
-                                if utilization < 0.95:
-                                    candidates.append((emp.id, utilization))
+                    if not has_shift:
+                        weekly_hours = self._get_employee_weekly_hours(solution, emp.id, week_key)
+                        if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                            worked = sum(
+                                s.duration for (d, sid), emps in solution.assignments.items()
+                                if emp.id in emps for s in [self.problem.shift_by_id[sid]]
+                            )
+                            capacity = self.employee_capacity[emp.id]
+                            utilization = worked / capacity if capacity > 0 else 1
 
-                if candidates:
-                    # Sort by utilization (lowest first)
-                    candidates.sort(key=lambda x: x[1])
-                    need = shift.max_staff - len(assigned)
+                            if utilization < 0.95:
+                                candidates.append((emp.id, utilization))
 
-                    for emp_id, _ in candidates[:need]:
+            if candidates:
+                # Sort by utilization
+                candidates.sort(key=lambda x: x[1])
+
+                # Add up to gap
+                for emp_id, _ in candidates[:gap]:
+                    # Final safety check
+                    if len(assigned) < shift.max_staff:
                         assigned.append(emp_id)
                         improvements += 1
 
         if improvements > 0:
             print(f"[SA] Greedy fill added {improvements} assignments")
 
+    def _validate_and_fix_overstaffing(self, solution: Solution):
+        """Final validation to ensure no shift exceeds max_staff."""
+        fixes = 0
+
+        for (date, shift_id), assigned in solution.assignments.items():
+            shift = self.problem.shift_by_id[shift_id]
+
+            # Remove excess employees
+            while len(assigned) > shift.max_staff:
+                # Remove employee with highest utilization (they likely have other shifts)
+                emp_hours = self._calculate_employee_hours(solution)
+
+                # Find employee with highest hours among assigned
+                max_hours = -1
+                remove_emp = None
+                for emp_id in assigned:
+                    hours = emp_hours.get(emp_id, 0)
+                    if hours > max_hours:
+                        max_hours = hours
+                        remove_emp = emp_id
+
+                if remove_emp:
+                    assigned.remove(remove_emp)
+                    fixes += 1
+                else:
+                    # Fallback: remove random
+                    assigned.pop()
+                    fixes += 1
+
+        if fixes > 0:
+            print(f"[SA] Fixed {fixes} overstaffing violations")
+
     def _update_temperature(self, iteration: int, current_temp: float) -> float:
         """Update temperature with adaptive cooling."""
         progress = iteration / self.max_iterations
 
         if self.cooling_schedule == CoolingSchedule.EXPONENTIAL:
-            # Slower cooling for better exploration
             base_temp = self.initial_temp * (self.final_temp / self.initial_temp) ** progress
-            # Adaptive factor based on progress
+            # Adaptive factor
             if progress < 0.3:
-                return base_temp  # Full exploration early
+                return base_temp
             elif progress < 0.7:
-                return base_temp * 0.7  # Moderate cooling
+                return base_temp * 0.7
             else:
-                return base_temp * 0.3  # Aggressive cooling late
+                return base_temp * 0.3
 
         elif self.cooling_schedule == CoolingSchedule.LINEAR:
             return self.initial_temp - (self.initial_temp - self.final_temp) * progress
