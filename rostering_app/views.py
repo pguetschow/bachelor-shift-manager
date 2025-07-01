@@ -19,6 +19,10 @@ from rostering_app.calculations import (
     calculate_shift_hours_in_date_range,
     calculate_utilization_percentage
 )
+from django.views.decorators.cache import cache_page
+from django.utils.decorators import method_decorator
+import time
+from statistics import mean, stdev
 
 
 def load_company_fixtures(company):
@@ -154,6 +158,7 @@ def api_company_algorithms(request, company_id):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+@cache_page(60 * 5)  # Cache for 5 minutes
 def api_company_schedule(request, company_id):
     """API endpoint to get schedule data for a company."""
     company = get_object_or_404(Company, pk=company_id)
@@ -168,7 +173,7 @@ def api_company_schedule(request, company_id):
     first_day = datetime.date(year, month, 1)
     last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
     
-    # Get schedule entries
+    # Get schedule entries with related objects
     entry_filter = {
         'company': company,
         'date__gte': first_day,
@@ -177,12 +182,17 @@ def api_company_schedule(request, company_id):
     if algorithm:
         entry_filter['algorithm'] = algorithm
     
-    entries = ScheduleEntry.objects.filter(**entry_filter)
+    entries = ScheduleEntry.objects.filter(**entry_filter).select_related('shift', 'employee')
     
     # Calculate statistics
     coverage_stats = calculate_coverage_stats(entries, first_day, last_day, company)
     employee_hours = calculate_employee_hours_with_month_boundaries(entries, first_day, last_day)
     top_employees = sorted(employee_hours.items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    # Batch fetch top employee names
+    top_employee_ids = [emp_id for emp_id, _ in top_employees]
+    employee_objs = Employee.objects.filter(id__in=top_employee_ids)
+    employee_id_to_name = {e.id: e.name for e in employee_objs}
     
     # Format schedule data by date
     schedule_data = {}
@@ -268,7 +278,7 @@ def api_company_schedule(request, company_id):
         'top_employees': [
             {
                 'id': emp_id,
-                'name': Employee.objects.get(id=emp_id).name,
+                'name': employee_id_to_name.get(emp_id, ''),
                 'hours': hours
             }
             for emp_id, hours in top_employees
@@ -278,10 +288,11 @@ def api_company_schedule(request, company_id):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+@cache_page(60 * 5)  # Cache for 5 minutes
 def api_company_employees(request, company_id):
     """API endpoint to get employees for a company."""
     company = get_object_or_404(Company, pk=company_id)
-    employees = Employee.objects.filter(company=company)
+    employees = Employee.objects.filter(company=company).prefetch_related('preferred_shifts')
     
     employees_data = []
     for employee in employees:
@@ -679,100 +690,6 @@ def api_load_fixtures(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
-
-@csrf_exempt
-@require_http_methods(["POST"])
-def api_upload_benchmark_results(request):
-    """API endpoint to upload benchmark results from local export."""
-    from django.core.files.uploadedfile import UploadedFile
-    from django.db import transaction
-    import zipfile
-    import tempfile
-    import os
-    import subprocess
-    from django.core.management import call_command
-    from io import StringIO
-    
-    try:
-        # Check if file was uploaded
-        if 'file' not in request.FILES:
-            return JsonResponse({
-                'status': 'error',
-                'message': 'No file uploaded. Please provide a ZIP file containing SQL dump.'
-            }, status=400)
-        
-        uploaded_file = request.FILES['file']
-        
-        # Validate file type
-        if not uploaded_file.name.endswith('.zip'):
-            return JsonResponse({
-                'status': 'error',
-                'message': 'Please upload a ZIP file containing SQL dump data.'
-            }, status=400)
-        
-        # Extract and process the ZIP file
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Save uploaded file temporarily
-            temp_zip_path = os.path.join(temp_dir, 'upload.zip')
-            with open(temp_zip_path, 'wb') as f:
-                for chunk in uploaded_file.chunks():
-                    f.write(chunk)
-            
-            # Extract ZIP file
-            with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
-                zipf.extractall(temp_dir)
-            
-            # Look for SQL dump file
-            sql_file = None
-            for file_name in os.listdir(temp_dir):
-                if file_name.endswith('.sql'):
-                    sql_file = os.path.join(temp_dir, file_name)
-                    break
-            
-            if not sql_file:
-                return JsonResponse({
-                    'status': 'error',
-                    'message': 'No SQL dump file (.sql) found in the ZIP archive. Please use the new SQL dump export method.'
-                }, status=400)
-            
-            # Import SQL dump using a more robust approach
-            try:
-                # Use the import_sql_dump command
-                output = StringIO()
-                call_command('import_sql_dump', file=sql_file, stdout=output)
-                
-                # Parse the output to get import results
-                output_text = output.getvalue()
-                
-                return JsonResponse({
-                    'status': 'success',
-                    'message': 'Benchmark results uploaded successfully via SQL dump',
-                    'import_method': 'sql_dump',
-                    'import_summary': {
-                        'method': 'sql_dump',
-                        'file_processed': os.path.basename(sql_file),
-                        'output': output_text
-                    }
-                })
-                
-            except Exception as e:
-                return JsonResponse({
-                    'status': 'error',
-                    'message': f'SQL dump import failed: {str(e)}'
-                }, status=400)
-            
-    except zipfile.BadZipFile:
-        return JsonResponse({
-            'status': 'error',
-            'message': 'Invalid ZIP file format.'
-        }, status=400)
-    except Exception as e:
-        return JsonResponse({
-            'status': 'error',
-            'message': f'Upload failed: {str(e)}'
-        }, status=500)
-
-
 @csrf_exempt
 @require_http_methods(["GET"])
 def api_upload_status(request):
@@ -837,3 +754,85 @@ def serve_vue_app(request):
             ''',
             content_type='text/html'
         )
+
+@csrf_exempt
+@require_http_methods(["GET"])
+@cache_page(60 * 5)
+def api_company_analytics(request, company_id):
+    """API endpoint to get all KPIs for all algorithms for a company and month, as in the benchmark results."""
+    company = get_object_or_404(Company, pk=company_id)
+    load_company_fixtures(company)
+
+    year = int(request.GET.get('year', datetime.date.today().year))
+    month = int(request.GET.get('month', datetime.date.today().month))
+
+    # Get all available algorithms for this company
+    available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
+    available_algorithms = sorted([alg for alg in available_algorithms if alg])
+
+    # Import KPI calculation logic
+    from rostering_app.calculations import calculate_coverage_stats, calculate_employee_hours_with_month_boundaries, calculate_shift_hours_in_month, calculate_utilization_percentage
+    from statistics import mean, stdev
+
+    results = {}
+    for algorithm in available_algorithms:
+        # Filter schedule entries for this algorithm, company, and month
+        first_day = datetime.date(year, month, 1)
+        last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
+        entry_filter = {
+            'company': company,
+            'date__gte': first_day,
+            'date__lte': last_day,
+            'algorithm': algorithm,
+        }
+        entries = ScheduleEntry.objects.filter(**entry_filter).select_related('employee', 'shift')
+        start_time = time.time()
+        # Calculate KPIs
+        employee_hours = calculate_employee_hours_with_month_boundaries(entries, first_day, last_day)
+        hours_list = list(employee_hours.values())
+        total_hours_worked = sum(hours_list)
+        avg_hours_per_employee = mean(hours_list) if hours_list else 0
+        hours_std_dev = stdev(hours_list) if len(hours_list) > 1 else 0
+        hours_cv = (hours_std_dev / avg_hours_per_employee * 100) if avg_hours_per_employee > 0 else 0
+        # Gini coefficient
+        def gini(values):
+            n = len(values)
+            total = sum(values)
+            if n == 0 or total == 0:
+                return 0.0
+            if n == 1:
+                return 0.0
+            sorted_values = sorted(values)
+            cumsum = sum((i + 1) * val for i, val in enumerate(sorted_values))
+            return (2 * cumsum) / (n * total) - (n + 1) / n
+        gini_coefficient = gini(hours_list)
+        min_hours = min(hours_list) if hours_list else 0
+        max_hours = max(hours_list) if hours_list else 0
+        # Constraint violations (weekly hours > max)
+        constraint_violations = 0
+        for emp_id, hours in employee_hours.items():
+            emp = Employee.objects.get(id=emp_id)
+            if hours > emp.max_hours_per_week * 4.5:  # Approximate for month
+                constraint_violations += 1
+        # Coverage rates per shift
+        coverage_stats = calculate_coverage_stats(entries, first_day, last_day, company)
+        coverage_rates = {}
+        for stat in coverage_stats:
+            shift_name = stat['shift']['name']
+            coverage_rates[shift_name] = stat['coverage_percentage']
+        total_working_days = len(get_working_days_in_range(first_day, last_day, company))
+        runtime = time.time() - start_time
+        results[algorithm] = {
+            'total_hours_worked': total_hours_worked,
+            'avg_hours_per_employee': avg_hours_per_employee,
+            'hours_std_dev': hours_std_dev,
+            'hours_cv': hours_cv,
+            'gini_coefficient': gini_coefficient,
+            'constraint_violations': constraint_violations,
+            'coverage_rates': coverage_rates,
+            'min_hours': min_hours,
+            'max_hours': max_hours,
+            'total_working_days': total_working_days,
+            'runtime': runtime,
+        }
+    return JsonResponse({'algorithms': results, 'year': year, 'month': month})

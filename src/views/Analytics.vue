@@ -205,51 +205,6 @@
           </div>
         </div>
       </div>
-
-      <!-- Algorithm Comparison -->
-      <div class="row">
-        <div class="col-12">
-          <div class="card">
-            <div class="card-header">
-              <h5 class="card-title mb-0">
-                <i class="bi bi-gear"></i> Algorithmusvergleich
-              </h5>
-            </div>
-            <div class="card-body">
-              <div v-if="availableAlgorithms.length === 0" class="text-muted text-center">
-                Keine Algorithmen verfügbar
-              </div>
-              <div v-else class="row">
-                <div 
-                  v-for="algorithm in availableAlgorithms" 
-                  :key="algorithm"
-                  class="col-md-6 col-lg-4 mb-3"
-                >
-                  <div class="card">
-                    <div class="card-body text-center">
-                      <h6 class="card-title">{{ algorithm }}</h6>
-                      <div class="algorithm-stats">
-                        <div class="stat-item">
-                          <span class="stat-label">Abdeckung:</span>
-                          <span class="stat-value">{{ formatNumber(85) }}%</span>
-                        </div>
-                        <div class="stat-item">
-                          <span class="stat-label">Effizienz:</span>
-                          <span class="stat-value">{{ formatNumber(92) }}%</span>
-                        </div>
-                        <div class="stat-item">
-                          <span class="stat-label">Zeit:</span>
-                          <span class="stat-value">{{ formatNumber(2.3) }}s</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -262,6 +217,7 @@ import { de } from 'date-fns/locale'
 import { Chart, registerables } from 'chart.js'
 import { useCompanyStore } from '@/stores/company'
 import { useScheduleStore } from '@/stores/schedule'
+import { analyticsAPI } from '@/services/api'
 
 // Register Chart.js components
 Chart.register(...registerables)
@@ -288,6 +244,10 @@ const currentMonthName = computed(() => {
 const coverageChart = ref(null)
 const distributionChart = ref(null)
 
+const algorithmKPIs = ref({})
+const algorithmKPIsLoading = ref(false)
+const algorithmKPIsError = ref(null)
+
 const previousMonth = () => {
   const newDate = new Date(currentYear.value, currentMonth.value - 2)
   scheduleStore.setCurrentDate(newDate)
@@ -312,6 +272,25 @@ const getEmployeeStatusText = (hours) => {
   return 'Niedrig'
 }
 
+const loadAlgorithmKPIs = async () => {
+  if (!route.params.companyId) return
+  algorithmKPIsLoading.value = true
+  algorithmKPIsError.value = null
+  try {
+    const { data } = await analyticsAPI.getAllAlgorithmKPIs(
+      route.params.companyId,
+      currentYear.value,
+      currentMonth.value
+    )
+    algorithmKPIs.value = data.algorithms || {}
+  } catch (err) {
+    algorithmKPIsError.value = 'Fehler beim Laden der Algorithmus-KPIs'
+    console.error(err)
+  } finally {
+    algorithmKPIsLoading.value = false
+  }
+}
+
 const loadAnalyticsData = async () => {
   if (route.params.companyId) {
     await scheduleStore.loadAvailableAlgorithms(route.params.companyId)
@@ -321,6 +300,7 @@ const loadAnalyticsData = async () => {
       currentMonth.value,
       scheduleStore.selectedAlgorithm
     )
+    await loadAlgorithmKPIs()
   }
 }
 
@@ -411,6 +391,42 @@ const formatDate = (date) => {
   // Implementation of formatDate function
 }
 
+// Update getBestWorstForKPI and getBestWorstCoverage to return arrays of algorithms with best/worst values
+const getBestWorstForKPI = (kpi) => {
+  const entries = Object.entries(algorithmKPIs.value)
+    .map(([alg, a]) => ({ alg, value: a && typeof a[kpi] === 'number' ? a[kpi] : null }))
+    .filter(e => e.value !== null && !isNaN(e.value))
+  if (!entries.length) return { best: [], worst: [] }
+  let bestValue, worstValue
+  if (kpi === 'constraint_violations' || kpi === 'gini_coefficient' || kpi === 'hours_std_dev' || kpi === 'min_hours') {
+    bestValue = Math.min(...entries.map(e => e.value))
+    worstValue = Math.max(...entries.map(e => e.value))
+  } else {
+    bestValue = Math.max(...entries.map(e => e.value))
+    worstValue = Math.min(...entries.map(e => e.value))
+  }
+  return {
+    best: entries.filter(e => e.value === bestValue).map(e => e.alg),
+    worst: entries.filter(e => e.value === worstValue).map(e => e.alg)
+  }
+}
+
+const getBestWorstCoverage = () => {
+  const entries = Object.entries(algorithmKPIs.value)
+    .map(([alg, a]) => ({
+      alg,
+      value: a && a.coverage_rates ? Object.values(a.coverage_rates).reduce((a1, b1) => a1 + b1, 0) / Object.values(a.coverage_rates).length : null
+    }))
+    .filter(e => e.value !== null && !isNaN(e.value))
+  if (!entries.length) return { best: [], worst: [] }
+  const bestValue = Math.max(...entries.map(e => e.value))
+  const worstValue = Math.min(...entries.map(e => e.value))
+  return {
+    best: entries.filter(e => e.value === bestValue).map(e => e.alg),
+    worst: entries.filter(e => e.value === worstValue).map(e => e.alg)
+  }
+}
+
 onMounted(async () => {
   await loadAnalyticsData()
   await createCharts()
@@ -420,6 +436,7 @@ watch(() => route.params.companyId, loadAnalyticsData)
 watch(() => scheduleStore.selectedAlgorithm, loadAnalyticsData)
 watch([currentYear, currentMonth], loadAnalyticsData)
 watch(coverageStats, createCharts, { deep: true })
+watch([currentYear, currentMonth], loadAlgorithmKPIs)
 </script>
 
 <style scoped>

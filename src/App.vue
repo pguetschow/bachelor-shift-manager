@@ -56,14 +56,15 @@
             <li class="nav-item">
               <router-link 
                 class="nav-link" 
-                :to="{ name: 'upload-benchmark' }"
+                :to="{ name: 'algorithm-comparison', params: { companyId: $route.params.companyId } }"
+                v-if="$route.params.companyId"
               >
-                <i class="bi bi-upload"></i> Upload Benchmarks
+                <i class="bi bi-bar-chart"></i> Algorithmusvergleich
               </router-link>
             </li>
           </ul>
           
-          <span class="navbar-text" v-if="company && !isCompanySelectionPage && !isUploadBenchmarkPage">
+          <span class="navbar-text" v-if="company && !isCompanySelectionPage && route.name !== 'algorithm-comparison' && !isUploadBenchmarkPage">
             <i class="bi bi-building"></i> {{ company.name }}
             <algorithm-selector 
               v-if="availableAlgorithms.length"
@@ -99,7 +100,6 @@ const company = computed(() => companyStore.currentCompany)
 const availableAlgorithms = computed(() => scheduleStore.availableAlgorithms)
 const selectedAlgorithm = computed(() => scheduleStore.selectedAlgorithm)
 const isCompanySelectionPage = computed(() => route.name === 'company-selection')
-const isUploadBenchmarkPage = computed(() => route.name === 'upload-benchmark')
 
 const onAlgorithmChange = (algorithm) => {
   scheduleStore.setSelectedAlgorithm(algorithm)

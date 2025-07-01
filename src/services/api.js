@@ -94,6 +94,10 @@ export const analyticsAPI = {
     const params = { year, month }
     if (algorithm) params.algorithm = algorithm
     return api.get(`/api/companies/${companyId}/employee-statistics/`, { params })
+  },
+  getAllAlgorithmKPIs: (companyId, year, month) => {
+    const params = { year, month }
+    return api.get(`/api/companies/${companyId}/analytics/`, { params })
   }
 }
 
