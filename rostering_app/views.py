@@ -20,6 +20,9 @@ from rostering_app.calculations import (
     calculate_utilization_percentage
 )
 from django.views.decorators.cache import cache_page
+from django.utils.decorators import method_decorator
+import time
+from statistics import mean, stdev
 
 
 def load_company_fixtures(company):
@@ -751,3 +754,85 @@ def serve_vue_app(request):
             ''',
             content_type='text/html'
         )
+
+@csrf_exempt
+@require_http_methods(["GET"])
+@cache_page(60 * 5)
+def api_company_analytics(request, company_id):
+    """API endpoint to get all KPIs for all algorithms for a company and month, as in the benchmark results."""
+    company = get_object_or_404(Company, pk=company_id)
+    load_company_fixtures(company)
+
+    year = int(request.GET.get('year', datetime.date.today().year))
+    month = int(request.GET.get('month', datetime.date.today().month))
+
+    # Get all available algorithms for this company
+    available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
+    available_algorithms = sorted([alg for alg in available_algorithms if alg])
+
+    # Import KPI calculation logic
+    from rostering_app.calculations import calculate_coverage_stats, calculate_employee_hours_with_month_boundaries, calculate_shift_hours_in_month, calculate_utilization_percentage
+    from statistics import mean, stdev
+
+    results = {}
+    for algorithm in available_algorithms:
+        # Filter schedule entries for this algorithm, company, and month
+        first_day = datetime.date(year, month, 1)
+        last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
+        entry_filter = {
+            'company': company,
+            'date__gte': first_day,
+            'date__lte': last_day,
+            'algorithm': algorithm,
+        }
+        entries = ScheduleEntry.objects.filter(**entry_filter).select_related('employee', 'shift')
+        start_time = time.time()
+        # Calculate KPIs
+        employee_hours = calculate_employee_hours_with_month_boundaries(entries, first_day, last_day)
+        hours_list = list(employee_hours.values())
+        total_hours_worked = sum(hours_list)
+        avg_hours_per_employee = mean(hours_list) if hours_list else 0
+        hours_std_dev = stdev(hours_list) if len(hours_list) > 1 else 0
+        hours_cv = (hours_std_dev / avg_hours_per_employee * 100) if avg_hours_per_employee > 0 else 0
+        # Gini coefficient
+        def gini(values):
+            n = len(values)
+            total = sum(values)
+            if n == 0 or total == 0:
+                return 0.0
+            if n == 1:
+                return 0.0
+            sorted_values = sorted(values)
+            cumsum = sum((i + 1) * val for i, val in enumerate(sorted_values))
+            return (2 * cumsum) / (n * total) - (n + 1) / n
+        gini_coefficient = gini(hours_list)
+        min_hours = min(hours_list) if hours_list else 0
+        max_hours = max(hours_list) if hours_list else 0
+        # Constraint violations (weekly hours > max)
+        constraint_violations = 0
+        for emp_id, hours in employee_hours.items():
+            emp = Employee.objects.get(id=emp_id)
+            if hours > emp.max_hours_per_week * 4.5:  # Approximate for month
+                constraint_violations += 1
+        # Coverage rates per shift
+        coverage_stats = calculate_coverage_stats(entries, first_day, last_day, company)
+        coverage_rates = {}
+        for stat in coverage_stats:
+            shift_name = stat['shift']['name']
+            coverage_rates[shift_name] = stat['coverage_percentage']
+        total_working_days = len(get_working_days_in_range(first_day, last_day, company))
+        runtime = time.time() - start_time
+        results[algorithm] = {
+            'total_hours_worked': total_hours_worked,
+            'avg_hours_per_employee': avg_hours_per_employee,
+            'hours_std_dev': hours_std_dev,
+            'hours_cv': hours_cv,
+            'gini_coefficient': gini_coefficient,
+            'constraint_violations': constraint_violations,
+            'coverage_rates': coverage_rates,
+            'min_hours': min_hours,
+            'max_hours': max_hours,
+            'total_working_days': total_working_days,
+            'runtime': runtime,
+        }
+    return JsonResponse({'algorithms': results, 'year': year, 'month': month})

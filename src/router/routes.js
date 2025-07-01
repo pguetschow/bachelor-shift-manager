@@ -41,8 +41,9 @@ export default [
     meta: { requiresCompany: true }
   },
   {
-    path: '/upload-benchmark',
-    name: 'upload-benchmark',
-    component: () => import('@/views/UploadBenchmark.vue')
+    path: '/company/:companyId/algorithm-comparison',
+    name: 'algorithm-comparison',
+    component: () => import('@/views/AlgorithmComparison.vue'),
+    meta: { requiresCompany: true }
   }
 ] 

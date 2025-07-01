@@ -27,6 +27,7 @@ urlpatterns = [
     path('api/companies/<int:company_id>/employee-statistics/', views.api_company_employee_statistics, name='api_company_employee_statistics'),
     path('api/load-fixtures/', views.api_load_fixtures, name='api_load_fixtures'),
     path('api/upload-status/', views.api_upload_status, name='api_upload_status'),
+    path('api/companies/<int:company_id>/analytics/', views.api_company_analytics, name='api_company_analytics'),
     
     # Catch-all route for Vue.js routes - must be last
     re_path(r'^(?!api/|admin/|assets/|static/).*$', views.serve_vue_app, name='vue_catch_all'),
