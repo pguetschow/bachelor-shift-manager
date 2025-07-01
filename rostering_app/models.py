@@ -54,11 +54,20 @@ class Shift(models.Model):
         unique_together = ('company', 'name')
 
 class ScheduleEntry(models.Model):
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
-    date = models.DateField()
-    shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='schedule_entries', null=True, blank=True)
-    algorithm = models.CharField(max_length=64, blank=True, default='')
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, db_index=True)
+    date = models.DateField(db_index=True)
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE, db_index=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='schedule_entries', null=True, blank=True, db_index=True)
+    algorithm = models.CharField(max_length=64, blank=True, default='', db_index=True)
 
     def __str__(self):
         return f"{self.date} - {self.employee.name} - {self.shift.name} - {self.company.name if self.company else 'No Company'}"
+
+    class Meta:
+        index_together = [
+            ('company', 'date'),
+            ('company', 'employee'),
+            ('company', 'shift'),
+            ('company', 'algorithm'),
+            ('employee', 'date'),
+        ]

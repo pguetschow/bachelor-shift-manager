@@ -26,7 +26,6 @@ urlpatterns = [
     path('api/companies/<int:company_id>/employees/<int:employee_id>/yearly/', views.api_company_employee_yearly_schedule, name='api_company_employee_yearly_schedule'),
     path('api/companies/<int:company_id>/employee-statistics/', views.api_company_employee_statistics, name='api_company_employee_statistics'),
     path('api/load-fixtures/', views.api_load_fixtures, name='api_load_fixtures'),
-    path('api/upload-benchmark-results/', views.api_upload_benchmark_results, name='api_upload_benchmark_results'),
     path('api/upload-status/', views.api_upload_status, name='api_upload_status'),
     
     # Catch-all route for Vue.js routes - must be last

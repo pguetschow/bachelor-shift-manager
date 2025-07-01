@@ -53,14 +53,6 @@
                 <i class="bi bi-graph-up"></i> Analysen
               </router-link>
             </li>
-            <li class="nav-item">
-              <router-link 
-                class="nav-link" 
-                :to="{ name: 'upload-benchmark' }"
-              >
-                <i class="bi bi-upload"></i> Upload Benchmarks
-              </router-link>
-            </li>
           </ul>
           
           <span class="navbar-text" v-if="company && !isCompanySelectionPage && !isUploadBenchmarkPage">

@@ -50,6 +50,7 @@ class Command(BaseCommand):
             '--skip-lock-tables',
             '--single-transaction',
             '--add-drop-table',
+            '--no-tablespaces',
             db_name,
         ] + tables
 

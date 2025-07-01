@@ -19,6 +19,7 @@ from rostering_app.calculations import (
     calculate_shift_hours_in_date_range,
     calculate_utilization_percentage
 )
+from django.views.decorators.cache import cache_page
 
 
 def load_company_fixtures(company):
@@ -154,6 +155,7 @@ def api_company_algorithms(request, company_id):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+@cache_page(60 * 5)  # Cache for 5 minutes
 def api_company_schedule(request, company_id):
     """API endpoint to get schedule data for a company."""
     company = get_object_or_404(Company, pk=company_id)
@@ -168,7 +170,7 @@ def api_company_schedule(request, company_id):
     first_day = datetime.date(year, month, 1)
     last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
     
-    # Get schedule entries
+    # Get schedule entries with related objects
     entry_filter = {
         'company': company,
         'date__gte': first_day,
@@ -177,12 +179,17 @@ def api_company_schedule(request, company_id):
     if algorithm:
         entry_filter['algorithm'] = algorithm
     
-    entries = ScheduleEntry.objects.filter(**entry_filter)
+    entries = ScheduleEntry.objects.filter(**entry_filter).select_related('shift', 'employee')
     
     # Calculate statistics
     coverage_stats = calculate_coverage_stats(entries, first_day, last_day, company)
     employee_hours = calculate_employee_hours_with_month_boundaries(entries, first_day, last_day)
     top_employees = sorted(employee_hours.items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    # Batch fetch top employee names
+    top_employee_ids = [emp_id for emp_id, _ in top_employees]
+    employee_objs = Employee.objects.filter(id__in=top_employee_ids)
+    employee_id_to_name = {e.id: e.name for e in employee_objs}
     
     # Format schedule data by date
     schedule_data = {}
@@ -268,7 +275,7 @@ def api_company_schedule(request, company_id):
         'top_employees': [
             {
                 'id': emp_id,
-                'name': Employee.objects.get(id=emp_id).name,
+                'name': employee_id_to_name.get(emp_id, ''),
                 'hours': hours
             }
             for emp_id, hours in top_employees
@@ -278,10 +285,11 @@ def api_company_schedule(request, company_id):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+@cache_page(60 * 5)  # Cache for 5 minutes
 def api_company_employees(request, company_id):
     """API endpoint to get employees for a company."""
     company = get_object_or_404(Company, pk=company_id)
-    employees = Employee.objects.filter(company=company)
+    employees = Employee.objects.filter(company=company).prefetch_related('preferred_shifts')
     
     employees_data = []
     for employee in employees:
@@ -678,100 +686,6 @@ def api_load_fixtures(request):
         return JsonResponse({'status': 'success', 'message': 'Fixtures loaded successfully'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
-def api_upload_benchmark_results(request):
-    """API endpoint to upload benchmark results from local export."""
-    from django.core.files.uploadedfile import UploadedFile
-    from django.db import transaction
-    import zipfile
-    import tempfile
-    import os
-    import subprocess
-    from django.core.management import call_command
-    from io import StringIO
-    
-    try:
-        # Check if file was uploaded
-        if 'file' not in request.FILES:
-            return JsonResponse({
-                'status': 'error',
-                'message': 'No file uploaded. Please provide a ZIP file containing SQL dump.'
-            }, status=400)
-        
-        uploaded_file = request.FILES['file']
-        
-        # Validate file type
-        if not uploaded_file.name.endswith('.zip'):
-            return JsonResponse({
-                'status': 'error',
-                'message': 'Please upload a ZIP file containing SQL dump data.'
-            }, status=400)
-        
-        # Extract and process the ZIP file
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Save uploaded file temporarily
-            temp_zip_path = os.path.join(temp_dir, 'upload.zip')
-            with open(temp_zip_path, 'wb') as f:
-                for chunk in uploaded_file.chunks():
-                    f.write(chunk)
-            
-            # Extract ZIP file
-            with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
-                zipf.extractall(temp_dir)
-            
-            # Look for SQL dump file
-            sql_file = None
-            for file_name in os.listdir(temp_dir):
-                if file_name.endswith('.sql'):
-                    sql_file = os.path.join(temp_dir, file_name)
-                    break
-            
-            if not sql_file:
-                return JsonResponse({
-                    'status': 'error',
-                    'message': 'No SQL dump file (.sql) found in the ZIP archive. Please use the new SQL dump export method.'
-                }, status=400)
-            
-            # Import SQL dump using a more robust approach
-            try:
-                # Use the import_sql_dump command
-                output = StringIO()
-                call_command('import_sql_dump', file=sql_file, stdout=output)
-                
-                # Parse the output to get import results
-                output_text = output.getvalue()
-                
-                return JsonResponse({
-                    'status': 'success',
-                    'message': 'Benchmark results uploaded successfully via SQL dump',
-                    'import_method': 'sql_dump',
-                    'import_summary': {
-                        'method': 'sql_dump',
-                        'file_processed': os.path.basename(sql_file),
-                        'output': output_text
-                    }
-                })
-                
-            except Exception as e:
-                return JsonResponse({
-                    'status': 'error',
-                    'message': f'SQL dump import failed: {str(e)}'
-                }, status=400)
-            
-    except zipfile.BadZipFile:
-        return JsonResponse({
-            'status': 'error',
-            'message': 'Invalid ZIP file format.'
-        }, status=400)
-    except Exception as e:
-        return JsonResponse({
-            'status': 'error',
-            'message': f'Upload failed: {str(e)}'
-        }, status=500)
-
 
 @csrf_exempt
 @require_http_methods(["GET"])
