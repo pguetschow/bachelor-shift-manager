@@ -340,11 +340,17 @@ def api_company_day_schedule(request, company_id, date):
     except ValueError:
         return JsonResponse({'error': 'Invalid date format'}, status=400)
     
-    # Get schedule entries for the specific date
-    entries = ScheduleEntry.objects.filter(
-        company=company,
-        date=target_date
-    )
+    # Get algorithm filter from query params
+    algorithm = request.GET.get('algorithm', '')
+    
+    # Get schedule entries for the specific date, filtered by algorithm if provided
+    entry_filter = {
+        'company': company,
+        'date': target_date
+    }
+    if algorithm:
+        entry_filter['algorithm'] = algorithm
+    entries = ScheduleEntry.objects.filter(**entry_filter)
     
     # Get all shifts for the company
     all_shifts = Shift.objects.filter(company=company)

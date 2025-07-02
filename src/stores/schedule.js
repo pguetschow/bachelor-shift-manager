@@ -190,8 +190,15 @@ export const useScheduleStore = defineStore('schedule', () => {
       return []
     }
 
-    // Unwrap if each shift is nested under a 'shift' key
-    return dayData.shifts.map(s => s.shift ? s.shift : s)
+    // If dayData.shifts is an array of objects with a 'shift' key, return the 'shift' property
+    if (Array.isArray(dayData.shifts) && dayData.shifts.length && dayData.shifts[0].shift) {
+      return dayData.shifts.map(s => s.shift)
+    }
+    // If dayData.shifts is already an array of shift objects, return as is
+    if (Array.isArray(dayData.shifts)) {
+      return dayData.shifts
+    }
+    return []
   }
 
   return {

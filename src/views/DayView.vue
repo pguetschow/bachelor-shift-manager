@@ -142,7 +142,7 @@
                 </div>
                 <div v-else class="employee-list">
                   <div 
-                    v-for="employee in shift.assigned_employees" 
+                    v-for="employee in (scheduleStore.selectedAlgorithm ? shift.assigned_employees.filter(e => e.algorithm === scheduleStore.selectedAlgorithm) : shift.assigned_employees)" 
                     :key="employee.id"
                     class="employee-item"
                   >
@@ -177,6 +177,7 @@ import ErrorState from '@/components/ErrorState.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import TimeDisplay from '@/components/TimeDisplay.vue'
 import ProgressBar from '@/components/ProgressBar.vue'
+import AlgorithmSelector from '@/components/AlgorithmSelector.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -274,6 +275,9 @@ const initializeDate = () => {
 
 onMounted(() => {
   initializeDate()
+  if (!scheduleStore.availableAlgorithms.length && route.params.companyId) {
+    scheduleStore.loadAvailableAlgorithms(route.params.companyId)
+  }
   loadDayData()
 })
 
