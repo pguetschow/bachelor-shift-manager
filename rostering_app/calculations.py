@@ -88,6 +88,8 @@ def calculate_coverage_stats(entries, start_date, end_date, company) -> List[Dic
     """
     from rostering_app.models import Shift  # Import inside function
     stats = []
+    # Import get_shift_status from views
+    from rostering_app.views import get_shift_status
     for shift in Shift.objects.filter(company=company):  # type: ignore
         shift_entries = entries.filter(shift=shift)
         working_days = get_working_days_in_range(start_date, end_date, company)
@@ -95,6 +97,8 @@ def calculate_coverage_stats(entries, start_date, end_date, company) -> List[Dic
         if total_working_days > 0:
             avg_staff = shift_entries.count() / total_working_days
             coverage_percentage = round((avg_staff / shift.max_staff) * 100, 1) if shift.max_staff > 0 else 0
+            # Use get_shift_status to determine status
+            status = get_shift_status(avg_staff, shift.min_staff, shift.max_staff)
             stats.append({
                 'shift': {
                     'id': shift.id,
@@ -106,6 +110,6 @@ def calculate_coverage_stats(entries, start_date, end_date, company) -> List[Dic
                 },
                 'coverage_percentage': coverage_percentage,
                 'avg_staff': round(avg_staff, 1),
-                'status': None  # Optionally add status logic
+                'status': status
             })
     return stats 
