@@ -72,7 +72,7 @@ class Command(BaseCommand):
                 },
                 {
                     'name': 'large_company',
-                    'display_name': 'Großes Unternehmen (100 MA, 3 Schichten)',
+                    'display_name': 'Großes Unternehmen (100 MA, 4 Schichten)',
                     'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
                     'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
                 }

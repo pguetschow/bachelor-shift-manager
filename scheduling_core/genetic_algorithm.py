@@ -409,12 +409,12 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                 yearly_capacity = emp.max_hours_per_week * 52
                 utilization = calculate_utilization_percentage(worked_hours, yearly_capacity) / 100.0
 
-                # Bonus for good utilization (70-95%)
-                if 0.7 <= utilization <= 0.95:
+                # Bonus for good utilization (85-95%)
+                if 0.85 <= utilization <= 0.95:
                     penalty += utilization * w_utilization
-                elif utilization < 0.7:
+                elif utilization < 0.85:
                     # Penalty for underutilization
-                    penalty += (0.7 - utilization) * 5000
+                    penalty += (0.85 - utilization) * 5000
 
         # 6. Preference bonus
         for (date, shift_id), emp_ids in solution.assignments.items():
