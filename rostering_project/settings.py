@@ -73,14 +73,14 @@ if os.environ.get('DJANGO_PRODUCTION') or os.environ.get('HEROKU'):
       'default': {
         'ENGINE': 'django.db.backends.mysql',
         'HOST': env('STACKHERO_MYSQL_HOST'),
-        'PORT': '7398',
+        'PORT': '15088',
         'OPTIONS': {
           'ssl_mode': 'REQUIRED',
            'charset': 'utf8mb4',
            'init_command': "SET NAMES 'utf8mb4'",
         },
-        'NAME': 'scheduler',
-        'USER': 'root',
+        'NAME': 'defaultdb',
+        'USER': 'avnadmin',
         'PASSWORD': env('STACKHERO_MYSQL_ROOT_PASSWORD')
       }
     }

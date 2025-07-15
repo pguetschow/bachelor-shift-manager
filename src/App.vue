@@ -80,7 +80,7 @@
     <main class="main-content">
       <router-view />
     </main>
-    <DebugBanner />
+  <!--   <DebugBanner /> -->
   </div>
 </template>
 
