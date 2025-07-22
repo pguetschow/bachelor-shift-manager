@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.converters import employees_to_core, shifts_to_core
-from scheduling_core import NSGA2Scheduler
+from scheduling_core import NSGA2Scheduler, OptimizedILPScheduler
 
 # Import scheduling algorithms
 from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
@@ -88,15 +88,17 @@ class Command(BaseCommand):
 
             # Algorithm configurations - will be created per company
             algorithm_classes = [
+                OptimizedILPScheduler,
                 LinearProgrammingScheduler,
                 GeneticAlgorithmScheduler,
                 SimulatedAnnealingScheduler,
-                NSGA2Scheduler
+                # NSGA2Scheduler
             ]
 
             # Filter algorithms if requested
             if algorithm_filter:
                 algorithm_map = {
+                    'OptimizedILPScheduler': OptimizedILPScheduler,
                     'LinearProgramming': LinearProgrammingScheduler,
                     'GeneticAlgorithm': GeneticAlgorithmScheduler,
                     'SimulatedAnnealing': SimulatedAnnealingScheduler,

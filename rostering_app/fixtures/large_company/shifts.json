@@ -19,8 +19,8 @@
       "name": "MorningShift",
       "start": "10:00:00",
       "end": "18:00:00",
-      "min_staff": 10,
-      "max_staff": 15
+      "min_staff": 12,
+      "max_staff": 17
     }
   },
   {
@@ -31,7 +31,7 @@
       "name": "LateShift",
       "start": "14:00:00",
       "end": "22:00:00",
-      "min_staff": 10,
+      "min_staff": 12,
       "max_staff": 15
     }
   },
@@ -43,7 +43,7 @@
       "name": "NightShift",
       "start": "22:00:00",
       "end": "06:00:00",
-      "min_staff": 5,
+      "min_staff": 8,
       "max_staff": 15
     }
   }
