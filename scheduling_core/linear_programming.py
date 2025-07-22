@@ -198,7 +198,7 @@ class LinearProgrammingScheduler(SchedulingAlgorithm):
             lp_problem += deviation[emp.id] >= total_hours[emp.id] - avg_hours
             lp_problem += deviation[emp.id] >= avg_hours - total_hours[emp.id]
             # 8) Min utilization
-            lp_problem += total_hours[emp.id] >= emp.max_hours_per_week * 52 * 0.7
+            lp_problem += total_hours[emp.id] >= emp.max_hours_per_week * 52 * 0.75
 
         # Solve
         solver = PULP_CBC_CMD(msg=False, timeLimit=300)

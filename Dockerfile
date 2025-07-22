@@ -8,6 +8,7 @@ RUN apt-get update \
         python3.11-venv \
         python3-pip \
         gcc \
+        npm \
         g++ \
         libpq-dev \
         libfreetype6 \
@@ -62,11 +63,7 @@ COPY manage.py ./
 COPY start.sh ./
 RUN chmod +x start.sh
 
-# Collect static files
-
-# Copy wait-for-it.sh script and make it executable (before switching to appuser)
-COPY wait-for-it.sh /wait-for-it.sh
-RUN chmod +x /wait-for-it.sh
+COPY docker-entrypoint.py /app/docker-entrypoint.py
 
 # Create a non-root user
 RUN adduser --disabled-password --gecos '' appuser

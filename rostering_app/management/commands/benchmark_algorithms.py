@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.converters import employees_to_core, shifts_to_core
+from scheduling_core import NSGA2Scheduler
 
 # Import scheduling algorithms
 from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
@@ -90,6 +91,7 @@ class Command(BaseCommand):
                 LinearProgrammingScheduler,
                 GeneticAlgorithmScheduler,
                 SimulatedAnnealingScheduler,
+                NSGA2Scheduler
             ]
 
             # Filter algorithms if requested
@@ -98,6 +100,7 @@ class Command(BaseCommand):
                     'LinearProgramming': LinearProgrammingScheduler,
                     'GeneticAlgorithm': GeneticAlgorithmScheduler,
                     'SimulatedAnnealing': SimulatedAnnealingScheduler,
+                    'NSGA2Scheduler': NSGA2Scheduler,
                 }
                 if algorithm_filter in algorithm_map:
                     algorithm_classes = [algorithm_map[algorithm_filter]]
@@ -172,17 +175,7 @@ class Command(BaseCommand):
                 # Create algorithms for this specific company
                 algorithms = []
                 for algorithm_class in algorithm_classes:
-                    if algorithm_class == LinearProgrammingScheduler:
-                        # Use the company's sunday_is_workday setting (inverted for the algorithm)
-                        algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
-                    elif algorithm_class == GeneticAlgorithmScheduler:
-                        # Use the company's sunday_is_workday setting (inverted for the algorithm)
-                        algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
-                    elif algorithm_class == SimulatedAnnealingScheduler:
-                        # Use the company's sunday_is_workday setting (inverted for the algorithm)
-                        algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
-                    else:
-                        algorithms.append(algorithm_class())
+                    algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
 
                 # Benchmark algorithms
                 results = {}
