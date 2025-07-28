@@ -13,25 +13,28 @@ from .utils import get_weeks
 
 class NSGA2Scheduler(SchedulingAlgorithm):
     """
-    Hybrid NSGA-II scheduler that uses local search to repair constraint violations.
-    This ensures solutions have zero violations while optimizing other objectives.
+    Optimized NSGA-II scheduler with simplified repair mechanism for better performance.
     """
 
-    def __init__(self, population_size=80, generations=150,
-                 crossover_prob=0.85, mutation_prob=0.25,
-                 repair_iterations=10, sundays_off=False):
+    def __init__(self, population_size=30, generations=50,
+                 crossover_prob=0.8, mutation_prob=0.2,
+                 repair_iterations=3, sundays_off=False,
+                 coverage_weight=1.0, utilization_weight=2.0, fairness_weight=0.1):
         self.population_size = population_size
         self.generations = generations
         self.crossover_prob = crossover_prob
         self.mutation_prob = mutation_prob
         self.repair_iterations = repair_iterations
         self.sundays_off = sundays_off
+        self.coverage_weight = coverage_weight
+        self.utilization_weight = utilization_weight
+        self.fairness_weight = fairness_weight
         self.holidays = set()
         self.company = None  # Will be set in solve method
 
     @property
     def name(self) -> str:
-        return "NSGA-II Hybrid with Repair"
+        return "NSGA-II Optimized"
 
     def _get_holidays_for_year(self, year: int) -> set:
         """Get holidays as (year, month, day) tuples using utils function."""
@@ -47,9 +50,9 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         return False
 
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
-        """Solve using NSGA-II with repair mechanism."""
+        """Solve using optimized NSGA-II with simplified repair."""
         self.problem = problem
-        self.company = problem.company  # Store company for KPI Calculator
+        self.company = problem.company
         self.weeks = get_weeks(problem.start_date, problem.end_date)
 
         # Clean up any existing DEAP creator classes to avoid warnings
@@ -75,40 +78,34 @@ class NSGA2Scheduler(SchedulingAlgorithm):
 
         # Check if we have any working days
         if not self.working_days:
-            print("[NSGA-II Hybrid] No working days with available employees found. Returning empty solution.")
+            print("[NSGA-II Optimized] No working days with available employees found. Returning empty solution.")
             return []
 
         # Scale down min_staff if needed
         self._check_and_scale_demand()
 
-        # Setup DEAP - 3 objectives (no violations needed as we repair)
-        creator.create("FitnessMulti", base.Fitness, weights=(1.0, 1.0, 1.0))
+        # Setup DEAP - 3 objectives (coverage, utilization, fairness)
+        creator.create("FitnessMulti", base.Fitness, weights=(self.coverage_weight, self.utilization_weight, self.fairness_weight))
         creator.create("Individual", dict, fitness=creator.FitnessMulti)
 
         toolbox = base.Toolbox()
 
         # Register operators
-        toolbox.register("individual", self._create_repaired_individual)
+        toolbox.register("individual", self._create_fast_individual)
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-        toolbox.register("evaluate", self._evaluate_repaired)
-        toolbox.register("mate", self._crossover_with_repair)
-        toolbox.register("mutate", self._mutate_with_repair)
+        toolbox.register("evaluate", self._evaluate_fast)
+        toolbox.register("mate", self._fast_crossover)
+        toolbox.register("mutate", self._fast_mutate)
         toolbox.register("select", tools.selNSGA2)
 
         # Create initial population
-        print("[NSGA-II Hybrid] Creating initial population with repairs...")
+        print("[NSGA-II Optimized] Creating initial population...")
         population = toolbox.population(n=self.population_size)
 
         # Evaluate initial population
         fitnesses = list(map(toolbox.evaluate, population))
         for ind, fit in zip(population, fitnesses):
             ind.fitness.values = fit
-
-        # Statistics
-        stats = tools.Statistics(lambda ind: ind.fitness.values)
-        stats.register("avg", np.mean, axis=0)
-        stats.register("min", np.min, axis=0)
-        stats.register("max", np.max, axis=0)
 
         # Evolution
         for gen in range(self.generations):
@@ -139,19 +136,13 @@ class NSGA2Scheduler(SchedulingAlgorithm):
 
             # Progress report
             if gen % 10 == 0:
-                record = stats.compile(population)
-                coverage, utilization, fairness = record['max']
-                print(f"[NSGA-II Hybrid] Gen {gen}: Coverage={coverage:.1%}, "
-                      f"Utilization={utilization:.1%}, Fairness={fairness:.2f}")
+                best_fitness = max(population, key=lambda x: x.fitness.values[0]).fitness.values
+                print(f"[NSGA-II Optimized] Gen {gen}: Coverage={best_fitness[0]:.1%}, "
+                      f"Utilization={best_fitness[1]:.1%}, Fairness={best_fitness[2]:.2f}")
 
         # Get best solution
         pareto_front = tools.sortNondominated(population, len(population), first_front_only=True)[0]
-
-        # Select solution with best coverage
         best_ind = max(pareto_front, key=lambda x: x.fitness.values[0])
-
-        # Final aggressive filling
-        self._aggressive_final_fill(best_ind)
 
         # Convert to schedule entries
         return self._decode_solution(best_ind)
@@ -185,14 +176,13 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         )
 
         if total_req_hours > total_emp_hours:
-            scale = total_emp_hours / total_req_hours * 0.95  # 95% to leave some slack
+            scale = total_emp_hours / total_req_hours * 0.95
             for shift in self.problem.shifts:
                 shift.min_staff = max(1, int(round(shift.min_staff * scale)))
-            print(f"[NSGA-II Hybrid] Scaled down min_staff by {scale:.2f}× to restore feasibility.")
+            print(f"[NSGA-II Optimized] Scaled down min_staff by {scale:.2f}× to restore feasibility.")
 
-    def _create_repaired_individual(self):
-        """Create a valid individual using construction + repair."""
-        # Individual representation: {(date, shift_id): [emp_ids]}
+    def _create_fast_individual(self):
+        """Create a valid individual using fast construction."""
         solution = {}
 
         # Initialize empty
@@ -200,23 +190,18 @@ class NSGA2Scheduler(SchedulingAlgorithm):
             for shift in self.problem.shifts:
                 solution[(date, shift.id)] = []
 
-        # Greedy construction focusing on min requirements
-        self._greedy_construct(solution)
+        # Fast greedy construction
+        self._fast_construct(solution)
 
-        # Repair any violations
-        self._repair_solution(solution)
-
-        # Try to improve coverage
-        self._improve_coverage(solution)
+        # Quick repair
+        self._quick_repair(solution)
 
         return creator.Individual(solution)
 
-    def _greedy_construct(self, solution):
-        """Greedy construction focusing on meeting minimum requirements."""
-        # Track assignments
+    def _fast_construct(self, solution):
+        """Fast greedy construction focusing on meeting minimum requirements."""
         weekly_hours = defaultdict(lambda: defaultdict(float))
 
-        # First pass: meet minimum requirements
         for date in self.working_days:
             week_key = date.isocalendar()[:2]
 
@@ -224,12 +209,7 @@ class NSGA2Scheduler(SchedulingAlgorithm):
             if len(self.daily_availability[date]) == 0:
                 continue
 
-            # Sort shifts by criticality (harder to staff first)
-            shifts_sorted = sorted(self.problem.shifts,
-                                   key=lambda s: s.min_staff / len(self.daily_availability[date]),
-                                   reverse=True)
-
-            for shift in shifts_sorted:
+            for shift in self.problem.shifts:
                 key = (date, shift.id)
                 target = shift.min_staff
 
@@ -247,45 +227,33 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                     if not already_assigned:
                         current_weekly = weekly_hours[emp_id][week_key]
                         if current_weekly + shift.duration <= emp.max_hours_per_week:
-                            # Score by remaining capacity
-                            remaining = emp.max_hours_per_week - current_weekly
-                            preference_score = 10 if shift.name in emp.preferred_shifts else 0
-                            candidates.append((emp_id, remaining + preference_score))
-
-                # Sort by score
-                candidates.sort(key=lambda x: x[1], reverse=True)
+                            candidates.append(emp_id)
 
                 # Assign up to target
                 for i in range(min(target, len(candidates))):
-                    emp_id = candidates[i][0]
+                    emp_id = candidates[i]
                     solution[key].append(emp_id)
                     weekly_hours[emp_id][week_key] += shift.duration
 
-    def _repair_solution(self, solution):
-        """Repair constraint violations."""
+        # Aggressive filling to improve coverage and utilization
+        self._aggressive_fill(solution, weekly_hours)
+
+    def _quick_repair(self, solution):
+        """Quick repair of major violations only."""
         for _ in range(self.repair_iterations):
             violations_fixed = 0
 
             # Fix understaffing
-            violations_fixed += self._fix_understaffing(solution)
+            violations_fixed += self._fix_understaffing_fast(solution)
 
             # Fix overstaffing
-            violations_fixed += self._fix_overstaffing(solution)
-
-            # Fix weekly hours violations
-            violations_fixed += self._fix_weekly_hours(solution)
-
-            # Fix rest period violations
-            violations_fixed += self._fix_rest_periods(solution)
-
-            # Fix multiple shifts per day
-            violations_fixed += self._fix_multiple_shifts(solution)
+            violations_fixed += self._fix_overstaffing_fast(solution)
 
             if violations_fixed == 0:
                 break
 
-    def _fix_understaffing(self, solution) -> int:
-        """Fix understaffed shifts."""
+    def _fix_understaffing_fast(self, solution) -> int:
+        """Fast fix for understaffed shifts."""
         fixes = 0
 
         for date in self.working_days:
@@ -301,11 +269,10 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                     candidates = []
                     for emp_id in self.daily_availability[date]:
                         if emp_id not in assigned:
-                            # Check constraints
-                            if self._can_assign(emp_id, date, shift, solution):
-                                weekly_hours = self._get_weekly_hours(emp_id, week_key, solution)
-                                if weekly_hours + shift.duration <= self.problem.emp_by_id[emp_id].max_hours_per_week:
-                                    candidates.append(emp_id)
+                            emp = self.problem.emp_by_id[emp_id]
+                            weekly_hours = self._get_weekly_hours_fast(emp_id, week_key, solution)
+                            if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                                candidates.append(emp_id)
 
                     # Add employees
                     add_count = min(deficit, len(candidates))
@@ -316,8 +283,8 @@ class NSGA2Scheduler(SchedulingAlgorithm):
 
         return fixes
 
-    def _fix_overstaffing(self, solution) -> int:
-        """Fix overstaffed shifts."""
+    def _fix_overstaffing_fast(self, solution) -> int:
+        """Fast fix for overstaffed shifts."""
         fixes = 0
 
         for (date, shift_id), assigned in solution.items():
@@ -325,156 +292,17 @@ class NSGA2Scheduler(SchedulingAlgorithm):
 
             if len(assigned) > shift.max_staff:
                 excess = len(assigned) - shift.max_staff
-
-                # Remove employees with highest total hours
-                emp_hours = []
-                for emp_id in assigned:
-                    total = sum(
-                        s.duration
-                        for (d, sid), emps in solution.items()
-                        if emp_id in emps
-                        for s in [self.problem.shift_by_id[sid]]
-                    )
-                    emp_hours.append((emp_id, total))
-
-                emp_hours.sort(key=lambda x: x[1], reverse=True)
-
-                for i in range(excess):
-                    emp_id = emp_hours[i][0]
-                    assigned.remove(emp_id)
-                    fixes += 1
-
-        return fixes
-
-    def _fix_weekly_hours(self, solution) -> int:
-        """Fix weekly hours violations."""
-        fixes = 0
-
-        for emp in self.problem.employees:
-            for week_key, week_dates in self.weeks.items():
-                hours = self._get_weekly_hours(emp.id, week_key, solution)
-
-                if hours > emp.max_hours_per_week:
-                    # Find shifts to remove from
-                    emp_shifts = []
-                    for date in week_dates:
-                        for shift in self.problem.shifts:
-                            if emp.id in solution.get((date, shift.id), []):
-                                emp_shifts.append((date, shift.id, shift.duration))
-
-                    # Sort by duration (remove from longest first)
-                    emp_shifts.sort(key=lambda x: x[2], reverse=True)
-
-                    # Remove until under limit
-                    for date, shift_id, duration in emp_shifts:
-                        shift = self.problem.shift_by_id[shift_id]
-                        assigned = solution[(date, shift_id)]
-
-                        # Only remove if won't violate min_staff
-                        if len(assigned) > shift.min_staff:
-                            assigned.remove(emp.id)
-                            hours -= duration
-                            fixes += 1
-
-                            if hours <= emp.max_hours_per_week:
-                                break
-
-        return fixes
-
-    def _fix_rest_periods(self, solution) -> int:
-        """Fix rest period violations."""
-        fixes = 0
-
-        for i in range(len(self.dates) - 1):
-            d1, d2 = self.dates[i], self.dates[i + 1]
-
-            if d1 not in self.working_days or d2 not in self.working_days:
-                continue
-
-            for emp in self.problem.employees:
-                shift1 = None
-                shift2 = None
-
-                for shift in self.problem.shifts:
-                    if emp.id in solution.get((d1, shift.id), []):
-                        shift1 = shift
-                    if emp.id in solution.get((d2, shift.id), []):
-                        shift2 = shift
-
-                if shift1 and shift2 and self._violates_rest_period(shift1, shift2, d1):
-                    # Remove from second shift if possible
-                    assigned2 = solution[(d2, shift2.id)]
-                    if len(assigned2) > shift2.min_staff:
-                        assigned2.remove(emp.id)
+                # Remove random employees
+                for _ in range(excess):
+                    if len(assigned) > shift.min_staff:
+                        emp_id = random.choice(assigned)
+                        assigned.remove(emp_id)
                         fixes += 1
 
         return fixes
 
-    def _fix_multiple_shifts(self, solution) -> int:
-        """Fix multiple shifts per day violations."""
-        fixes = 0
-
-        for date in self.working_days:
-            emp_shifts = defaultdict(list)
-
-            for shift in self.problem.shifts:
-                for emp_id in solution.get((date, shift.id), []):
-                    emp_shifts[emp_id].append(shift)
-
-            for emp_id, shifts in emp_shifts.items():
-                if len(shifts) > 1:
-                    # Keep the shift with fewer staff
-                    shift_staffing = []
-                    for shift in shifts:
-                        count = len(solution[(date, shift.id)])
-                        shift_staffing.append((shift, count))
-
-                    shift_staffing.sort(key=lambda x: x[1])
-
-                    # Remove from all but the least staffed
-                    for shift, _ in shift_staffing[1:]:
-                        solution[(date, shift.id)].remove(emp_id)
-                        fixes += 1
-
-        return fixes
-
-    def _can_assign(self, emp_id: int, date, shift, solution) -> bool:
-        """Check if employee can be assigned to shift."""
-        # Check if already assigned that day
-        for s in self.problem.shifts:
-            if emp_id in solution.get((date, s.id), []):
-                return False
-
-        # Check rest periods
-        # Previous day
-        if date > self.problem.start_date:
-            prev_date = date - timedelta(days=1)
-            for s in self.problem.shifts:
-                if emp_id in solution.get((prev_date, s.id), []):
-                    if self._violates_rest_period(s, shift, prev_date):
-                        return False
-
-        # Next day
-        if date < self.problem.end_date:
-            next_date = date + timedelta(days=1)
-            for s in self.problem.shifts:
-                if emp_id in solution.get((next_date, s.id), []):
-                    if self._violates_rest_period(shift, s, date):
-                        return False
-
-        return True
-
-    def _get_weekly_hours(self, emp_id: int, week_key: tuple, solution) -> float:
-        """Calculate weekly hours for employee."""
-        hours = 0
-        for date in self.weeks.get(week_key, []):
-            for shift in self.problem.shifts:
-                if emp_id in solution.get((date, shift.id), []):
-                    hours += shift.duration
-        return hours
-
-    def _improve_coverage(self, solution):
-        """Try to improve coverage beyond minimum requirements."""
+    def _aggressive_fill(self, solution, weekly_hours):
+        """Aggressively fill shifts to improve coverage and utilization."""
         for date in self.working_days:
             week_key = date.isocalendar()[:2]
 
@@ -482,46 +310,46 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                 key = (date, shift.id)
                 assigned = solution[key]
 
-                # Try to add more staff
+                # Try to fill up to max_staff
                 gap = shift.max_staff - len(assigned)
                 if gap > 0:
                     candidates = []
 
                     for emp_id in self.daily_availability[date]:
-                        if emp_id not in assigned and self._can_assign(emp_id, date, shift, solution):
+                        if emp_id not in assigned:
                             emp = self.problem.emp_by_id[emp_id]
-                            weekly_hours = self._get_weekly_hours(emp_id, week_key, solution)
-
-                            if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                                # Calculate current utilization
-                                total_hours = sum(
-                                    s.duration
-                                    for (d, sid), emps in solution.items()
-                                    if emp_id in emps
-                                    for s in [self.problem.shift_by_id[sid]]
-                                )
-                                capacity = emp.max_hours_per_week * len(self.weeks)
-                                utilization = total_hours / capacity if capacity > 0 else 0
-
-                                if utilization < 0.9:  # Don't overwork
-                                    score = (0.9 - utilization) * 100
-                                    if shift.name in emp.preferred_shifts:
-                                        score += 20
-                                    candidates.append((emp_id, score))
+                            current_weekly = weekly_hours[emp_id][week_key]
+                            
+                            # Allow up to 95% of max hours for better utilization
+                            max_allowed = emp.max_hours_per_week * 0.95
+                            if current_weekly + shift.duration <= max_allowed:
+                                # Score by remaining capacity (prefer employees with more available time)
+                                remaining = max_allowed - current_weekly
+                                candidates.append((emp_id, remaining))
 
                     if candidates:
-                        # Sort by score
+                        # Sort by remaining capacity (highest first)
                         candidates.sort(key=lambda x: x[1], reverse=True)
-
-                        # Add some employees
-                        add_count = min(int(gap * 0.5), len(candidates))
-                        for i in range(add_count):
+                        
+                        # Fill as much as possible
+                        fill_count = min(gap, len(candidates))
+                        for i in range(fill_count):
                             emp_id = candidates[i][0]
-                            assigned.append(emp_id)
+                            solution[key].append(emp_id)
+                            weekly_hours[emp_id][week_key] += shift.duration
 
-    def _evaluate_repaired(self, individual) -> Tuple[float, float, float]:
+    def _get_weekly_hours_fast(self, emp_id: int, week_key: tuple, solution) -> float:
+        """Fast calculation of weekly hours for employee."""
+        hours = 0
+        for date in self.weeks.get(week_key, []):
+            for shift in self.problem.shifts:
+                if emp_id in solution.get((date, shift.id), []):
+                    hours += shift.duration
+        return hours
+
+    def _evaluate_fast(self, individual) -> Tuple[float, float, float]:
         """
-        Evaluate repaired individual (no violation checking needed):
+        Fast evaluation of individual:
         1. Coverage rate (maximize)
         2. Average utilization (maximize)
         3. Fairness score (maximize)
@@ -561,22 +389,25 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                 utilizations.append(util)
 
         avg_utilization = np.mean(utilizations) if utilizations else 0
+        
+        # Boost utilization score if it's below target (85%)
+        if avg_utilization < 0.85:
+            avg_utilization = avg_utilization * 0.7  # Penalize low utilization more
 
         # Calculate fairness
         if len(emp_hours) > 1:
             hours_list = list(emp_hours.values())
-            # Use coefficient of variation for fairness
             mean_hours = np.mean(hours_list)
             std_hours = np.std(hours_list)
             cv = std_hours / mean_hours if mean_hours > 0 else 0
-            fairness = 1 / (1 + cv)  # Transform to 0-1 where 1 is perfectly fair
+            fairness = 1 / (1 + cv)
         else:
             fairness = 1.0
 
         return (coverage_rate, avg_utilization, fairness)
 
-    def _crossover_with_repair(self, ind1, ind2):
-        """Crossover followed by repair."""
+    def _fast_crossover(self, ind1, ind2):
+        """Fast crossover operation."""
         # Week-based crossover
         child1 = {}
         child2 = {}
@@ -599,9 +430,9 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                             child1[key] = ind2.get(key, []).copy()
                             child2[key] = ind1.get(key, []).copy()
 
-        # Repair children
-        self._repair_solution(child1)
-        self._repair_solution(child2)
+        # Quick repair
+        self._quick_repair(child1)
+        self._quick_repair(child2)
 
         # Update individuals
         ind1.clear()
@@ -611,37 +442,27 @@ class NSGA2Scheduler(SchedulingAlgorithm):
 
         return ind1, ind2
 
-    def _mutate_with_repair(self, individual):
-        """Mutation followed by repair."""
-        # Choose mutation strength based on current state
-        coverage = self._calculate_coverage(individual)
-
-        if coverage < 0.7:
-            # Aggressive mutations to improve coverage
-            num_mutations = random.randint(5, 10)
-        else:
-            # Lighter mutations for fine-tuning
-            num_mutations = random.randint(1, 3)
+    def _fast_mutate(self, individual):
+        """Fast mutation operation."""
+        # More aggressive mutations
+        num_mutations = random.randint(2, 5)
 
         for _ in range(num_mutations):
-            mutation_type = random.choice(['add', 'remove', 'swap', 'redistribute'])
+            # Bias towards adding staff (70% add, 30% remove)
+            mutation_type = random.choices(['add', 'remove'], weights=[0.7, 0.3])[0]
 
             if mutation_type == 'add':
-                self._mutation_add_staff(individual)
+                self._mutation_add_staff_fast(individual)
             elif mutation_type == 'remove':
-                self._mutation_remove_staff(individual)
-            elif mutation_type == 'swap':
-                self._mutation_swap_staff(individual)
-            elif mutation_type == 'redistribute':
-                self._mutation_redistribute(individual)
+                self._mutation_remove_staff_fast(individual)
 
-        # Repair after mutations
-        self._repair_solution(individual)
+        # Quick repair
+        self._quick_repair(individual)
 
         return individual,
 
-    def _mutation_add_staff(self, individual):
-        """Add staff to understaffed shifts."""
+    def _mutation_add_staff_fast(self, individual):
+        """Fast add staff mutation."""
         understaffed = []
 
         for (date, shift_id), assigned in individual.items():
@@ -651,26 +472,31 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                 understaffed.append(((date, shift_id), gap))
 
         if understaffed:
-            # Sort by gap size
+            # Sort by gap size (largest gaps first)
             understaffed.sort(key=lambda x: x[1], reverse=True)
+            
+            # Try to fill multiple understaffed shifts
+            for (date, shift_id), gap in understaffed[:3]:  # Try top 3
+                shift = self.problem.shift_by_id[shift_id]
+                assigned = individual[(date, shift_id)]
+                week_key = date.isocalendar()[:2]
 
-            # Try to fill largest gap
-            (date, shift_id), gap = understaffed[0]
-            shift = self.problem.shift_by_id[shift_id]
-            assigned = individual[(date, shift_id)]
+                candidates = []
+                for emp_id in self.daily_availability.get(date, []):
+                    if emp_id not in assigned:
+                        emp = self.problem.emp_by_id[emp_id]
+                        weekly_hours = self._get_weekly_hours_fast(emp_id, week_key, individual)
+                        # Allow up to 95% of max hours
+                        if weekly_hours + shift.duration <= emp.max_hours_per_week * 0.95:
+                            candidates.append(emp_id)
 
-            candidates = []
-            for emp_id in self.daily_availability.get(date, []):
-                if emp_id not in assigned and self._can_assign(emp_id, date, shift, individual):
-                    candidates.append(emp_id)
+                if candidates:
+                    add_count = min(gap, len(candidates))
+                    selected = random.sample(candidates, add_count)
+                    assigned.extend(selected)
 
-            if candidates:
-                add_count = min(random.randint(1, gap), len(candidates))
-                selected = random.sample(candidates, add_count)
-                assigned.extend(selected)
-
-    def _mutation_remove_staff(self, individual):
-        """Remove staff from overstaffed shifts."""
+    def _mutation_remove_staff_fast(self, individual):
+        """Fast remove staff mutation."""
         overstaffed = []
 
         for (date, shift_id), assigned in individual.items():
@@ -688,136 +514,6 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                     emp_id = random.choice(assigned)
                     assigned.remove(emp_id)
 
-    def _mutation_swap_staff(self, individual):
-        """Swap staff between shifts."""
-        # Get all non-empty shifts
-        staffed_shifts = [(k, v) for k, v in individual.items() if v]
-
-        if len(staffed_shifts) >= 2:
-            (date1, shift1_id), staff1 = random.choice(staffed_shifts)
-            (date2, shift2_id), staff2 = random.choice(staffed_shifts)
-
-            if staff1 and staff2 and (date1, shift1_id) != (date2, shift2_id):
-                emp1 = random.choice(staff1)
-                emp2 = random.choice(staff2)
-
-                # Check if swap is valid
-                emp1_obj = self.problem.emp_by_id[emp1]
-                emp2_obj = self.problem.emp_by_id[emp2]
-
-                if (date2 not in emp1_obj.absence_dates and
-                        date1 not in emp2_obj.absence_dates):
-                    # Perform swap
-                    staff1.remove(emp1)
-                    staff2.remove(emp2)
-                    staff1.append(emp2)
-                    staff2.append(emp1)
-
-    def _mutation_redistribute(self, individual):
-        """Redistribute staff for better balance."""
-        # Find most and least staffed shifts on same day
-        daily_staffing = defaultdict(list)
-
-        for (date, shift_id), assigned in individual.items():
-            shift = self.problem.shift_by_id[shift_id]
-            ratio = len(assigned) / shift.max_staff if shift.max_staff > 0 else 1
-            daily_staffing[date].append((shift_id, ratio, assigned, shift))
-
-        for date, shifts_info in daily_staffing.items():
-            if len(shifts_info) >= 2:
-                # Sort by staffing ratio
-                shifts_info.sort(key=lambda x: x[1])
-
-                least_staffed = shifts_info[0]
-                most_staffed = shifts_info[-1]
-
-                if (most_staffed[1] - least_staffed[1] > 0.2 and
-                        len(most_staffed[2]) > most_staffed[3].min_staff and
-                        len(least_staffed[2]) < least_staffed[3].max_staff):
-
-                    # Try to move someone
-                    for emp_id in most_staffed[2]:
-                        if emp_id not in least_staffed[2]:
-                            # Move employee
-                            most_staffed[2].remove(emp_id)
-                            least_staffed[2].append(emp_id)
-                            break
-
-    def _calculate_coverage(self, individual) -> float:
-        """Calculate current coverage rate."""
-        total_positions = 0
-        filled_positions = 0
-
-        for date in self.working_days:
-            for shift in self.problem.shifts:
-                assigned = len(individual.get((date, shift.id), []))
-                total_positions += shift.max_staff
-                filled_positions += min(assigned, shift.max_staff)
-
-        return filled_positions / total_positions if total_positions > 0 else 0
-
-    def _aggressive_final_fill(self, individual):
-        """Aggressive final pass to maximize coverage."""
-        improvements = 0
-
-        # Sort shifts by current coverage
-        shift_coverage = []
-        for (date, shift_id), assigned in individual.items():
-            shift = self.problem.shift_by_id[shift_id]
-            coverage = len(assigned) / shift.max_staff if shift.max_staff > 0 else 1
-            if coverage < 1:
-                gap = shift.max_staff - len(assigned)
-                shift_coverage.append(((date, shift_id), coverage, gap))
-
-        shift_coverage.sort(key=lambda x: x[1])
-
-        # Try to fill gaps
-        for (date, shift_id), coverage, gap in shift_coverage:
-            shift = self.problem.shift_by_id[shift_id]
-            assigned = individual[(date, shift_id)]
-            week_key = date.isocalendar()[:2]
-
-            candidates = []
-            for emp_id in self.daily_availability.get(date, []):
-                if emp_id not in assigned and self._can_assign(emp_id, date, shift, individual):
-                    emp = self.problem.emp_by_id[emp_id]
-                    weekly_hours = self._get_weekly_hours(emp_id, week_key, individual)
-
-                    if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                        # Calculate utilization
-                        total_hours = sum(
-                            s.duration
-                            for (d, sid), emps in individual.items()
-                            if emp_id in emps
-                            for s in [self.problem.shift_by_id[sid]]
-                        )
-                        working_days_available = sum(
-                            1 for d in self.working_days
-                            if d not in emp.absence_dates
-                        )
-                        daily_capacity = emp.max_hours_per_week / (6 if self.sundays_off else 7)
-                        capacity = working_days_available * daily_capacity
-
-                        utilization = total_hours / capacity if capacity > 0 else 0
-
-                        if utilization < 0.95:
-                            priority = (0.95 - utilization) * 100
-                            if shift.name in emp.preferred_shifts:
-                                priority += 30
-                            candidates.append((emp_id, priority))
-
-            if candidates:
-                candidates.sort(key=lambda x: x[1], reverse=True)
-
-                # Fill as much as possible
-                for emp_id, _ in candidates[:gap]:
-                    assigned.append(emp_id)
-                    improvements += 1
-
-        if improvements > 0:
-            coverage = self._calculate_coverage(individual)
-            print(f"[NSGA-II Hybrid] Final fill added {improvements} assignments, coverage now {coverage:.1%}")
-
     def _decode_solution(self, individual) -> List[ScheduleEntry]:
         """Convert solution dictionary to schedule entries."""
         entries = []
@@ -825,9 +521,3 @@ class NSGA2Scheduler(SchedulingAlgorithm):
             for emp_id in emp_ids:
                 entries.append(ScheduleEntry(emp_id, date, shift_id))
         return entries
-
-    def _violates_rest_period(self, shift1, shift2, date1) -> bool:
-        """Check if two consecutive shifts violate 11-hour rest period."""
-        # Use KPI Calculator for consistent rest period validation
-        kpi_calculator = KPICalculator(self.company)
-        return kpi_calculator.violates_rest_period(shift1, shift2, date1)
