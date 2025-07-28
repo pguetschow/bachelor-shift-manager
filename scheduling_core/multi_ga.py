@@ -1,14 +1,14 @@
 import random
-import numpy as np
-from typing import List, Tuple, Dict, Set
-from datetime import timedelta, datetime
 from collections import defaultdict
-from deap import base, creator, tools, algorithms
-import array
+from datetime import timedelta
+from typing import List, Tuple
 
-from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Solution
+import numpy as np
+from deap import base, creator, tools
+
+from rostering_app.services.kpi_calculator import KPICalculator
+from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry
 from .utils import get_weeks
-from rostering_app.calculations import calculate_utilization_percentage
 
 
 class NSGA2Scheduler(SchedulingAlgorithm):
@@ -27,33 +27,16 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         self.repair_iterations = repair_iterations
         self.sundays_off = sundays_off
         self.holidays = set()
+        self.company = None  # Will be set in solve method
 
     @property
     def name(self) -> str:
         return "NSGA-II Hybrid with Repair"
 
     def _get_holidays_for_year(self, year: int) -> set:
-        """Get German national holidays for a specific year as date tuples."""
-        if year == 2024:
-            return {
-                (2024, 1, 1), (2024, 1, 6), (2024, 3, 29), (2024, 4, 1),
-                (2024, 5, 1), (2024, 5, 9), (2024, 5, 20), (2024, 10, 3),
-                (2024, 12, 25), (2024, 12, 26),
-            }
-        elif year == 2025:
-            return {
-                (2025, 1, 1), (2025, 1, 6), (2025, 4, 18), (2025, 4, 21),
-                (2025, 5, 1), (2025, 5, 29), (2025, 6, 9), (2025, 10, 3),
-                (2025, 12, 25), (2025, 12, 26),
-            }
-        elif year == 2026:
-            return {
-                (2026, 1, 1), (2026, 1, 6), (2026, 4, 3), (2026, 4, 6),
-                (2026, 5, 1), (2026, 5, 14), (2026, 5, 25), (2026, 10, 3),
-                (2026, 12, 25), (2026, 12, 26),
-            }
-        else:
-            return set()
+        """Get holidays as (year, month, day) tuples using utils function."""
+        from rostering_app.utils import get_holidays_for_year_as_full_tuples
+        return get_holidays_for_year_as_full_tuples(year)
 
     def _is_non_working_day(self, date) -> bool:
         """Check if a date is a non-working day (holiday or Sunday)."""
@@ -66,7 +49,14 @@ class NSGA2Scheduler(SchedulingAlgorithm):
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
         """Solve using NSGA-II with repair mechanism."""
         self.problem = problem
+        self.company = problem.company  # Store company for KPI Calculator
         self.weeks = get_weeks(problem.start_date, problem.end_date)
+
+        # Clean up any existing DEAP creator classes to avoid warnings
+        if hasattr(creator, "FitnessMulti"):
+            del creator.FitnessMulti
+        if hasattr(creator, "Individual"):
+            del creator.Individual
 
         # Populate holidays
         self.holidays = set()
@@ -83,12 +73,17 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         # Pre-calculate employee availability
         self._calculate_availability()
 
+        # Check if we have any working days
+        if not self.working_days:
+            print("[NSGA-II Hybrid] No working days with available employees found. Returning empty solution.")
+            return []
+
         # Scale down min_staff if needed
         self._check_and_scale_demand()
 
         # Setup DEAP - 3 objectives (no violations needed as we repair)
         creator.create("FitnessMulti", base.Fitness, weights=(1.0, 1.0, 1.0))
-        creator.create("Individual", list, fitness=creator.FitnessMulti)
+        creator.create("Individual", dict, fitness=creator.FitnessMulti)
 
         toolbox = base.Toolbox()
 
@@ -168,12 +163,15 @@ class NSGA2Scheduler(SchedulingAlgorithm):
 
         for date in self.dates:
             if not self._is_non_working_day(date):
-                self.working_days.append(date)
                 available = []
                 for emp in self.problem.employees:
                     if date not in emp.absence_dates:
                         available.append(emp.id)
-                self.daily_availability[date] = set(available)
+                
+                # Only add date as working day if there are available employees
+                if available:
+                    self.working_days.append(date)
+                    self.daily_availability[date] = set(available)
 
     def _check_and_scale_demand(self):
         """Check if demand exceeds capacity and scale down if needed."""
@@ -221,6 +219,10 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         # First pass: meet minimum requirements
         for date in self.working_days:
             week_key = date.isocalendar()[:2]
+
+            # Skip dates with no available employees
+            if len(self.daily_availability[date]) == 0:
+                continue
 
             # Sort shifts by criticality (harder to staff first)
             shifts_sorted = sorted(self.problem.shifts,
@@ -826,9 +828,6 @@ class NSGA2Scheduler(SchedulingAlgorithm):
 
     def _violates_rest_period(self, shift1, shift2, date1) -> bool:
         """Check if two consecutive shifts violate 11-hour rest period."""
-        end1 = datetime.combine(date1, shift1.end)
-        if shift1.end < shift1.start:
-            end1 += timedelta(days=1)
-        start2 = datetime.combine(date1 + timedelta(days=1), shift2.start)
-        pause = (start2 - end1).total_seconds() / 3600
-        return pause < 11
+        # Use KPI Calculator for consistent rest period validation
+        kpi_calculator = KPICalculator(self.company)
+        return kpi_calculator.violates_rest_period(shift1, shift2, date1)

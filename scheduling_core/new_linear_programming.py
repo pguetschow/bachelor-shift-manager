@@ -1,7 +1,6 @@
-from datetime import timedelta, datetime, date
 from collections import defaultdict
+from datetime import timedelta, date
 from typing import List, Set, Tuple
-from calendar import monthrange
 
 from pulp import (
     LpProblem,
@@ -17,7 +16,7 @@ from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Shift
 from .utils import get_weeks
 
 
-class OptimizedILPScheduler(SchedulingAlgorithm):
+class ILPScheduler(SchedulingAlgorithm):
     """Optimized ILP scheduler: consolidates constraints and uses utilization for fairness.
 
     Variable names are made explicit for readability.
@@ -27,6 +26,7 @@ class OptimizedILPScheduler(SchedulingAlgorithm):
         self.sundays_off = sundays_off
         # store holidays as (year, month, day) tuples
         self.holidays: Set[Tuple[int, int, int]] = set()
+        self.company = None  # Will be set in solve method
 
     @property
     def name(self) -> str:
@@ -36,6 +36,9 @@ class OptimizedILPScheduler(SchedulingAlgorithm):
     # Public entry point
     # ------------------------------------------------------------------
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
+        # Store company for KPI Calculator
+        self.company = problem.company
+        
         # 1) Build the list of all dates in the horizon (inclusive)
         all_dates: List[date] = []
         current_day = problem.start_date
@@ -234,7 +237,7 @@ class OptimizedILPScheduler(SchedulingAlgorithm):
             )
             employee_absences = len(employee.absence_dates);
             yearly_capacity = employee.max_hours_per_week * 52 - (employee_absences * 8)
-            model += total_hours_var[employee.id] >= yearly_capacity * 0.90 # 85% min util
+            model += total_hours_var[employee.id] >= yearly_capacity * 0.95 # 95% min util
 
         # Solve
         solver = PULP_CBC_CMD(msg=False, timeLimit=300)
@@ -253,60 +256,26 @@ class OptimizedILPScheduler(SchedulingAlgorithm):
     # ------------------------------------------------------------------
     def _date_blocked(self, employee, day: date) -> bool:
         """True if employee cannot work on `day` due to holiday/absence/Sunday off."""
-        if (day.year, day.month, day.day) in self.holidays:
-            return True
-        if day in getattr(employee, 'absence_dates', set()):
-            return True
-        if self.sundays_off and day.weekday() == 6:
-            return True
-        return False
+        # Use KPI Calculator for consistent date blocking logic
+        from rostering_app.services.kpi_calculator import KPICalculator
+        kpi_calculator = KPICalculator(self.company)
+        return kpi_calculator.is_date_blocked(employee, day)
 
     def _expected_month_hours(self, employee, year: int, month: int) -> float:
-        weekly_hours = getattr(employee, 'weekly_hours', getattr(employee, 'max_hours_per_week', 0))
-        days_per_week = 6 if self.sundays_off else 7
-        if days_per_week == 0:
-            return 0.0
-
-        start = date(year, month, 1)
-        end = date(year, month, monthrange(year, month)[1])
-        day = start
-        workable_days = 0
-        while day <= end:
-            if not self._date_blocked(employee, day):
-                workable_days += 1
-            day += timedelta(days=1)
-
-        avg_daily_hours = weekly_hours / days_per_week
-        raw_hours = avg_daily_hours * workable_days
-        return round(raw_hours / 8) * 8  # nearest 8-hour block
+        """Calculate expected monthly hours for an employee."""
+        # Use KPI Calculator for consistent expected hours calculation
+        from rostering_app.services.kpi_calculator import KPICalculator
+        kpi_calculator = KPICalculator(self.company)
+        return kpi_calculator.calculate_expected_month_hours(employee, year, month)
 
     def _violates_rest_period(self, shift1: Shift, shift2: Shift, date1: date) -> bool:
         """Return True if the gap between shift1 (on date1) and shift2 (next day) is < 11h."""
-        end_first = datetime.combine(date1, shift1.end)
-        if shift1.end < shift1.start:
-            end_first += timedelta(days=1)  # overnight shift wraps
-        start_second = datetime.combine(date1 + timedelta(days=1), shift2.start)
-        pause_hours = (start_second - end_first).total_seconds() / 3600
-        return pause_hours < 11
+        # Use KPI Calculator for consistent rest period validation
+        from rostering_app.services.kpi_calculator import KPICalculator
+        kpi_calculator = KPICalculator(self.company)
+        return kpi_calculator.violates_rest_period(shift1, shift2, date1)
 
     def _get_holidays_for_year(self, year: int) -> Set[Tuple[int, int]]:
-        if year == 2024:
-            return {
-                (1, 1), (1, 6), (3, 29), (4, 1),
-                (5, 1), (5, 9), (5, 20), (10, 3),
-                (12, 25), (12, 26),
-            }
-        elif year == 2025:
-            return {
-                (1, 1), (1, 6), (4, 18), (4, 21),
-                (5, 1), (5, 29), (6, 9), (10, 3),
-                (12, 25), (12, 26),
-            }
-        elif year == 2026:
-            return {
-                (1, 1), (1, 6), (4, 3), (4, 6),
-                (5, 1), (5, 14), (5, 25), (10, 3),
-                (12, 25), (12, 26),
-            }
-        else:
-            return set()
+        """Get holidays as (month, day) tuples using utils function."""
+        from rostering_app.utils import get_holidays_for_year_as_tuples
+        return get_holidays_for_year_as_tuples(year)

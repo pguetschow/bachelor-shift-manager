@@ -1,4 +1,5 @@
 from django import template
+
 from rostering_app.utils import get_shift_display_name
 
 register = template.Library()

@@ -15,11 +15,11 @@ from django.utils import timezone
 
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.converters import employees_to_core, shifts_to_core
-from scheduling_core import NSGA2Scheduler, OptimizedILPScheduler
+from rostering_app.services.kpi_storage import KPIStorageService
+from scheduling_core import NSGA2Scheduler, ILPScheduler
 
 # Import scheduling algorithms
 from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
-from scheduling_core.linear_programming import LinearProgrammingScheduler
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
 from scheduling_core.simulated_annealing import SimulatedAnnealingScheduler, CoolingSchedule
 
@@ -88,18 +88,16 @@ class Command(BaseCommand):
 
             # Algorithm configurations - will be created per company
             algorithm_classes = [
-                OptimizedILPScheduler,
-                # LinearProgrammingScheduler,
+                # ILPScheduler,
                 # GeneticAlgorithmScheduler,
                 # SimulatedAnnealingScheduler,
-                # NSGA2Scheduler
+                NSGA2Scheduler
             ]
 
             # Filter algorithms if requested
             if algorithm_filter:
                 algorithm_map = {
-                    'OptimizedILPScheduler': OptimizedILPScheduler,
-                    'LinearProgramming': LinearProgrammingScheduler,
+                    'LinearProgramming': ILPScheduler,
                     'GeneticAlgorithm': GeneticAlgorithmScheduler,
                     'SimulatedAnnealing': SimulatedAnnealingScheduler,
                     'NSGA2Scheduler': NSGA2Scheduler,
@@ -379,9 +377,10 @@ class Command(BaseCommand):
             )
 
             for entry in entries:
-                # Use date-range-aware calculation for accurate hours
-                from rostering_app.views import calculate_shift_hours_in_date_range
-                duration = calculate_shift_hours_in_date_range(entry.shift, entry.date, start_date, end_date)
+                # Use KPI Calculator for consistent calculations
+                from rostering_app.services.kpi_calculator import KPICalculator
+                kpi_calculator = KPICalculator(company)
+                duration = kpi_calculator.calculate_shift_hours_in_range(entry.shift, entry.date, start_date, end_date)
                 hours_worked += duration
                 shifts_worked += 1
 
@@ -430,6 +429,33 @@ class Command(BaseCommand):
         for shift_name, stats in shift_coverage_stats.items():
             coverage_rates[shift_name] = (stats['filled'] / stats['required'] * 100
                                          if stats['required'] > 0 else 0)
+
+        # Save KPIs to database using KPI Storage Service
+        try:
+            kpi_storage = KPIStorageService(company)
+            
+            # Save KPIs for each month of the year (2025)
+            for month in range(1, 13):
+                # Calculate and store employee KPIs for this month
+                for emp in employees:
+                    kpi_storage.get_or_calculate_employee_kpi(emp, 2025, month, algorithm_name, force_recalculate=True)
+                
+                # Calculate and store company KPI for this month
+                company_kpi = kpi_storage.get_or_calculate_company_kpi(2025, month, algorithm_name, force_recalculate=True)
+                
+                # Calculate and store coverage KPI for this month
+                month_start = date(2025, month, 1)
+                month_end = date(2025, month, 28)  # Use 28 to ensure we get the full month
+                while month_end.month == month:
+                    month_end += timedelta(days=1)
+                month_end -= timedelta(days=1)
+                
+                kpi_storage.get_or_calculate_coverage_kpi(month_start, month_end, algorithm_name, force_recalculate=True)
+            
+            self.stdout.write(f"✓ Saved KPIs for {algorithm_name} at {company.name}")
+            
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"Warning: Failed to save KPIs for {algorithm_name}: {e}"))
 
         return {
             'total_hours_worked': total_hours_worked,

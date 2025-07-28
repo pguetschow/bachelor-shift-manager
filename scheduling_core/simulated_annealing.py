@@ -1,18 +1,16 @@
-import random
 import math
-from typing import List, Tuple, Dict
-from datetime import timedelta, datetime
-from enum import Enum
+import random
 from collections import defaultdict
+from datetime import timedelta
+from enum import Enum
+from typing import List, Dict
 
+from rostering_app.services.kpi_calculator import KPICalculator
+from rostering_app.utils import (get_working_days_in_range)
 from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Solution
 from .utils import (
-    get_weeks, is_employee_available, evaluate_solution,
-    create_empty_solution,
+    get_weeks, create_empty_solution,
 )
-
-from rostering_app.utils import (is_non_working_day, get_working_days_in_range)
-from rostering_app.calculations import calculate_utilization_percentage
 
 
 class CoolingSchedule(Enum):
@@ -33,33 +31,16 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         self.cooling_schedule = cooling_schedule
         self.sundays_off = sundays_off
         self.holidays = set()
+        self.company = None  # Will be set in solve method
 
     @property
     def name(self) -> str:
         return "Simulated Annealing"
 
     def _get_holidays_for_year(self, year: int) -> set:
-        """Get German national holidays for a specific year as date tuples."""
-        if year == 2024:
-            return {
-                (2024, 1, 1), (2024, 1, 6), (2024, 3, 29), (2024, 4, 1),
-                (2024, 5, 1), (2024, 5, 9), (2024, 5, 20), (2024, 10, 3),
-                (2024, 12, 25), (2024, 12, 26),
-            }
-        elif year == 2025:
-            return {
-                (2025, 1, 1), (2025, 1, 6), (2025, 4, 18), (2025, 4, 21),
-                (2025, 5, 1), (2025, 5, 29), (2025, 6, 9), (2025, 10, 3),
-                (2025, 12, 25), (2025, 12, 26),
-            }
-        elif year == 2026:
-            return {
-                (2026, 1, 1), (2026, 1, 6), (2026, 4, 3), (2026, 4, 6),
-                (2026, 5, 1), (2026, 5, 14), (2026, 5, 25), (2026, 10, 3),
-                (2026, 12, 25), (2026, 12, 26),
-            }
-        else:
-            return set()
+        """Get holidays as (year, month, day) tuples using utils function."""
+        from rostering_app.utils import get_holidays_for_year_as_full_tuples
+        return get_holidays_for_year_as_full_tuples(year)
 
     def _is_non_working_day(self, date) -> bool:
         """Check if a date is a non-working day (holiday or Sunday)."""
@@ -71,12 +52,10 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
 
     def _violates_rest_period(self, shift1, shift2, date1) -> bool:
         """Check if two consecutive shifts violate 11-hour rest period."""
-        end1 = datetime.combine(date1, shift1.end)
-        if shift1.end < shift1.start:
-            end1 += timedelta(days=1)
-        start2 = datetime.combine(date1 + timedelta(days=1), shift2.start)
-        pause = (start2 - end1).total_seconds() / 3600
-        return pause < 11
+        # Use KPI Calculator for consistent rest period validation
+        from rostering_app.services.kpi_calculator import KPICalculator
+        kpi_calculator = KPICalculator(self.company)
+        return kpi_calculator.violates_rest_period(shift1, shift2, date1)
 
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
         """Solve using simulated annealing with proper constraints."""
@@ -296,7 +275,8 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
             capacity = self.employee_capacity[emp.id]
 
             if capacity > 0:
-                utilization = worked_hours / capacity
+                kpi_calculator = KPICalculator(self.company)
+                utilization = kpi_calculator.calculate_utilization_percentage(worked_hours, capacity)
                 if 0.85 <= utilization <= 0.95:
                     penalty += w_utilization * utilization
                 elif utilization > 0.95:
@@ -400,7 +380,8 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         for emp in self.problem.employees:
             worked = emp_hours.get(emp.id, 0)
             capacity = self.employee_capacity[emp.id]
-            utilization = calculate_utilization_percentage(worked, capacity)
+            kpi_calculator = KPICalculator(self.company)
+            utilization = kpi_calculator.calculate_utilization_percentage(worked, capacity)
             if capacity > 0:
                 total_utilization += utilization / 100.0
                 count += 1

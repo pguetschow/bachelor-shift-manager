@@ -1,7 +1,8 @@
-from rostering_app.models import Employee as DjangoEmployee, Shift as DjangoShift, ScheduleEntry as DjangoScheduleEntry, Company
-from scheduling_core.base import Employee as CoreEmployee, Shift as CoreShift, ScheduleEntry as CoreScheduleEntry
-from datetime import date, time
+from datetime import date
 from typing import Set, List
+
+from rostering_app.models import Employee as DjangoEmployee, Shift as DjangoShift, ScheduleEntry as DjangoScheduleEntry
+from scheduling_core.base import Employee as CoreEmployee, Shift as CoreShift, ScheduleEntry as CoreScheduleEntry
 
 
 def employee_to_core(employee: DjangoEmployee) -> CoreEmployee:

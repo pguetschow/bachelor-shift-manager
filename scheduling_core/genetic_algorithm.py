@@ -1,14 +1,14 @@
 import random
-from typing import List, Tuple
-from datetime import timedelta, datetime
 from collections import defaultdict
+from datetime import timedelta
+from typing import List
 
+from rostering_app.services.kpi_calculator import KPICalculator
 from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Solution
 from .utils import (
-    get_weeks, is_employee_available, evaluate_solution,
-    create_empty_solution, check_rest_period
+    get_weeks, evaluate_solution,
+    create_empty_solution
 )
-from rostering_app.calculations import calculate_utilization_percentage
 
 
 class GeneticAlgorithmScheduler(SchedulingAlgorithm):
@@ -24,6 +24,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         self.elitism_size = elitism_size
         self.sundays_off = sundays_off
         self.holidays = set()
+        self.company = None  # Will be set in solve method
 
     @property
     def name(self) -> str:
@@ -31,26 +32,8 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
 
     def _get_holidays_for_year(self, year: int) -> set:
         """Get German national holidays for a specific year as date tuples."""
-        if year == 2024:
-            return {
-                (2024, 1, 1), (2024, 1, 6), (2024, 3, 29), (2024, 4, 1),
-                (2024, 5, 1), (2024, 5, 9), (2024, 5, 20), (2024, 10, 3),
-                (2024, 12, 25), (2024, 12, 26),
-            }
-        elif year == 2025:
-            return {
-                (2025, 1, 1), (2025, 1, 6), (2025, 4, 18), (2025, 4, 21),
-                (2025, 5, 1), (2025, 5, 29), (2025, 6, 9), (2025, 10, 3),
-                (2025, 12, 25), (2025, 12, 26),
-            }
-        elif year == 2026:
-            return {
-                (2026, 1, 1), (2026, 1, 6), (2026, 4, 3), (2026, 4, 6),
-                (2026, 5, 1), (2026, 5, 14), (2026, 5, 25), (2026, 10, 3),
-                (2026, 12, 25), (2026, 12, 26),
-            }
-        else:
-            return set()
+        from rostering_app.utils import get_holidays_for_year_as_full_tuples
+        return get_holidays_for_year_as_full_tuples(year)
 
     def _is_non_working_day(self, date) -> bool:
         """Check if a date is a non-working day (holiday or Sunday)."""
@@ -62,16 +45,15 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
 
     def _violates_rest_period(self, shift1, shift2, date1) -> bool:
         """Check if two consecutive shifts violate 11-hour rest period."""
-        end1 = datetime.combine(date1, shift1.end)
-        if shift1.end < shift1.start:
-            end1 += timedelta(days=1)
-        start2 = datetime.combine(date1 + timedelta(days=1), shift2.start)
-        pause = (start2 - end1).total_seconds() / 3600
-        return pause < 11
+        # Use KPI Calculator for consistent rest period validation
+        from rostering_app.services.kpi_calculator import KPICalculator
+        kpi_calculator = KPICalculator(self.company)
+        return kpi_calculator.violates_rest_period(shift1, shift2, date1)
 
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
         """Solve using genetic algorithm."""
         self.problem = problem
+        self.company = problem.company  # Store company for KPI Calculator
         self.weeks = get_weeks(problem.start_date, problem.end_date)
 
         # Populate holidays for the date range using tuple format
@@ -407,7 +389,8 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             for emp in self.problem.employees:
                 worked_hours = emp_hours.get(emp.id, 0)
                 yearly_capacity = emp.max_hours_per_week * 52
-                utilization = calculate_utilization_percentage(worked_hours, yearly_capacity) / 100.0
+                kpi_calculator = KPICalculator(self.company)
+                utilization = kpi_calculator.calculate_utilization_percentage(worked_hours, yearly_capacity) / 100.0
 
                 # Bonus for good utilization (85-95%)
                 if 0.85 <= utilization <= 0.95:
@@ -759,7 +742,8 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                                 if emp.id in emps for s in [self.problem.shift_by_id[sid]]
                             )
                             yearly_capacity = emp.max_hours_per_week * 52
-                            utilization = calculate_utilization_percentage(total_hours, yearly_capacity) / 100.0
+                            kpi_calculator = KPICalculator(self.company)
+                            utilization = kpi_calculator.calculate_utilization_percentage(total_hours, yearly_capacity) / 100.0
 
                             # Prioritize underutilized employees
                             if utilization < 0.95:

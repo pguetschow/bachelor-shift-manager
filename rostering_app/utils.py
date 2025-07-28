@@ -1,7 +1,7 @@
 """Utility functions for the rostering app."""
-from datetime import date, datetime, timedelta
-from typing import Set, List, Optional
 import calendar
+from datetime import date, timedelta
+from typing import Set, List, Optional, Tuple
 
 
 def get_german_holidays_2025() -> Set[date]:
@@ -62,6 +62,54 @@ def get_holidays_for_year(year: int) -> Set[date]:
         return get_german_holidays_2026()
     else:
         # For other years, return an empty set or implement a more sophisticated calculation
+        return set()
+
+
+def get_holidays_for_year_as_tuples(year: int) -> Set[Tuple[int, int]]:
+    """Get German national holidays for a specific year as (month, day) tuples."""
+    if year == 2024:
+        return {
+            (1, 1), (1, 6), (3, 29), (4, 1),
+            (5, 1), (5, 9), (5, 20), (10, 3),
+            (12, 25), (12, 26),
+        }
+    elif year == 2025:
+        return {
+            (1, 1), (1, 6), (4, 18), (4, 21),
+            (5, 1), (5, 29), (6, 9), (10, 3),
+            (12, 25), (12, 26),
+        }
+    elif year == 2026:
+        return {
+            (1, 1), (1, 6), (4, 3), (4, 6),
+            (5, 1), (5, 14), (5, 25), (10, 3),
+            (12, 25), (12, 26),
+        }
+    else:
+        return set()
+
+
+def get_holidays_for_year_as_full_tuples(year: int) -> Set[Tuple[int, int, int]]:
+    """Get German national holidays for a specific year as (year, month, day) tuples."""
+    if year == 2024:
+        return {
+            (2024, 1, 1), (2024, 1, 6), (2024, 3, 29), (2024, 4, 1),
+            (2024, 5, 1), (2024, 5, 9), (2024, 5, 20), (2024, 10, 3),
+            (2024, 12, 25), (2024, 12, 26),
+        }
+    elif year == 2025:
+        return {
+            (2025, 1, 1), (2025, 1, 6), (2025, 4, 18), (2025, 4, 21),
+            (2025, 5, 1), (2025, 5, 29), (2025, 6, 9), (2025, 10, 3),
+            (2025, 12, 25), (2025, 12, 26),
+        }
+    elif year == 2026:
+        return {
+            (2026, 1, 1), (2026, 1, 6), (2026, 4, 3), (2026, 4, 6),
+            (2026, 5, 1), (2026, 5, 14), (2026, 5, 25), (2026, 10, 3),
+            (2026, 12, 25), (2026, 12, 26),
+        }
+    else:
         return set()
 
 
@@ -161,7 +209,7 @@ def get_shift_display_name(shift_name: str) -> str:
     """Get German display name for a shift."""
     shift_translations = {
         'EarlyShift': 'Frühschicht',
-        'MorningShift': 'Morgenschicht',
+        'MorningShift': 'Tagschicht',
         'LateShift': 'Spätschicht',
         'NightShift': 'Nachtschicht',
     }

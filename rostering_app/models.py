@@ -1,6 +1,6 @@
 from django.db import models
 from django.db.models import JSONField  # Use JSONField (available in Django 3.1+)
-from django.utils import timezone
+
 
 class Company(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -71,3 +71,111 @@ class ScheduleEntry(models.Model):
             ('company', 'algorithm'),
             ('employee', 'date'),
         ]
+
+
+class EmployeeKPI(models.Model):
+    """
+    Pre-calculated monthly KPI data for individual employees.
+    """
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='kpis')
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='employee_kpis')
+    year = models.IntegerField()
+    month = models.IntegerField()
+    algorithm = models.CharField(max_length=64, blank=True, default='')
+    
+    # Monthly statistics
+    monthly_hours_worked = models.FloatField(default=0.0)
+    monthly_shifts = models.IntegerField(default=0)
+    expected_monthly_hours = models.FloatField(default=0.0)
+    overtime_hours = models.FloatField(default=0.0)
+    undertime_hours = models.FloatField(default=0.0)
+    utilization_percentage = models.FloatField(default=0.0)
+    absence_days = models.IntegerField(default=0)
+    days_worked = models.IntegerField(default=0)
+    possible_days = models.IntegerField(default=0)
+    
+    # Calculated timestamp
+    calculated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ('employee', 'company', 'year', 'month', 'algorithm')
+        indexes = [
+            models.Index(fields=['company', 'year', 'month']),
+            models.Index(fields=['employee', 'year', 'month']),
+            models.Index(fields=['algorithm']),
+        ]
+    
+    def __str__(self):
+        return f"{self.employee.name} - {self.year}-{self.month:02d} - {self.algorithm or 'All'}"
+
+
+class CompanyKPI(models.Model):
+    """
+    Pre-calculated monthly KPI data for companies.
+    """
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='company_kpis')
+    year = models.IntegerField()
+    month = models.IntegerField()
+    algorithm = models.CharField(max_length=64, blank=True, default='')
+    
+    # Company-wide statistics
+    total_hours_worked = models.FloatField(default=0.0)
+    avg_hours_per_employee = models.FloatField(default=0.0)
+    hours_std_dev = models.FloatField(default=0.0)
+    hours_cv = models.FloatField(default=0.0)  # Coefficient of variation
+    gini_coefficient = models.FloatField(default=0.0)
+    min_hours = models.FloatField(default=0.0)
+    max_hours = models.FloatField(default=0.0)
+    total_weekly_violations = models.IntegerField(default=0)
+    rest_period_violations = models.IntegerField(default=0)
+    
+    # Employee hours breakdown (stored as JSON for flexibility)
+    employee_hours = JSONField(default=dict, blank=True)
+    weekly_violations = JSONField(default=dict, blank=True)
+    
+    # Calculated timestamp
+    calculated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ('company', 'year', 'month', 'algorithm')
+        indexes = [
+            models.Index(fields=['company', 'year', 'month']),
+            models.Index(fields=['algorithm']),
+        ]
+    
+    def __str__(self):
+        return f"{self.company.name} - {self.year}-{self.month:02d} - {self.algorithm or 'All'}"
+
+
+class CoverageKPI(models.Model):
+    """
+    Pre-calculated shift coverage statistics for date ranges.
+    """
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='coverage_kpis')
+    start_date = models.DateField()
+    end_date = models.DateField()
+    algorithm = models.CharField(max_length=64, blank=True, default='')
+    
+    # Coverage statistics
+    total_working_days = models.IntegerField(default=0)
+    total_required_staff = models.IntegerField(default=0)
+    total_assigned_staff = models.IntegerField(default=0)
+    coverage_rate = models.FloatField(default=0.0)
+    understaffed_days = models.IntegerField(default=0)
+    overstaffed_days = models.IntegerField(default=0)
+    
+    # Shift-specific coverage (stored as JSON)
+    shift_coverage = JSONField(default=list, blank=True)
+    
+    # Calculated timestamp
+    calculated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ('company', 'start_date', 'end_date', 'algorithm')
+        indexes = [
+            models.Index(fields=['company', 'start_date', 'end_date']),
+            models.Index(fields=['algorithm']),
+        ]
+    
+    def __str__(self):
+        return f"{self.company.name} - {self.start_date} to {self.end_date} - {self.algorithm or 'All'}"

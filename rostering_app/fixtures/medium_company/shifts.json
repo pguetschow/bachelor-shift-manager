@@ -19,7 +19,7 @@
       "name": "LateShift",
       "start": "14:00:00",
       "end": "22:00:00",
-      "min_staff": 5,
+      "min_staff": 7,
       "max_staff": 10
     }
   },

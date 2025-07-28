@@ -1,8 +1,9 @@
 """Shared utilities for scheduling algorithms."""
-from datetime import datetime, timedelta, date
-from typing import Dict, List, Tuple, Set, Optional
 from collections import defaultdict
-from .base import Employee, Shift, Solution, SchedulingProblem
+from datetime import datetime, timedelta, date
+from typing import Dict, List, Tuple, Optional
+
+from .base import Shift, Solution, SchedulingProblem
 
 
 def get_weeks(start_date: date, end_date: date) -> Dict[Tuple[int, int], List[date]]:
