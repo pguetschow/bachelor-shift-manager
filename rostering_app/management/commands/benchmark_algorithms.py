@@ -89,9 +89,9 @@ class Command(BaseCommand):
             # Algorithm configurations - will be created per company
             algorithm_classes = [
                 OptimizedILPScheduler,
-                LinearProgrammingScheduler,
-                GeneticAlgorithmScheduler,
-                SimulatedAnnealingScheduler,
+                # LinearProgrammingScheduler,
+                # GeneticAlgorithmScheduler,
+                # SimulatedAnnealingScheduler,
                 # NSGA2Scheduler
             ]
 

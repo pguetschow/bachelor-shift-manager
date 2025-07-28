@@ -43,7 +43,7 @@
       "name": "NightShift",
       "start": "22:00:00",
       "end": "06:00:00",
-      "min_staff": 8,
+      "min_staff": 12,
       "max_staff": 15
     }
   }
