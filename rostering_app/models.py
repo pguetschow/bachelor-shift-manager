@@ -91,6 +91,7 @@ class EmployeeKPI(models.Model):
     undertime_hours = models.FloatField(default=0.0)
     utilization_percentage = models.FloatField(default=0.0)
     absence_days = models.IntegerField(default=0)
+    planned_absences = models.IntegerField(default=0)
     days_worked = models.IntegerField(default=0)
     possible_days = models.IntegerField(default=0)
     

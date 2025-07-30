@@ -118,8 +118,9 @@ class ILPScheduler(SchedulingAlgorithm):
 
         utilization_expr = {}
         for employee in problem.employees:
-            employee_absences = len(employee.absence_dates);
-            yearly_capacity = employee.max_hours_per_week * 52 - (employee_absences * 8)
+            from rostering_app.services.kpi_calculator import KPICalculator
+            kpi_calculator = KPICalculator(self.company)
+            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(employee, problem.start_date.year)
             utilization_expr[employee.id] = (
                 total_hours_var[employee.id] / yearly_capacity if yearly_capacity > 0 else 0
             )
@@ -235,8 +236,9 @@ class ILPScheduler(SchedulingAlgorithm):
                 assign_var[(employee.id, d, s.id)] * s.duration
                 for d in all_dates for s in problem.shifts if (employee.id, d, s.id) in assign_var
             )
-            employee_absences = len(employee.absence_dates);
-            yearly_capacity = employee.max_hours_per_week * 52 - (employee_absences * 8)
+            from rostering_app.services.kpi_calculator import KPICalculator
+            kpi_calculator = KPICalculator(self.company)
+            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(employee, problem.start_date.year)
             model += total_hours_var[employee.id] >= yearly_capacity * 0.95 # 95% min util
 
         # Solve

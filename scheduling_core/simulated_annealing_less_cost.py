@@ -20,7 +20,7 @@ class CoolingSchedule(Enum):
     LOGARITHMIC = "logarithmic"
 
 
-class SimulatedAnnealingScheduler(SchedulingAlgorithm):
+class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
     """ SA with focus on high coverage and utilization."""
 
     def __init__(self, initial_temp=2000, final_temp=1, max_iterations=2000,
@@ -35,7 +35,7 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
 
     @property
     def name(self) -> str:
-        return "Simulated Annealing"
+        return "Simulated Annealing less cost"
 
     def _get_holidays_for_year(self, year: int) -> set:
         """Get holidays as (month, day) tuples using utils function."""
@@ -135,8 +135,10 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         # Final optimization
         self._greedy_fill_gaps(best_solution)
 
-        # Validate solution doesn't exceed max_staff
-        self._validate_and_fix_overstaffing(best_solution)
+        # Final rest period violation cleanup
+        self._final_rest_period_cleanup(best_solution)
+
+        # REMOVED: _validate_and_fix_overstaffing - no longer needed since neighborhood functions enforce max_staff
 
         return best_solution.to_entries()
 
@@ -183,12 +185,43 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         # Track weekly hours
         weekly_hours = defaultdict(lambda: defaultdict(float))
 
-        # Assign employees
+        # Assign employees with better initial balance
         for date in self.working_days:
             week_key = date.isocalendar()[:2]
 
-            # Sort shifts by duration (longer first)
-            sorted_shifts = sorted(self.problem.shifts, key=lambda s: s.duration, reverse=True)
+            # Sort shifts by priority: consider overlap constraints and staffing needs
+            shift_priorities = []
+            for shift in self.problem.shifts:
+                # Calculate current month average for this shift
+                month_start = date.replace(day=1)
+                month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+                shift_total = 0
+                shift_count = 0
+                
+                for d in self.working_days:
+                    if month_start <= d <= month_end:
+                        shift_total += len(solution.assignments.get((d, shift.id), []))
+                        shift_count += 1
+                
+                avg_staffing = shift_total / max(shift_count, 1)
+                coverage_ratio = avg_staffing / shift.max_staff if shift.max_staff > 0 else 0
+                
+                # Calculate overlap penalty - shifts that overlap with others get higher priority
+                overlap_penalty = 0
+                for other_shift in self.problem.shifts:
+                    if other_shift.id != shift.id:
+                        # Check if shifts overlap
+                        if (shift.start < other_shift.end and shift.end > other_shift.start):
+                            overlap_penalty += 1
+                
+                # Priority: aim for balanced distribution like ILP
+                # Lower coverage ratio gets higher priority (fill understaffed shifts first)
+                # Then consider overlap constraints
+                priority = (1 - coverage_ratio, overlap_penalty, -shift.duration)
+                shift_priorities.append((shift, priority))
+            
+            # Sort by priority
+            sorted_shifts = [s[0] for s in sorted(shift_priorities, key=lambda x: x[1])]
 
             for shift in sorted_shifts:
                 key = (date, shift.id)
@@ -215,10 +248,11 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 # Sort by score
                 candidates.sort(key=lambda x: x[1], reverse=True)
 
-                # Assign up to max_staff (FIXED: ensure we don't exceed)
+                # Assign with balanced approach like ILP
+                # Aim for max_staff but ensure at least min_staff
                 target = min(
                     shift.max_staff,  # Never exceed max_staff
-                    max(shift.min_staff, int(shift.max_staff * 0.9)),  # Aim for 90% but respect max
+                    max(shift.min_staff, len(candidates)),  # At least min_staff if possible
                     len(candidates)  # Can't assign more than available
                 )
 
@@ -235,25 +269,24 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         return solution
 
     def _evaluate_aggressive(self, solution: Solution) -> float:
-        """Evaluation function."""
+        """Evaluation function - optimized to remove redundant constraints already enforced by neighborhood functions."""
         penalty = 0
 
-        # Weights
+        # Weights - removed redundant constraint weights
         w_understaff = 5_000_000
-        w_rest_period = 1_000_000
-        w_overstaff = 1_000_000
-        w_weekly_hours = 100_000
+        w_rest_period = 10_000_000
         w_utilization = -25_000
         w_coverage_bonus = -10_000
         w_full_coverage = -5_000
         w_preference = -100
+        w_shift_balance = 500_000  # Increased penalty for uneven shift distribution
 
         # Track metrics
         total_positions = 0
         filled_positions = 0
         shifts_at_max = 0
 
-        # 1. Staffing constraints
+        # 1. Staffing constraints - only check understaffing since overstaffing is enforced by neighborhood
         for current in self.working_days:
             for shift in self.problem.shifts:
                 assigned = solution.assignments.get((current, shift.id), [])
@@ -264,24 +297,17 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
 
                 if count < shift.min_staff:
                     penalty += (shift.min_staff - count) * w_understaff
-                elif count > shift.max_staff:
-                    penalty += (count - shift.max_staff) * w_overstaff
                 else:
                     penalty += count * w_coverage_bonus
                     if count == shift.max_staff:
                         penalty += w_full_coverage
                         shifts_at_max += 1
+        
+        # 2. Rest periods - added back as violations can still occur from initial solution
+        rest_violations = self._check_rest_periods(solution)
+        penalty += rest_violations * w_rest_period
 
-        # 2. One shift per day
-        self._check_one_shift_per_day(solution, penalty, w_overstaff)
-
-        # 3. Weekly hours
-        self._check_weekly_hours(solution, penalty, w_weekly_hours)
-
-        # 4. Rest periods
-        self._check_rest_periods(solution, penalty, w_rest_period)
-
-        # 5. Utilization
+        # 3. Utilization - keep this as it's not directly enforced by neighborhood
         emp_hours = self._calculate_employee_hours(solution)
         for emp in self.problem.employees:
             worked_hours = emp_hours.get(emp.id, 0)
@@ -297,7 +323,11 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 else:
                     penalty += (0.85 - utilization) * abs(w_utilization) * 2
 
-        # 6. Preferences
+        # 4. Shift balance penalty - penalize uneven distribution across shifts
+        shift_balance_penalty = self._calculate_shift_balance_penalty(solution)
+        penalty += shift_balance_penalty * w_shift_balance
+
+        # 5. Preferences - keep this as it's a soft constraint
         for (date, shift_id), emp_ids in solution.assignments.items():
             shift = self.problem.shift_by_id[shift_id]
             for emp_id in emp_ids:
@@ -307,38 +337,31 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
 
         return penalty
 
-    def _check_one_shift_per_day(self, solution: Solution, penalty: float, weight: float):
-        """Check one shift per day constraint."""
-        current = self.problem.start_date
-        while current <= self.problem.end_date:
-            emp_counts = defaultdict(int)
+    def _calculate_shift_balance_penalty(self, solution: Solution) -> float:
+        """Calculate penalty for uneven shift distribution using aggressive quadratic approach."""
+        penalty = 0.0
+        
+        # Calculate daily penalties for each shift
+        for current in self.working_days:
             for shift in self.problem.shifts:
-                for emp_id in solution.assignments.get((current, shift.id), []):
-                    emp_counts[emp_id] += 1
+                assigned = len(solution.assignments.get((current, shift.id), []))
+                
+                # Quadratic penalty: penalize deviation from max_staff more aggressively
+                # This strongly encourages shifts to reach their maximum staffing levels
+                if shift.max_staff > 0:
+                    # Quadratic penalty increases more aggressively as we get further from max_staff
+                    deviation_ratio = (shift.max_staff - assigned) / shift.max_staff
+                    deviation_penalty = deviation_ratio ** 2  # Quadratic penalty
+                    penalty += deviation_penalty
+                
+                # Additional penalty for understaffing (below min_staff)
+                if assigned < shift.min_staff:
+                    understaff_penalty = (shift.min_staff - assigned) ** 2  # Quadratic understaffing penalty
+                    penalty += understaff_penalty
+        
+        return penalty
 
-            for emp_id, count in emp_counts.items():
-                if count > 1:
-                    penalty += (count - 1) * weight
-
-            current += timedelta(days=1)
-
-    def _check_weekly_hours(self, solution: Solution, penalty: float, weight: float) -> float:
-        """Check weekly hours constraints."""
-        violations = 0.0
-        for emp in self.problem.employees:
-            for week_key, week_dates in self.weeks.items():
-                weekly_hours = 0.0
-                for date in week_dates:
-                    for shift in self.problem.shifts:
-                        if emp.id in solution.assignments.get((date, shift.id), []):
-                            weekly_hours += shift.duration
-                if weekly_hours > emp.max_hours_per_week:
-                    violation = weekly_hours - emp.max_hours_per_week
-                    penalty += violation * weight
-                    violations += violation
-        return violations
-
-    def _check_rest_periods(self, solution: Solution, penalty: float, weight: float) -> int:
+    def _check_rest_periods(self, solution: Solution) -> int:
         """Check 11-hour rest period constraints."""
         violations = 0
         dates = []
@@ -360,7 +383,6 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                         shift2 = shift
 
                 if shift1 and shift2 and self._violates_rest_period(shift1, shift2, d1):
-                    penalty += weight
                     violations += 1
 
         return violations
@@ -410,9 +432,12 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
             'maximize_shift',
             'redistribute',
             'swap_for_coverage',
-            'utilization_boost'
+            'utilization_boost',
+            'fix_rest_violations',
+            'balance_shifts',
+            'aggressive_balance'  # New aggressive balancing operation
         ]
-        weights = [0.35, 0.25, 0.20, 0.10, 0.10]
+        weights = [0.15, 0.10, 0.10, 0.10, 0.10, 0.10, 0.15, 0.20]  # Higher weight for aggressive balance
 
         operation = random.choices(operations, weights=weights)[0]
 
@@ -426,6 +451,12 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
             self._swap_for_better_coverage(neighbor)
         elif operation == 'utilization_boost':
             self._boost_underutilized_employee(neighbor)
+        elif operation == 'fix_rest_violations':
+            self._fix_rest_period_violations(neighbor)
+        elif operation == 'balance_shifts':
+            self._balance_shift_distribution(neighbor)
+        elif operation == 'aggressive_balance':
+            self._aggressive_balance_shifts(neighbor)
 
         return neighbor
 
@@ -545,31 +576,26 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 assigned.extend(selected)
 
     def _redistribute_staff(self, solution: Solution):
-        """Move staff from overstaffed to understaffed shifts."""
-        overstaffed = []
+        """Move staff from shifts at max capacity to understaffed shifts."""
+        at_max = []
         understaffed = []
 
         for (date, shift_id), assigned in solution.assignments.items():
             shift = self.problem.shift_by_id[shift_id]
-            if len(assigned) > shift.max_staff:
-                overstaffed.append((date, shift_id))
-            elif len(assigned) < shift.max_staff:
+            if len(assigned) == shift.max_staff:
+                at_max.append((date, shift_id))
+            elif len(assigned) < shift.min_staff:
                 understaffed.append((date, shift_id))
 
-        if not overstaffed or not understaffed:
+        if not at_max or not understaffed:
             return
 
-        # Move from overstaffed
-        source_key = random.choice(overstaffed)
+        # Move from shift at max capacity
+        source_key = random.choice(at_max)
         source_date, source_shift_id = source_key
         source_assigned = solution.assignments[source_key]
-        source_shift = self.problem.shift_by_id[source_shift_id]
 
-        # Remove excess employees first
-        while len(source_assigned) > source_shift.max_staff:
-            source_assigned.pop()
-
-        # Now try to redistribute if still have employees
+        # Try to redistribute one employee
         if source_assigned:
             emp_id = random.choice(source_assigned)
             emp = self.problem.emp_by_id[emp_id]
@@ -696,6 +722,89 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                                 if additions >= max_additions:
                                     return
 
+    def _fix_rest_period_violations(self, solution: Solution):
+        """Fix rest period violations by moving employees to different shifts or removing them."""
+        violations = self._find_rest_period_violations(solution)
+        
+        if not violations:
+            return
+            
+        # Try to fix a random violation
+        emp_id, date1, date2, shift1, shift2 = random.choice(violations)
+        
+        # Strategy 1: Try to move the employee from one of the violating shifts to a different shift on the same day
+        if self._try_move_to_different_shift(solution, emp_id, date1, shift1):
+            return
+        if self._try_move_to_different_shift(solution, emp_id, date2, shift2):
+            return
+            
+        # Strategy 2: Remove employee from one of the shifts
+        if random.random() < 0.5:
+            # Remove from first shift
+            if emp_id in solution.assignments.get((date1, shift1.id), []):
+                solution.assignments[(date1, shift1.id)].remove(emp_id)
+        else:
+            # Remove from second shift
+            if emp_id in solution.assignments.get((date2, shift2.id), []):
+                solution.assignments[(date2, shift2.id)].remove(emp_id)
+
+    def _find_rest_period_violations(self, solution: Solution) -> List[tuple]:
+        """Find all rest period violations in the solution."""
+        violations = []
+        dates = []
+        current = self.problem.start_date
+        while current <= self.problem.end_date:
+            dates.append(current)
+            current += timedelta(days=1)
+
+        for i in range(len(dates) - 1):
+            d1, d2 = dates[i], dates[i + 1]
+            for emp in self.problem.employees:
+                shift1 = None
+                shift2 = None
+
+                for shift in self.problem.shifts:
+                    if emp.id in solution.assignments.get((d1, shift.id), []):
+                        shift1 = shift
+                    if emp.id in solution.assignments.get((d2, shift.id), []):
+                        shift2 = shift
+
+                if shift1 and shift2 and self._violates_rest_period(shift1, shift2, d1):
+                    violations.append((emp.id, d1, d2, shift1, shift2))
+
+        return violations
+
+    def _try_move_to_different_shift(self, solution: Solution, emp_id: int, date: date, current_shift) -> bool:
+        """Try to move employee to a different shift on the same day to fix rest period violation."""
+        emp = self.problem.emp_by_id[emp_id]
+        
+        # Find other shifts on the same day
+        for shift in self.problem.shifts:
+            if shift.id == current_shift.id:
+                continue
+                
+            assigned = solution.assignments.get((date, shift.id), [])
+            
+            # Check if we can add to this shift
+            if (emp_id not in assigned and 
+                len(assigned) < shift.max_staff and
+                date not in emp.absence_dates):
+                
+                # Check weekly hours
+                week_key = date.isocalendar()[:2]
+                weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
+                if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                    
+                    # Check rest period violations for the new assignment
+                    if not self._check_rest_period_violation_for_employee(solution, emp_id, date, shift):
+                        # Remove from current shift and add to new shift
+                        if emp_id in solution.assignments.get((date, current_shift.id), []):
+                            solution.assignments[(date, current_shift.id)].remove(emp_id)
+                        assigned.append(emp_id)
+                        return True
+        
+        return False
+
     def _get_employee_weekly_hours(self, solution: Solution, emp_id: int, week_key: tuple) -> float:
         """Get total hours for employee in a specific week."""
         hours = 0.0
@@ -804,37 +913,209 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         if improvements > 0:
             print(f"[SA] Greedy fill added {improvements} assignments")
 
-    def _validate_and_fix_overstaffing(self, solution: Solution):
-        """Final validation to ensure no shift exceeds max_staff."""
-        fixes = 0
-
-        for (date, shift_id), assigned in solution.assignments.items():
-            shift = self.problem.shift_by_id[shift_id]
-
-            # Remove excess employees
-            while len(assigned) > shift.max_staff:
-                # Remove employee with highest utilization (they likely have other shifts)
-                emp_hours = self._calculate_employee_hours(solution)
-
-                # Find employee with highest hours among assigned
-                max_hours = -1
-                remove_emp = None
-                for emp_id in assigned:
-                    hours = emp_hours.get(emp_id, 0)
-                    if hours > max_hours:
-                        max_hours = hours
-                        remove_emp = emp_id
-
-                if remove_emp:
-                    assigned.remove(remove_emp)
-                    fixes += 1
+    def _final_rest_period_cleanup(self, solution: Solution):
+        """Final cleanup to remove any remaining rest period violations."""
+        violations = self._find_rest_period_violations(solution)
+        
+        if not violations:
+            return
+            
+        print(f"[SA] Final cleanup: found {len(violations)} rest period violations")
+        
+        # Try to fix violations by removing employees from one of the violating shifts
+        for emp_id, date1, date2, shift1, shift2 in violations:
+            # Remove from the shift that would cause less understaffing
+            count1 = len(solution.assignments.get((date1, shift1.id), []))
+            count2 = len(solution.assignments.get((date2, shift2.id), []))
+            
+            if count1 > shift1.min_staff and count2 > shift2.min_staff:
+                # Both shifts are above minimum, remove from the one with more staff
+                if count1 >= count2:
+                    if emp_id in solution.assignments.get((date1, shift1.id), []):
+                        solution.assignments[(date1, shift1.id)].remove(emp_id)
                 else:
-                    # Fallback: remove random
-                    assigned.pop()
-                    fixes += 1
+                    if emp_id in solution.assignments.get((date2, shift2.id), []):
+                        solution.assignments[(date2, shift2.id)].remove(emp_id)
+            elif count1 > shift1.min_staff:
+                # Only first shift is above minimum
+                if emp_id in solution.assignments.get((date1, shift1.id), []):
+                    solution.assignments[(date1, shift1.id)].remove(emp_id)
+            elif count2 > shift2.min_staff:
+                # Only second shift is above minimum
+                if emp_id in solution.assignments.get((date2, shift2.id), []):
+                    solution.assignments[(date2, shift2.id)].remove(emp_id)
+            else:
+                # Both shifts are at minimum, remove from the one with more staff
+                if count1 >= count2:
+                    if emp_id in solution.assignments.get((date1, shift1.id), []):
+                        solution.assignments[(date1, shift1.id)].remove(emp_id)
+                else:
+                    if emp_id in solution.assignments.get((date2, shift2.id), []):
+                        solution.assignments[(date2, shift2.id)].remove(emp_id)
 
-        if fixes > 0:
-            print(f"[SA] Fixed {fixes} overstaffing violations")
+    def _balance_shift_distribution(self, solution: Solution):
+        """Balance employee distribution across shifts to improve coverage."""
+        # Calculate current shift averages
+        shift_totals = defaultdict(int)
+        shift_counts = defaultdict(int)
+        
+        for current in self.working_days:
+            for shift in self.problem.shifts:
+                assigned = solution.assignments.get((current, shift.id), [])
+                shift_totals[shift.id] += len(assigned)
+                shift_counts[shift.id] += 1
+        
+        # Calculate average staffing per shift
+        shift_averages = {}
+        for shift_id in shift_totals:
+            if shift_counts[shift_id] > 0:
+                shift_averages[shift_id] = shift_totals[shift_id] / shift_counts[shift_id]
+        
+        if not shift_averages:
+            return
+        
+        # Find overstaffed and understaffed shifts
+        avg_staffing = sum(shift_averages.values()) / len(shift_averages)
+        overstaffed_shifts = []
+        understaffed_shifts = []
+        
+        for shift in self.problem.shifts:
+            current_avg = shift_averages.get(shift.id, 0)
+            if current_avg > avg_staffing + 0.5:  # Overstaffed
+                overstaffed_shifts.append((shift.id, current_avg - avg_staffing))
+            elif current_avg < avg_staffing - 0.5:  # Understaffed
+                understaffed_shifts.append((shift.id, avg_staffing - current_avg))
+        
+        # Sort by imbalance severity (most imbalanced first)
+        overstaffed_shifts.sort(key=lambda x: x[1], reverse=True)
+        understaffed_shifts.sort(key=lambda x: x[1], reverse=True)
+        
+        # Try to move employees from overstaffed to understaffed shifts (more aggressive)
+        transfers_made = 0
+        max_transfers = 3  # Allow multiple transfers per iteration
+        
+        for over_shift_id, over_amount in overstaffed_shifts[:3]:  # Top 3 overstaffed
+            for under_shift_id, under_amount in understaffed_shifts[:3]:  # Top 3 understaffed
+                if over_shift_id == under_shift_id or transfers_made >= max_transfers:
+                    continue
+                
+                # Find days where we can make transfers
+                for current in self.working_days:
+                    if transfers_made >= max_transfers:
+                        break
+                        
+                    over_assigned = solution.assignments.get((current, over_shift_id), [])
+                    under_assigned = solution.assignments.get((current, under_shift_id), [])
+                    
+                    if len(over_assigned) > 0 and len(under_assigned) < self.problem.shift_by_id[under_shift_id].max_staff:
+                        # Try to move employees (more aggressive)
+                        for emp_id in over_assigned[:]:  # Copy list to avoid modification during iteration
+                            emp = self.problem.emp_by_id[emp_id]
+                            
+                            # Check if employee can work the understaffed shift
+                            if (current not in emp.absence_dates and
+                                emp_id not in under_assigned):
+                                
+                                # Check rest period constraints
+                                if not self._check_rest_period_violation_for_employee(solution, emp_id, current, self.problem.shift_by_id[under_shift_id]):
+                                    
+                                    # Check weekly hours
+                                    week_key = current.isocalendar()[:2]
+                                    weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
+                                    new_shift = self.problem.shift_by_id[under_shift_id]
+                                    
+                                    if weekly_hours + new_shift.duration <= emp.max_hours_per_week:
+                                        # Make the transfer
+                                        over_assigned.remove(emp_id)
+                                        under_assigned.append(emp_id)
+                                        transfers_made += 1
+                                        
+                                        if transfers_made >= max_transfers:
+                                            return  # Stop after max transfers
+
+    def _aggressive_balance_shifts(self, solution: Solution):
+        """Aggressive shift balancing that targets the most imbalanced shifts."""
+        # Calculate current staffing levels for each shift
+        shift_staffing = defaultdict(list)
+        
+        for current in self.working_days:
+            for shift in self.problem.shifts:
+                assigned = len(solution.assignments.get((current, shift.id), []))
+                shift_staffing[shift.id].append(assigned)
+        
+        # Calculate average staffing and identify most imbalanced shifts
+        shift_averages = {}
+        for shift_id, staffing_list in shift_staffing.items():
+            shift_averages[shift_id] = sum(staffing_list) / len(staffing_list)
+        
+        # Find the most overstaffed and understaffed shifts
+        target_staffing = {}
+        for shift in self.problem.shifts:
+            current_avg = shift_averages.get(shift.id, 0)
+            target_staffing[shift.id] = shift.max_staff  # Target max_staff for all shifts
+        
+        # Sort shifts by how far they are from target
+        shift_deviations = []
+        for shift in self.problem.shifts:
+            current_avg = shift_averages.get(shift.id, 0)
+            target = target_staffing[shift.id]
+            deviation = abs(current_avg - target)
+            shift_deviations.append((shift.id, current_avg, target, deviation))
+        
+        # Sort by deviation (most imbalanced first)
+        shift_deviations.sort(key=lambda x: x[3], reverse=True)
+        
+        # Focus on the most imbalanced shifts
+        for shift_id, current_avg, target, deviation in shift_deviations[:2]:  # Top 2 most imbalanced
+            shift = self.problem.shift_by_id[shift_id]
+            
+            if current_avg > target:  # Overstaffed
+                # Try to move employees away from this shift
+                for current in self.working_days:
+                    assigned = solution.assignments.get((current, shift_id), [])
+                    if len(assigned) > target:
+                        # Find another shift that needs staff
+                        for other_shift in self.problem.shifts:
+                            if other_shift.id == shift_id:
+                                continue
+                            other_assigned = solution.assignments.get((current, other_shift.id), [])
+                            if len(other_assigned) < other_shift.max_staff:
+                                # Try to move an employee
+                                for emp_id in assigned[:]:
+                                    emp = self.problem.emp_by_id[emp_id]
+                                    if (current not in emp.absence_dates and
+                                        emp_id not in other_assigned):
+                                        if not self._check_rest_period_violation_for_employee(solution, emp_id, current, other_shift):
+                                            week_key = current.isocalendar()[:2]
+                                            weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
+                                            if weekly_hours + other_shift.duration <= emp.max_hours_per_week:
+                                                assigned.remove(emp_id)
+                                                other_assigned.append(emp_id)
+                                                return  # One transfer is enough
+            
+            elif current_avg < target:  # Understaffed
+                # Try to move employees to this shift
+                for current in self.working_days:
+                    assigned = solution.assignments.get((current, shift_id), [])
+                    if len(assigned) < target:
+                        # Find another shift that has excess staff
+                        for other_shift in self.problem.shifts:
+                            if other_shift.id == shift_id:
+                                continue
+                            other_assigned = solution.assignments.get((current, other_shift.id), [])
+                            if len(other_assigned) > other_shift.max_staff * 0.8:  # Has excess staff
+                                # Try to move an employee
+                                for emp_id in other_assigned[:]:
+                                    emp = self.problem.emp_by_id[emp_id]
+                                    if (current not in emp.absence_dates and
+                                        emp_id not in assigned):
+                                        if not self._check_rest_period_violation_for_employee(solution, emp_id, current, shift):
+                                            week_key = current.isocalendar()[:2]
+                                            weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
+                                            if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                                                other_assigned.remove(emp_id)
+                                                assigned.append(emp_id)
+                                                return  # One transfer is enough
 
     def _update_temperature(self, iteration: int, current_temp: float) -> float:
         """Update temperature with adaptive cooling."""

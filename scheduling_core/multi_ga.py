@@ -37,13 +37,13 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         return "NSGA-II Optimized"
 
     def _get_holidays_for_year(self, year: int) -> set:
-        """Get holidays as (year, month, day) tuples using utils function."""
-        from rostering_app.utils import get_holidays_for_year_as_full_tuples
-        return get_holidays_for_year_as_full_tuples(year)
+        """Get holidays as (month, day) tuples using utils function."""
+        from rostering_app.utils import get_holidays_for_year
+        return get_holidays_for_year(year)
 
     def _is_non_working_day(self, date) -> bool:
         """Check if a date is a non-working day (holiday or Sunday)."""
-        if (date.year, date.month, date.day) in self.holidays:
+        if (date.month, date.day) in self.holidays:
             return True
         if date.weekday() == 6 and self.sundays_off:
             return True
@@ -324,9 +324,9 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                             emp = self.problem.emp_by_id[emp_id]
                             current_weekly = weekly_hours[emp_id][week_key]
                             
-                            # Calculate capacity like ILP
-                            employee_absences = len(emp.absence_dates)
-                            yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+                            # Calculate capacity using KPI Calculator
+                            kpi_calculator = KPICalculator(self.company)
+                            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
                             weekly_capacity = yearly_capacity / 52
                             
                             # Allow up to capacity_scale of weekly capacity
@@ -390,9 +390,9 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         for emp in self.problem.employees:
             worked = emp_hours.get(emp.id, 0)
             
-            # Calculate capacity like ILP: yearly capacity minus absences
-            employee_absences = len(emp.absence_dates)
-            yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+            # Calculate capacity using KPI Calculator
+            kpi_calculator = KPICalculator(self.company)
+            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
             
             # Calculate working days in the problem period
             working_days_in_period = len(self.working_days)
@@ -506,9 +506,9 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                         emp = self.problem.emp_by_id[emp_id]
                         weekly_hours = self._get_weekly_hours_fast(emp_id, week_key, individual)
                         
-                        # Calculate capacity like ILP
-                        employee_absences = len(emp.absence_dates)
-                        yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+                        # Calculate capacity using KPI Calculator
+                        kpi_calculator = KPICalculator(self.company)
+                        yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
                         weekly_capacity = yearly_capacity / 52
                         
                         # Scale capacity limit based on problem size
@@ -563,9 +563,9 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         for emp in self.problem.employees:
             worked = emp_hours.get(emp.id, 0)
             
-            # Calculate capacity like ILP
-            employee_absences = len(emp.absence_dates)
-            yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+            # Calculate capacity using KPI Calculator
+            kpi_calculator = KPICalculator(self.company)
+            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
             working_days_in_period = len(self.working_days)
             total_working_days_in_year = 52 * (6 if self.sundays_off else 7)
             period_capacity = yearly_capacity * (working_days_in_period / total_working_days_in_year)
@@ -593,8 +593,8 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                             # Check if least_utilized has capacity
                             current_hours = emp_hours.get(least_utilized[0], 0)
                             emp = self.problem.emp_by_id[least_utilized[0]]
-                            employee_absences = len(emp.absence_dates)
-                            yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+                            kpi_calculator = KPICalculator(self.company)
+                            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
                             weekly_capacity = yearly_capacity / 52
                             
                             # Scale capacity limit based on problem size

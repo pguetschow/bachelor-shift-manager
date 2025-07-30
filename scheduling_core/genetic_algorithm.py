@@ -31,13 +31,13 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         return "Genetic Algorithm"
 
     def _get_holidays_for_year(self, year: int) -> set:
-        """Get German national holidays for a specific year as date tuples."""
-        from rostering_app.utils import get_holidays_for_year_as_full_tuples
-        return get_holidays_for_year_as_full_tuples(year)
+        """Get German national holidays for a specific year as (month, day) tuples."""
+        from rostering_app.utils import get_holidays_for_year
+        return get_holidays_for_year(year)
 
     def _is_non_working_day(self, date) -> bool:
         """Check if a date is a non-working day (holiday or Sunday)."""
-        if (date.year, date.month, date.day) in self.holidays:
+        if (date.month, date.day) in self.holidays:
             return True
         if date.weekday() == 6 and self.sundays_off:
             return True
@@ -388,8 +388,8 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             # Utilization bonus
             for emp in self.problem.employees:
                 worked_hours = emp_hours.get(emp.id, 0)
-                yearly_capacity = emp.max_hours_per_week * 52
                 kpi_calculator = KPICalculator(self.company)
+                yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
                 utilization = kpi_calculator.calculate_utilization_percentage(worked_hours, yearly_capacity) / 100.0
 
                 # Bonus for good utilization (85-95%)
@@ -741,8 +741,8 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                                 s.duration for (d, sid), emps in solution.assignments.items()
                                 if emp.id in emps for s in [self.problem.shift_by_id[sid]]
                             )
-                            yearly_capacity = emp.max_hours_per_week * 52
                             kpi_calculator = KPICalculator(self.company)
+                            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
                             utilization = kpi_calculator.calculate_utilization_percentage(total_hours, yearly_capacity) / 100.0
 
                             # Prioritize underutilized employees

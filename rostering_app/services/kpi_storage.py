@@ -81,6 +81,7 @@ class KPIStorageService:
                 'undertime_hours': stats['undertime_hours'],
                 'utilization_percentage': stats['utilization_percentage'],
                 'absence_days': stats['absence_days'],
+                'planned_absences': stats['planned_absences'],
                 'days_worked': stats['days_worked'],
                 'possible_days': stats['possible_days'],
             }

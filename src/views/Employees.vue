@@ -101,7 +101,7 @@
                       class="sortable-header"
                       :class="{ 'sorted': sortKey === 'monthly_stats.absences' }"
                     >
-                      Abwesenheiten (Monat)
+                      Geplante Abwesenheiten (Monat)
                       <i class="bi" :class="getSortIcon('monthly_stats.absences')"></i>
                     </th>
                     <th 

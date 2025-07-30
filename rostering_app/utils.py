@@ -4,56 +4,51 @@ from datetime import date, timedelta
 from typing import Set, List, Optional, Tuple
 
 
-def get_german_holidays_2025() -> Set[date]:
-    """Get German national holidays for 2025."""
+def get_german_holidays() -> Set[Tuple[int, int]]:
+    """Get German national holidays as (month, day) tuples without year."""
     return {
-        date(2025, 1, 1),   # Neujahr
-        date(2025, 1, 6),   # Heilige Drei Könige
-        date(2025, 4, 18),  # Karfreitag
-        date(2025, 4, 21),  # Ostermontag
-        date(2025, 5, 1),   # Tag der Arbeit
-        date(2025, 5, 29),  # Christi Himmelfahrt
-        date(2025, 6, 9),   # Pfingstmontag
-        date(2025, 10, 3),  # Tag der Deutschen Einheit
-        date(2025, 12, 25), # Weihnachten
-        date(2025, 12, 26), # Zweiter Weihnachtstag
+        (1, 1),   # Neujahr
+        (1, 6),   # Heilige Drei Könige
+        (3, 29),  # Karfreitag (varies by year)
+        (4, 1),   # Ostermontag (varies by year)
+        (5, 1),   # Tag der Arbeit
+        (5, 9),   # Christi Himmelfahrt (varies by year)
+        (5, 20),  # Pfingstmontag (varies by year)
+        (10, 3),  # Tag der Deutschen Einheit
+        (12, 25), # Weihnachten
+        (12, 26), # Zweiter Weihnachtstag
     }
 
 
-def get_german_holidays_2024() -> Set[date]:
-    """Get German national holidays for 2024."""
+def get_german_holidays_2024() -> Set[Tuple[int, int]]:
+    """Get German national holidays for 2024 as (month, day) tuples."""
     return {
-        date(2024, 1, 1),   # Neujahr
-        date(2024, 1, 6),   # Heilige Drei Könige
-        date(2024, 3, 29),  # Karfreitag
-        date(2024, 4, 1),   # Ostermontag
-        date(2024, 5, 1),   # Tag der Arbeit
-        date(2024, 5, 9),   # Christi Himmelfahrt
-        date(2024, 5, 20),  # Pfingstmontag
-        date(2024, 10, 3),  # Tag der Deutschen Einheit
-        date(2024, 12, 25), # Weihnachten
-        date(2024, 12, 26), # Zweiter Weihnachtstag
+        (1, 1), (1, 6), (3, 29), (4, 1),
+        (5, 1), (5, 9), (5, 20), (10, 3),
+        (12, 25), (12, 26),
     }
 
 
-def get_german_holidays_2026() -> Set[date]:
-    """Get German national holidays for 2026."""
+def get_german_holidays_2025() -> Set[Tuple[int, int]]:
+    """Get German national holidays for 2025 as (month, day) tuples."""
     return {
-        date(2026, 1, 1),   # Neujahr
-        date(2026, 1, 6),   # Heilige Drei Könige
-        date(2026, 4, 3),   # Karfreitag
-        date(2026, 4, 6),   # Ostermontag
-        date(2026, 5, 1),   # Tag der Arbeit
-        date(2026, 5, 14),  # Christi Himmelfahrt
-        date(2026, 5, 25),  # Pfingstmontag
-        date(2026, 10, 3),  # Tag der Deutschen Einheit
-        date(2026, 12, 25), # Weihnachten
-        date(2026, 12, 26), # Zweiter Weihnachtstag
+        (1, 1), (1, 6), (4, 18), (4, 21),
+        (5, 1), (5, 29), (6, 9), (10, 3),
+        (12, 25), (12, 26),
     }
 
 
-def get_holidays_for_year(year: int) -> Set[date]:
-    """Get German national holidays for a specific year."""
+def get_german_holidays_2026() -> Set[Tuple[int, int]]:
+    """Get German national holidays for 2026 as (month, day) tuples."""
+    return {
+        (1, 1), (1, 6), (4, 3), (4, 6),
+        (5, 1), (5, 14), (5, 25), (10, 3),
+        (12, 25), (12, 26),
+    }
+
+
+def get_holidays_for_year(year: int) -> Set[Tuple[int, int]]:
+    """Get German national holidays for a specific year as (month, day) tuples."""
     if year == 2024:
         return get_german_holidays_2024()
     elif year == 2025:
@@ -61,61 +56,19 @@ def get_holidays_for_year(year: int) -> Set[date]:
     elif year == 2026:
         return get_german_holidays_2026()
     else:
-        # For other years, return an empty set or implement a more sophisticated calculation
-        return set()
+        # For other years, return the standard holidays (some may be wrong due to Easter variations)
+        return get_german_holidays()
 
 
-def get_holidays_for_year_as_tuples(year: int) -> Set[Tuple[int, int]]:
-    """Get German national holidays for a specific year as (month, day) tuples."""
-    if year == 2024:
-        return {
-            (1, 1), (1, 6), (3, 29), (4, 1),
-            (5, 1), (5, 9), (5, 20), (10, 3),
-            (12, 25), (12, 26),
-        }
-    elif year == 2025:
-        return {
-            (1, 1), (1, 6), (4, 18), (4, 21),
-            (5, 1), (5, 29), (6, 9), (10, 3),
-            (12, 25), (12, 26),
-        }
-    elif year == 2026:
-        return {
-            (1, 1), (1, 6), (4, 3), (4, 6),
-            (5, 1), (5, 14), (5, 25), (10, 3),
-            (12, 25), (12, 26),
-        }
-    else:
-        return set()
-
-
-def get_holidays_for_year_as_full_tuples(year: int) -> Set[Tuple[int, int, int]]:
-    """Get German national holidays for a specific year as (year, month, day) tuples."""
-    if year == 2024:
-        return {
-            (2024, 1, 1), (2024, 1, 6), (2024, 3, 29), (2024, 4, 1),
-            (2024, 5, 1), (2024, 5, 9), (2024, 5, 20), (2024, 10, 3),
-            (2024, 12, 25), (2024, 12, 26),
-        }
-    elif year == 2025:
-        return {
-            (2025, 1, 1), (2025, 1, 6), (2025, 4, 18), (2025, 4, 21),
-            (2025, 5, 1), (2025, 5, 29), (2025, 6, 9), (2025, 10, 3),
-            (2025, 12, 25), (2025, 12, 26),
-        }
-    elif year == 2026:
-        return {
-            (2026, 1, 1), (2026, 1, 6), (2026, 4, 3), (2026, 4, 6),
-            (2026, 5, 1), (2026, 5, 14), (2026, 5, 25), (2026, 10, 3),
-            (2026, 12, 25), (2026, 12, 26),
-        }
-    else:
-        return set()
+def is_holiday_date(check_date: date) -> bool:
+    """Check if a date is a German national holiday using (month, day) tuples."""
+    holidays = get_holidays_for_year(check_date.year)
+    return (check_date.month, check_date.day) in holidays
 
 
 def is_holiday(check_date: date) -> bool:
     """Check if a date is a German national holiday."""
-    return check_date in get_holidays_for_year(check_date.year)
+    return is_holiday_date(check_date)
 
 
 def is_sunday(check_date: date) -> bool:

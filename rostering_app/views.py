@@ -439,7 +439,7 @@ def api_company_employee_schedule(request, company_id, employee_id):
         })
 
     # Calculate statistics
-    total_hours = sum(kpi_calculator.calculate_shift_hours_in_month(entry.shift, entry.date, first_day, last_day) for entry in entries)
+    total_hours = sum(entry.shift.get_duration() for entry in entries)
     total_shifts = entries.count()
     average_hours_per_shift = total_hours / total_shifts if total_shifts > 0 else 0
 
@@ -450,7 +450,7 @@ def api_company_employee_schedule(request, company_id, employee_id):
         week_end = min(current_week + datetime.timedelta(days=6), last_day)
         week_entries = entries.filter(date__gte=current_week, date__lte=week_end)
         week_hours = sum(
-            kpi_calculator.calculate_shift_hours_in_month(entry.shift, entry.date, current_week, week_end) for entry in week_entries)
+            entry.shift.get_duration() for entry in week_entries)
         weekly_workload.append(round(week_hours, 3))
         current_week += datetime.timedelta(days=7)
 
@@ -459,9 +459,10 @@ def api_company_employee_schedule(request, company_id, employee_id):
     working_days = get_working_days_in_range(first_day, last_day, company)
     total_working_days = len(working_days)
 
-    # Calculate max monthly hours using the new function
-    max_monthly_hours = monthly_hours(year, month, employee.max_hours_per_week, company)
-    utilization_percentage = KPICalculator(company).calculate_utilization_percentage(total_hours, max_monthly_hours)
+    # Calculate max monthly hours using KPI calculator that accounts for absences
+    kpi_calculator = KPICalculator(company)
+    max_monthly_hours = kpi_calculator.calculate_expected_month_hours(employee, year, month)
+    utilization_percentage = kpi_calculator.calculate_utilization_percentage(total_hours, max_monthly_hours)
 
     return JsonResponse({
         'employee': {
@@ -513,7 +514,7 @@ def api_company_employee_yearly_schedule(request, company_id, employee_id):
     entries = ScheduleEntry.objects.filter(**entry_filter).order_by('date')
 
     # Calculate yearly statistics
-    total_hours = sum(kpi_calculator.calculate_shift_hours_in_month(entry.shift, entry.date, first_day, last_day) for entry in entries)
+    total_hours = sum(entry.shift.get_duration() for entry in entries)
     total_shifts = entries.count()
     average_hours_per_shift = total_hours / total_shifts if total_shifts > 0 else 0
 
@@ -525,17 +526,13 @@ def api_company_employee_yearly_schedule(request, company_id, employee_id):
         month_end = datetime.date(year, month, calendar.monthrange(year, month)[1])
         month_entries = entries.filter(date__gte=month_start, date__lte=month_end)
         month_hours = sum(
-            kpi_calculator.calculate_shift_hours_in_month(entry.shift, entry.date, month_start, month_end) for entry in month_entries)
+            entry.shift.get_duration() for entry in month_entries)
         monthly_hours_list.append(round(month_hours, 3))
         monthly_shifts.append(month_entries.count())
 
-    # Calculate yearly utilization using monthly hours calculation
-    total_possible_yearly_hours = 0
-    for month in range(1, 13):
-        month_possible_hours = monthly_hours(year, month, employee.max_hours_per_week, company)
-        total_possible_yearly_hours += month_possible_hours
-
-    yearly_utilization = KPICalculator(company).calculate_utilization_percentage(total_hours, total_possible_yearly_hours)
+    # Calculate yearly utilization using the new function that accounts for absences
+    total_possible_yearly_hours = kpi_calculator.calculate_expected_yearly_hours(employee, year)
+    yearly_utilization = kpi_calculator.calculate_utilization_percentage(total_hours, total_possible_yearly_hours)
 
     return JsonResponse({
         'employee': {
@@ -589,7 +586,7 @@ def api_company_employee_statistics(request, company_id: int):
     sundays_off = getattr(company, "sundays_off", False)
 
     # Holidays (set of (y,m,d) tuples). You can replace these with a DB/table-driven list.
-    holidays = {(d.year, d.month, d.day) for d in get_company_holidays(year, company)}
+    holidays = {(d.month, d.day) for d in get_company_holidays(year, company)}
 
     # Working days for the month (company-level): useful for absence calc baseline
     working_days = get_working_days_in_range(month_start, month_end, company)
@@ -608,19 +605,54 @@ def api_company_employee_statistics(request, company_id: int):
         # Calculate yearly statistics (not cached yet, using direct calculation)
         yearly_entries = ScheduleEntry.objects.filter(
             employee=employee,
+            company=company,  # Add company filter to ensure we only get entries for this company
             date__gte=year_start,
             date__lte=year_end
         )
         if algorithm:
             yearly_entries = yearly_entries.filter(algorithm=algorithm)
 
+        # Debug: Let's see what we're getting
+        print(f"[DEBUG] Employee {employee.name}: {yearly_entries.count()} yearly entries")
+        print(f"[DEBUG] Algorithm filter: '{algorithm}'")
+        
+        # Check for duplicates and algorithms
+        entry_dates = [entry.date for entry in yearly_entries]
+        unique_dates = set(entry_dates)
+        algorithms = set(entry.algorithm for entry in yearly_entries)
+        print(f"[DEBUG] Unique dates: {len(unique_dates)}, Total entries: {len(entry_dates)}")
+        print(f"[DEBUG] Algorithms found: {algorithms}")
+        
+        # Check shift durations
+        shift_durations = {}
+        for entry in yearly_entries[:10]:  # First 10 entries
+            duration = entry.shift.get_duration()
+            shift_durations[entry.shift.name] = duration
+            print(f"[DEBUG] Shift {entry.shift.name}: {duration} hours")
+        
         yearly_hours = sum(
-            kpi_storage.kpi_calculator.calculate_shift_hours_in_range(entry.shift, entry.date, year_start, year_end)
+            entry.shift.get_duration()
             for entry in yearly_entries
         )
         yearly_shifts = yearly_entries.count()
-        yearly_utilization = kpi_storage.kpi_calculator.calculate_utilization_percentage(yearly_hours, employee.max_hours_per_week * 52)
+        maxPossibleHours = kpi_storage.kpi_calculator.calculate_expected_yearly_hours(employee, year)
+        yearly_utilization = kpi_storage.kpi_calculator.calculate_utilization_percentage(yearly_hours, maxPossibleHours)
 
+        # Calculate monthly hours directly to ensure accuracy
+        monthly_entries = ScheduleEntry.objects.filter(
+            employee=employee,
+            company=company,
+            date__gte=month_start,
+            date__lte=month_end
+        )
+        if algorithm:
+            monthly_entries = monthly_entries.filter(algorithm=algorithm)
+        
+        monthly_hours = sum(entry.shift.get_duration() for entry in monthly_entries)
+        monthly_shifts = monthly_entries.count()
+        
+        print(f"[DEBUG] Monthly hours: {monthly_hours}, Monthly shifts: {monthly_shifts}")
+        
         employees_data.append({
             "id": employee.id,
             "name": getattr(employee, "name", str(employee)),
@@ -628,16 +660,17 @@ def api_company_employee_statistics(request, company_id: int):
             "max_hours_per_week": employee.max_hours_per_week,
             "monthly_stats": {
                 "possible_hours": round(employee_kpi.expected_monthly_hours, 2),
-                "worked_hours": round(employee_kpi.monthly_hours_worked, 2),
-                "overtime_hours": round(employee_kpi.overtime_hours, 2),
-                "undertime_hours": round(employee_kpi.undertime_hours, 2),
-                "shifts": employee_kpi.monthly_shifts,
+                "worked_hours": round(monthly_hours, 2),  # Use recalculated monthly hours
+                "overtime_hours": round(max(0, monthly_hours - employee_kpi.expected_monthly_hours), 2),
+                "undertime_hours": round(max(0, employee_kpi.expected_monthly_hours - monthly_hours), 2),
+                "shifts": monthly_shifts,  # Use recalculated monthly shifts
                 "days_worked": employee_kpi.days_worked,
-                "absences": employee_kpi.absence_days,
-                "utilization_percentage": round(employee_kpi.utilization_percentage, 2),
+                "absences": employee_kpi.planned_absences,
+                "utilization_percentage": round((monthly_hours / employee_kpi.expected_monthly_hours * 100) if employee_kpi.expected_monthly_hours > 0 else 0, 2),
             },
             "yearly_stats": {
                 "worked_hours": round(yearly_hours, 2),
+                "maxPossibleHours": maxPossibleHours,
                 "shifts": yearly_shifts,
                 "utilization_percentage": round(yearly_utilization, 2),
             },
@@ -659,17 +692,10 @@ def api_company_employee_statistics(request, company_id: int):
 
 
 def get_company_holidays(year: int, company: Company) -> List[date]:
-    """Return a list of holiday dates for the company in a given year.
-    Replace this stub with your real holiday source.
-    """
-    # Example: static German national days subset
-    static = {
-        2024: [(1, 1), (1, 6), (3, 29), (4, 1), (5, 1), (5, 9), (5, 20), (10, 3), (12, 25), (12, 26)],
-        2025: [(1, 1), (1, 6), (4, 18), (4, 21), (5, 1), (5, 29), (6, 9), (10, 3), (12, 25), (12, 26)],
-        2026: [(1, 1), (1, 6), (4, 3), (4, 6), (5, 1), (5, 14), (5, 25), (10, 3), (12, 25), (12, 26)],
-    }
-    tuples = static.get(year, [])
-    return [date(year, m, d) for (m, d) in tuples]
+    """Return a list of holiday dates for the company in a given year."""
+    from rostering_app.utils import get_holidays_for_year
+    holidays = get_holidays_for_year(year)
+    return [date(year, month, day) for (month, day) in holidays]
 
 
 

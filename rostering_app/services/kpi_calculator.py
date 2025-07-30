@@ -32,6 +32,11 @@ class KPICalculator:
             return True
         return False
     
+    def is_planned_absence(self, employee, day: date) -> bool:
+        """Check if a day is a planned absence (not including holidays/Sundays)."""
+        # Only check employee-specific absences, not company-wide non-working days
+        return day in getattr(employee, 'absence_dates', set())
+    
     def calculate_expected_month_hours(self, employee, year: int, month: int) -> float:
         weekly_hours = getattr(employee, 'weekly_hours', getattr(employee, 'max_hours_per_week', 0))
         days_per_week = 6 if self.sundays_off else 7
@@ -45,6 +50,27 @@ class KPICalculator:
             if not self.is_date_blocked(employee, day):
                 workable_days += 1
             day += timedelta(days=1)
+        avg_daily_hours = weekly_hours / days_per_week
+        raw_hours = avg_daily_hours * workable_days
+        return round(raw_hours / 8) * 8  # nearest 8-hour block
+    
+    def calculate_expected_yearly_hours(self, employee, year: int) -> float:
+        """Calculate expected yearly hours based on actual possible working days minus absences."""
+        weekly_hours = getattr(employee, 'weekly_hours', getattr(employee, 'max_hours_per_week', 0))
+        days_per_week = 6 if self.sundays_off else 7
+        if days_per_week == 0:
+            return 0.0
+        
+        start = date(year, 1, 1)
+        end = date(year, 12, 31)
+        day = start
+        workable_days = 0
+        
+        while day <= end:
+            if not self.is_date_blocked(employee, day):
+                workable_days += 1
+            day += timedelta(days=1)
+        
         avg_daily_hours = weekly_hours / days_per_week
         raw_hours = avg_daily_hours * workable_days
         return round(raw_hours / 8) * 8  # nearest 8-hour block
@@ -270,6 +296,12 @@ class KPICalculator:
             if not self.is_date_blocked(employee, day)
         )
         absence_days = max(possible_employee_days - days_worked, 0)
+        
+        # Calculate planned absences only (excluding holidays/Sundays)
+        planned_absences = sum(
+            1 for day in working_days
+            if self.is_planned_absence(employee, day)
+        )
         return {
             'employee_id': employee.id,
             'employee_name': getattr(employee, 'name', str(employee)),
@@ -280,6 +312,7 @@ class KPICalculator:
             'undertime_hours': undertime,
             'utilization_percentage': utilization,
             'absence_days': absence_days,
+            'planned_absences': planned_absences,
             'days_worked': days_worked,
             'possible_days': possible_employee_days,
         }

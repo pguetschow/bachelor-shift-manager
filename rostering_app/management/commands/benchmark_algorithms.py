@@ -18,7 +18,7 @@ from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.converters import employees_to_core, shifts_to_core
 from rostering_app.services.kpi_storage import KPIStorageService
 from rostering_app.services.kpi_calculator import KPICalculator
-from scheduling_core import NSGA2Scheduler, ILPScheduler
+from scheduling_core import NSGA2Scheduler, ILPScheduler, NewSimulatedAnnealingScheduler
 
 # Import scheduling algorithms
 from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
@@ -90,10 +90,11 @@ class Command(BaseCommand):
 
             # Algorithm configurations - will be created per company
             algorithm_classes = [
-                ILPScheduler,
-                GeneticAlgorithmScheduler,
+                # ILPScheduler,
+                # GeneticAlgorithmScheduler,
+                NewSimulatedAnnealingScheduler,
                 SimulatedAnnealingScheduler,
-                NSGA2Scheduler
+                # NSGA2Scheduler
             ]
 
             # Filter algorithms if requested
@@ -101,6 +102,7 @@ class Command(BaseCommand):
                 algorithm_map = {
                     'LinearProgramming': ILPScheduler,
                     'GeneticAlgorithm': GeneticAlgorithmScheduler,
+                    'NewSimulatedAnnealingScheduler': NewSimulatedAnnealingScheduler,
                     'SimulatedAnnealing': SimulatedAnnealingScheduler,
                     'NSGA2Scheduler': NSGA2Scheduler,
                 }
