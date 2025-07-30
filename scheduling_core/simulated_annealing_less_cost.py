@@ -23,13 +23,15 @@ class CoolingSchedule(Enum):
 class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
     """ SA with focus on high coverage and utilization."""
 
-    def __init__(self, initial_temp=1000, final_temp=0.1, max_iterations=2000,
+    def __init__(self, initial_temp=1000, final_temp=1, max_iterations=2000,
                  cooling_schedule=CoolingSchedule.EXPONENTIAL, sundays_off=False):
         self.initial_temp = initial_temp
         self.final_temp = final_temp
         self.max_iterations = max_iterations
         self.cooling_schedule = cooling_schedule
         self.sundays_off = sundays_off
+        # Allow one extra 8-hour shift per employee per week
+        self.weekly_allowance = 8
         self.holidays = set()
         self.company = None  # Will be set in solve method
 
@@ -238,11 +240,11 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                     )
 
                     if (not already_assigned and
-                        current_weekly + shift.duration <= emp.max_hours_per_week):
+                        current_weekly + shift.duration <= emp.max_hours_per_week + self.weekly_allowance):
                         
                         # Check rest period violations before adding
                         if not self._check_rest_period_violation_for_employee(solution, eid, date, shift):
-                            remaining_capacity = emp.max_hours_per_week - current_weekly
+                            remaining_capacity = emp.max_hours_per_week + self.weekly_allowance - current_weekly
                             preference_bonus = 10 if shift.name in emp.preferred_shifts else 0
                             score = remaining_capacity + preference_bonus
                             candidates.append((eid, score))
@@ -517,7 +519,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                 if not has_shift:
                     # Check weekly capacity
                     weekly_hours = self._get_employee_weekly_hours(solution, emp.id, week_key)
-                    if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                    if weekly_hours + shift.duration <= emp.max_hours_per_week + self.weekly_allowance:
                         # Check rest period violations
                         if not self._check_rest_period_violation_for_employee(solution, emp.id, date, shift):
                             candidates.append(emp.id)
@@ -565,7 +567,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
 
                 if not has_shift:
                     weekly_hours = self._get_employee_weekly_hours(solution, emp.id, week_key)
-                    if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                    if weekly_hours + shift.duration <= emp.max_hours_per_week + self.weekly_allowance:
                         # Check rest period violations
                         if not self._check_rest_period_violation_for_employee(solution, emp.id, date, shift):
                             worked = sum(
@@ -726,7 +728,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                         week_key = date.isocalendar()[:2]
                         weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
 
-                        if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                        if weekly_hours + shift.duration <= emp.max_hours_per_week + self.weekly_allowance:
                             # Check rest period violations
                             if not self._check_rest_period_violation_for_employee(solution, emp_id, date, shift):
                                 assigned.append(emp_id)
@@ -830,7 +832,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                 # Check weekly hours
                 week_key = date.isocalendar()[:2]
                 weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
-                if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                if weekly_hours + shift.duration <= emp.max_hours_per_week + self.weekly_allowance:
                     
                     # Check rest period violations for the new assignment
                     if not self._check_rest_period_violation_for_employee(solution, emp_id, date, shift):
@@ -886,10 +888,10 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                 emp_weekly2 = self._get_employee_weekly_hours(solution, emp_id, week_key2)
                 
                 # Check if swap is feasible
-                if (other_weekly1 + shift1.duration <= other_emp.max_hours_per_week and
-                    other_weekly2 + shift2.duration <= other_emp.max_hours_per_week and
-                    emp_weekly1 + shift1.duration <= emp.max_hours_per_week and
-                    emp_weekly2 + shift2.duration <= emp.max_hours_per_week):
+                if (other_weekly1 + shift1.duration <= other_emp.max_hours_per_week + self.weekly_allowance and
+                    other_weekly2 + shift2.duration <= other_emp.max_hours_per_week + self.weekly_allowance and
+                    emp_weekly1 + shift1.duration <= emp.max_hours_per_week + self.weekly_allowance and
+                    emp_weekly2 + shift2.duration <= emp.max_hours_per_week + self.weekly_allowance):
                     
                     # Perform the swap
                     # Remove both employees from their current assignments
@@ -967,7 +969,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
 
                     if not has_shift:
                         weekly_hours = self._get_employee_weekly_hours(solution, emp.id, week_key)
-                        if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                        if weekly_hours + shift.duration <= emp.max_hours_per_week + self.weekly_allowance:
                             worked = sum(
                                 s.duration for (d, sid), emps in solution.assignments.items()
                                 if emp.id in emps for s in [self.problem.shift_by_id[sid]]
@@ -1125,7 +1127,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                                     weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
                                     new_shift = self.problem.shift_by_id[under_shift_id]
                                     
-                                    if weekly_hours + new_shift.duration <= emp.max_hours_per_week:
+                                    if weekly_hours + new_shift.duration <= emp.max_hours_per_week + self.weekly_allowance:
                                         # Make the transfer
                                         over_assigned.remove(emp_id)
                                         under_assigned.append(emp_id)
@@ -1189,7 +1191,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                                         if not self._check_rest_period_violation_for_employee(solution, emp_id, current, other_shift):
                                             week_key = current.isocalendar()[:2]
                                             weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
-                                            if weekly_hours + other_shift.duration <= emp.max_hours_per_week:
+                                            if weekly_hours + other_shift.duration <= emp.max_hours_per_week + self.weekly_allowance:
                                                 assigned.remove(emp_id)
                                                 other_assigned.append(emp_id)
                                                 return  # One transfer is enough
@@ -1213,7 +1215,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                                         if not self._check_rest_period_violation_for_employee(solution, emp_id, current, shift):
                                             week_key = current.isocalendar()[:2]
                                             weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
-                                            if weekly_hours + shift.duration <= emp.max_hours_per_week:
+                                            if weekly_hours + shift.duration <= emp.max_hours_per_week + self.weekly_allowance:
                                                 other_assigned.remove(emp_id)
                                                 assigned.append(emp_id)
                                                 return  # One transfer is enough

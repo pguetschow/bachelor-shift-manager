@@ -101,8 +101,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         self.elite_frac = elite_frac
         self.patience = patience
         self.sunday_policy = sundays_off
-        # Allowable weekly overtime (in hours) before counting as a violation
-        self.weekly_allowance = 8
+        # No overtime allowance
+        self.yearly_allowance = 0
+        # no overtime allowance
 
     # ───────────────────────── solve ────────────────────────────────
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:  # noqa: C901
@@ -203,7 +204,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                         for emp in self.problem.employees
                         if not self.absent[self.emp_index[emp.id], d_idx]
                         and emp.id not in sol.assignments.get(key, [])
-                        and week_hours[emp.id][wk] + sh.duration <= emp.max_hours_per_week + self.weekly_allowance
+                        and week_hours[emp.id][wk] + sh.duration <= emp.max_hours_per_week 
                     ]
                     if not cand:
                         break
@@ -277,7 +278,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         ) * 50_000_000
 
         week_pen = self._weekly_pen(assign_mat) * 2_000_000
-        cost = cov_pen + rest_pen + week_pen
+        shift_hours = np.array([s.duration for s in self.problem.shifts])
+        month_pen = self._monthly_pen(assign_mat, shift_hours)
+        cost = cov_pen + rest_pen + week_pen + month_pen
         self._best = min(getattr(self, "_best", float("inf")), cost)
         return cost
 
@@ -302,6 +305,21 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                         v += 1
         return v
 
+    def _monthly_pen(self, assign_mat: np.ndarray, shift_hours: np.ndarray) -> int:
+        month_pen = 0
+        for idx, emp in enumerate(self.problem.employees):
+            month_hours = defaultdict(int)
+            for di, day in enumerate(self.working_days):
+                hrs = int(assign_mat[di, :, idx] @ shift_hours)
+                ym = (day.year, day.month)
+                month_hours[ym] += hrs
+            for (_, _), tot in month_hours.items():
+                expected = self.kpi.calculate_expected_month_hours(emp, day.year, day.month)
+                limit = expected
+                if tot > limit:
+                    month_pen += int(tot - limit)
+        return month_pen
+
     def _weekly_pen(self, assign_mat: np.ndarray) -> int:
         shift_hours = np.array([s.duration for s in self.problem.shifts])
         week_pen = 0
@@ -315,7 +333,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                 if not idxs:
                     continue
                 tot = daily_hours[idxs].sum()
-                limit = emp.max_hours_per_week + self.weekly_allowance
+                limit = emp.max_hours_per_week 
                 if tot > limit:
                     week_pen += int(tot - limit)
         return week_pen
@@ -414,7 +432,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                             continue
                         if eid in sol.assignments.get(key, []):
                             continue
-                        if emp.max_hours_per_week and (week_hours[eid][wk] + sh.duration) > emp.max_hours_per_week + self.weekly_allowance:
+                        if emp.max_hours_per_week and (week_hours[eid][wk] + sh.duration) > emp.max_hours_per_week :
                             continue
                         # Rest-period check with previous and next day
                         rest_ok = True

@@ -24,6 +24,7 @@ from scheduling_core import NSGA2Scheduler, ILPScheduler, NewSimulatedAnnealingS
 from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
 from scheduling_core.simulated_annealing import SimulatedAnnealingScheduler, CoolingSchedule
+from scheduling_core.simulated_annealing_compact import CompactSimulatedAnnealingScheduler
 
 
 class Command(BaseCommand):
@@ -90,8 +91,9 @@ class Command(BaseCommand):
 
             # Algorithm configurations - will be created per company
             algorithm_classes = [
-                # ILPScheduler,
+                ILPScheduler,
                 GeneticAlgorithmScheduler,
+                CompactSimulatedAnnealingScheduler,
                 # NewSimulatedAnnealingScheduler,
                 # SimulatedAnnealingScheduler,
                 # NSGA2Scheduler
@@ -100,11 +102,12 @@ class Command(BaseCommand):
             # Filter algorithms if requested
             if algorithm_filter:
                 algorithm_map = {
-                    # 'LinearProgramming': ILPScheduler,
+                    'LinearProgramming': ILPScheduler,
                     'GeneticAlgorithm': GeneticAlgorithmScheduler,
                     # 'NewSimulatedAnnealingScheduler': NewSimulatedAnnealingScheduler,
-                    'SimulatedAnnealing': SimulatedAnnealingScheduler,
-                    'NSGA2Scheduler': NSGA2Scheduler,
+                    # 'SimulatedAnnealing': SimulatedAnnealingScheduler,
+                    'CompactSA': CompactSimulatedAnnealingScheduler,
+                    # 'NSGA2Scheduler': NSGA2Scheduler,
                 }
                 if algorithm_filter in algorithm_map:
                     algorithm_classes = [algorithm_map[algorithm_filter]]
