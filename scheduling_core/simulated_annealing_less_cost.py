@@ -135,8 +135,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
         # Final optimization
         self._greedy_fill_gaps(best_solution)
 
-        # Final rest period violation cleanup
-        self._final_rest_period_cleanup(best_solution)
+        # Rest period violations should be handled during optimization, not in cleanup
 
         # REMOVED: _validate_and_fix_overstaffing - no longer needed since neighborhood functions enforce max_staff
 
@@ -240,10 +239,13 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
 
                     if (not already_assigned and
                         current_weekly + shift.duration <= emp.max_hours_per_week):
-                        remaining_capacity = emp.max_hours_per_week - current_weekly
-                        preference_bonus = 10 if shift.name in emp.preferred_shifts else 0
-                        score = remaining_capacity + preference_bonus
-                        candidates.append((eid, score))
+                        
+                        # Check rest period violations before adding
+                        if not self._check_rest_period_violation_for_employee(solution, eid, date, shift):
+                            remaining_capacity = emp.max_hours_per_week - current_weekly
+                            preference_bonus = 10 if shift.name in emp.preferred_shifts else 0
+                            score = remaining_capacity + preference_bonus
+                            candidates.append((eid, score))
 
                 # Sort by score
                 candidates.sort(key=lambda x: x[1], reverse=True)
@@ -274,7 +276,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
 
         # Weights - removed redundant constraint weights
         w_understaff = 5_000_000
-        w_rest_period = 10_000_000
+        w_rest_period = 50_000_000  # Increased penalty for rest period violations
         w_utilization = -25_000
         w_coverage_bonus = -10_000
         w_full_coverage = -5_000
@@ -302,7 +304,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                     if count == shift.max_staff:
                         penalty += w_full_coverage
                         shifts_at_max += 1
-        
+
         # 2. Rest periods - added back as violations can still occur from initial solution
         rest_violations = self._check_rest_periods(solution)
         penalty += rest_violations * w_rest_period
@@ -426,37 +428,48 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
         """Generate neighbor with focus on improving coverage."""
         neighbor = solution.copy()
 
-        # Operations with weights
+        # Operations with weights - consolidated into 5 focused operations
         operations = [
-            'fill_gaps',
-            'maximize_shift',
-            'redistribute',
-            'swap_for_coverage',
-            'utilization_boost',
-            'fix_rest_violations',
-            'balance_shifts',
-            'aggressive_balance'  # New aggressive balancing operation
+            'fill_and_balance',      # Combines fill_gaps, maximize_shift, and balance operations
+            'rest_period_management', # Combines fix_rest_violations and prevent_rest_violations
+            'redistribute_staff',     # Staff redistribution and swapping
+            'utilization_optimization', # Utilization boosting and optimization
+            'coverage_improvement'    # Coverage-focused improvements
         ]
-        weights = [0.15, 0.10, 0.10, 0.10, 0.10, 0.10, 0.15, 0.20]  # Higher weight for aggressive balance
+        weights = [0.30, 0.30, 0.20, 0.10, 0.10]  # Balanced weights for core operations
 
         operation = random.choices(operations, weights=weights)[0]
 
-        if operation == 'fill_gaps':
-            self._fill_understaffed_shifts(neighbor)
-        elif operation == 'maximize_shift':
-            self._maximize_random_shift(neighbor)
-        elif operation == 'redistribute':
-            self._redistribute_staff(neighbor)
-        elif operation == 'swap_for_coverage':
-            self._swap_for_better_coverage(neighbor)
-        elif operation == 'utilization_boost':
+        if operation == 'fill_and_balance':
+            # Combined operation: fill gaps, maximize shifts, and balance distribution
+            if random.random() < 0.4:
+                self._fill_understaffed_shifts(neighbor)
+            elif random.random() < 0.7:
+                self._maximize_random_shift(neighbor)
+            else:
+                self._aggressive_balance_shifts(neighbor)
+                
+        elif operation == 'rest_period_management':
+            # Combined operation: fix and prevent rest period violations
+            if random.random() < 0.6:
+                self._fix_rest_period_violations(neighbor)
+            else:
+                self._prevent_rest_period_violations(neighbor)
+                
+        elif operation == 'redistribute_staff':
+            # Combined operation: redistribute staff and swap for better coverage
+            if random.random() < 0.7:
+                self._redistribute_staff(neighbor)
+            else:
+                self._swap_for_better_coverage(neighbor)
+                
+        elif operation == 'utilization_optimization':
+            # Focus on utilization improvements
             self._boost_underutilized_employee(neighbor)
-        elif operation == 'fix_rest_violations':
-            self._fix_rest_period_violations(neighbor)
-        elif operation == 'balance_shifts':
+            
+        elif operation == 'coverage_improvement':
+            # Focus on general coverage improvements
             self._balance_shift_distribution(neighbor)
-        elif operation == 'aggressive_balance':
-            self._aggressive_balance_shifts(neighbor)
 
         return neighbor
 
@@ -723,30 +736,54 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                                     return
 
     def _fix_rest_period_violations(self, solution: Solution):
-        """Fix rest period violations by moving employees to different shifts or removing them."""
+        """Fix rest period violations aggressively by trying multiple strategies."""
         violations = self._find_rest_period_violations(solution)
         
         if not violations:
             return
-            
-        # Try to fix a random violation
-        emp_id, date1, date2, shift1, shift2 = random.choice(violations)
         
-        # Strategy 1: Try to move the employee from one of the violating shifts to a different shift on the same day
-        if self._try_move_to_different_shift(solution, emp_id, date1, shift1):
-            return
-        if self._try_move_to_different_shift(solution, emp_id, date2, shift2):
-            return
+        # Try to fix multiple violations (up to 3)
+        violations_to_fix = min(3, len(violations))
+        fixed_count = 0
+        
+        for _ in range(violations_to_fix):
+            if not violations:
+                break
+                
+            # Try to fix a random violation
+            emp_id, date1, date2, shift1, shift2 = random.choice(violations)
             
-        # Strategy 2: Remove employee from one of the shifts
-        if random.random() < 0.5:
-            # Remove from first shift
-            if emp_id in solution.assignments.get((date1, shift1.id), []):
-                solution.assignments[(date1, shift1.id)].remove(emp_id)
-        else:
-            # Remove from second shift
-            if emp_id in solution.assignments.get((date2, shift2.id), []):
-                solution.assignments[(date2, shift2.id)].remove(emp_id)
+            # Strategy 1: Try to move the employee from one of the violating shifts to a different shift on the same day
+            if self._try_move_to_different_shift(solution, emp_id, date1, shift1):
+                violations.remove((emp_id, date1, date2, shift1, shift2))
+                fixed_count += 1
+                continue
+            if self._try_move_to_different_shift(solution, emp_id, date2, shift2):
+                violations.remove((emp_id, date1, date2, shift1, shift2))
+                fixed_count += 1
+                continue
+            
+            # Strategy 2: Try to swap with another employee who doesn't have rest period issues
+            if self._try_swap_employee_for_rest_period(solution, emp_id, date1, date2, shift1, shift2):
+                violations.remove((emp_id, date1, date2, shift1, shift2))
+                fixed_count += 1
+                continue
+            
+            # Strategy 3: Remove employee from one of the shifts (prefer the one with more staff)
+            shift1_count = len(solution.assignments.get((date1, shift1.id), []))
+            shift2_count = len(solution.assignments.get((date2, shift2.id), []))
+            
+            if shift1_count > shift2_count:
+                # Remove from first shift (more staff)
+                if emp_id in solution.assignments.get((date1, shift1.id), []):
+                    solution.assignments[(date1, shift1.id)].remove(emp_id)
+            else:
+                # Remove from second shift
+                if emp_id in solution.assignments.get((date2, shift2.id), []):
+                    solution.assignments[(date2, shift2.id)].remove(emp_id)
+            
+            violations.remove((emp_id, date1, date2, shift1, shift2))
+            fixed_count += 1
 
     def _find_rest_period_violations(self, solution: Solution) -> List[tuple]:
         """Find all rest period violations in the solution."""
@@ -802,6 +839,70 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                             solution.assignments[(date, current_shift.id)].remove(emp_id)
                         assigned.append(emp_id)
                         return True
+        
+        return False
+
+    def _try_swap_employee_for_rest_period(self, solution: Solution, emp_id: int, date1: date, date2: date, shift1, shift2) -> bool:
+        """Try to swap the violating employee with another employee who doesn't have rest period issues."""
+        emp = self.problem.emp_by_id[emp_id]
+        
+        # Find other employees who could work these shifts without rest period violations
+        for other_emp in self.problem.employees:
+            if other_emp.id == emp_id:
+                continue
+                
+            # Check if other employee is available on both dates
+            if (date1 in other_emp.absence_dates or date2 in other_emp.absence_dates):
+                continue
+                
+            # Check if other employee is already assigned to these shifts
+            other_in_shift1 = other_emp.id in solution.assignments.get((date1, shift1.id), [])
+            other_in_shift2 = other_emp.id in solution.assignments.get((date2, shift2.id), [])
+            
+            # Check if other employee is available (not assigned to other shifts on these dates)
+            other_available_date1 = not any(
+                other_emp.id in solution.assignments.get((date1, s.id), [])
+                for s in self.problem.shifts
+            )
+            other_available_date2 = not any(
+                other_emp.id in solution.assignments.get((date2, s.id), [])
+                for s in self.problem.shifts
+            )
+            
+            # Check if other employee would have rest period violations
+            other_has_violation = False
+            if other_in_shift1 and other_in_shift2:
+                other_has_violation = self._violates_rest_period(shift1, shift2, date1)
+            
+            # If other employee is available and doesn't have violations, try the swap
+            if (other_available_date1 and other_available_date2 and not other_has_violation):
+                # Check weekly hours for both employees
+                week_key1 = date1.isocalendar()[:2]
+                week_key2 = date2.isocalendar()[:2]
+                
+                other_weekly1 = self._get_employee_weekly_hours(solution, other_emp.id, week_key1)
+                other_weekly2 = self._get_employee_weekly_hours(solution, other_emp.id, week_key2)
+                emp_weekly1 = self._get_employee_weekly_hours(solution, emp_id, week_key1)
+                emp_weekly2 = self._get_employee_weekly_hours(solution, emp_id, week_key2)
+                
+                # Check if swap is feasible
+                if (other_weekly1 + shift1.duration <= other_emp.max_hours_per_week and
+                    other_weekly2 + shift2.duration <= other_emp.max_hours_per_week and
+                    emp_weekly1 + shift1.duration <= emp.max_hours_per_week and
+                    emp_weekly2 + shift2.duration <= emp.max_hours_per_week):
+                    
+                    # Perform the swap
+                    # Remove both employees from their current assignments
+                    if emp_id in solution.assignments.get((date1, shift1.id), []):
+                        solution.assignments[(date1, shift1.id)].remove(emp_id)
+                    if emp_id in solution.assignments.get((date2, shift2.id), []):
+                        solution.assignments[(date2, shift2.id)].remove(emp_id)
+                    
+                    # Add other employee to the shifts
+                    solution.assignments[(date1, shift1.id)].append(other_emp.id)
+                    solution.assignments[(date2, shift2.id)].append(other_emp.id)
+                    
+                    return True
         
         return False
 
@@ -1029,7 +1130,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                                         over_assigned.remove(emp_id)
                                         under_assigned.append(emp_id)
                                         transfers_made += 1
-                                        
+
                                         if transfers_made >= max_transfers:
                                             return  # Stop after max transfers
 
@@ -1116,6 +1217,45 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                                                 other_assigned.remove(emp_id)
                                                 assigned.append(emp_id)
                                                 return  # One transfer is enough
+
+    def _prevent_rest_period_violations(self, solution: Solution):
+        """Proactively prevent rest period violations by checking and adjusting assignments."""
+        # Find employees who have consecutive day assignments
+        for emp in self.problem.employees:
+            for i in range(len(self.working_days) - 1):
+                date1 = self.working_days[i]
+                date2 = self.working_days[i + 1]
+                
+                # Check if employee is assigned to both days
+                shift1 = None
+                shift2 = None
+                
+                for shift in self.problem.shifts:
+                    if emp.id in solution.assignments.get((date1, shift.id), []):
+                        shift1 = shift
+                    if emp.id in solution.assignments.get((date2, shift.id), []):
+                        shift2 = shift
+                
+                # If employee has shifts on consecutive days, check for rest period violations
+                if shift1 and shift2 and self._violates_rest_period(shift1, shift2, date1):
+                    # Try to fix this violation proactively
+                    if self._try_move_to_different_shift(solution, emp.id, date1, shift1):
+                        return  # Fixed one violation
+                    if self._try_move_to_different_shift(solution, emp.id, date2, shift2):
+                        return  # Fixed one violation
+                    
+                    # If can't move, remove from the shift with more staff
+                    shift1_count = len(solution.assignments.get((date1, shift1.id), []))
+                    shift2_count = len(solution.assignments.get((date2, shift2.id), []))
+                    
+                    if shift1_count > shift2_count:
+                        if emp.id in solution.assignments.get((date1, shift1.id), []):
+                            solution.assignments[(date1, shift1.id)].remove(emp.id)
+                            return
+                    else:
+                        if emp.id in solution.assignments.get((date2, shift2.id), []):
+                            solution.assignments[(date2, shift2.id)].remove(emp.id)
+                            return
 
     def _update_temperature(self, iteration: int, current_temp: float) -> float:
         """Update temperature with adaptive cooling."""
