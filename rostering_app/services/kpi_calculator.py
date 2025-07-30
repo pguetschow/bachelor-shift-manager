@@ -114,10 +114,49 @@ class KPICalculator:
             employee = Employee.objects.get(id=emp_id)
             violations[emp_id] = sum(
                 1 for hours in week_data.values()
-                if hours > employee.max_hours_per_week
+                if hours > round((employee.max_hours_per_week * 1.15) / 8) * 8 + 2  # Round to 8-hour blocks + 2 hour buffer
             )
         return violations
-    
+
+    def check_weekly_hours_violations_detailed(self, entries, start_date: date, end_date: date) -> Dict[str, Any]:
+        """Get detailed weekly hours violations with actual hours worked."""
+        weekly_hours = self.calculate_weekly_hours(entries, start_date, end_date)
+        
+        violations = {
+            'total_violations': 0,
+            'employee_violations': {},
+            'detailed_violations': []
+        }
+        
+        for emp_id, week_data in weekly_hours.items():
+            from rostering_app.models import Employee
+            employee = Employee.objects.get(id=emp_id)
+            emp_violations = []
+            
+            for week_key, hours in week_data.items():
+                # Round max_allowed to nearest 8-hour block (like the expected hours calculation)
+                max_allowed_raw = employee.max_hours_per_week * 1.15
+                max_allowed = round(max_allowed_raw / 8) * 8
+                
+                # Only count as violation if significantly over (more than 2 hours over)
+                if hours > max_allowed + 2:
+                    violation = {
+                        'employee_id': emp_id,
+                        'employee_name': employee.name,
+                        'week': week_key,
+                        'actual_hours': hours,
+                        'max_allowed': max_allowed,
+                        'max_allowed_raw': max_allowed_raw,
+                        'excess_hours': hours - max_allowed
+                    }
+                    emp_violations.append(violation)
+                    violations['detailed_violations'].append(violation)
+            
+            violations['employee_violations'][emp_id] = len(emp_violations)
+            violations['total_violations'] += len(emp_violations)
+        
+        return violations
+
     def check_rest_period_violations(self, entries, start_date: date, end_date: date) -> int:
         violations = 0
         employee_dates = defaultdict(dict)
@@ -138,6 +177,72 @@ class KPICalculator:
                         for shift2 in shifts2:
                             if self.violates_rest_period(shift1, shift2, d1):
                                 violations += 1
+        return violations
+
+    def check_rest_period_violations_detailed(self, entries, start_date: date, end_date: date) -> Dict[str, Any]:
+        """Get detailed rest period violations with specific conflicts."""
+        violations = {
+            'total_violations': 0,
+            'employee_violations': {},
+            'detailed_violations': []
+        }
+        
+        employee_dates = defaultdict(dict)
+        for entry in entries:
+            if start_date <= entry.date <= end_date:
+                emp_id = entry.employee.id
+                if entry.date not in employee_dates[emp_id]:
+                    employee_dates[emp_id][entry.date] = []
+                employee_dates[emp_id][entry.date].append(entry.shift)
+        
+        for emp_id, dates_data in employee_dates.items():
+            emp_violations = []
+            dates = sorted(dates_data.keys())
+            
+            for i in range(len(dates) - 1):
+                d1, d2 = dates[i], dates[i + 1]
+                if d2 - d1 == timedelta(days=1):  # Consecutive days
+                    shifts1 = dates_data[d1]
+                    shifts2 = dates_data[d2]
+                    
+                    for shift1 in shifts1:
+                        for shift2 in shifts2:
+                            if self.violates_rest_period(shift1, shift2, d1):
+                                # Calculate actual rest period
+                                end_first = datetime.combine(d1, shift1.end)
+                                if shift1.end < shift1.start:
+                                    end_first += timedelta(days=1)  # overnight shift wraps
+                                start_second = datetime.combine(d2, shift2.start)
+                                rest_hours = (start_second - end_first).total_seconds() / 3600
+                                
+                                # Get employee name
+                                try:
+                                    from rostering_app.models import Employee
+                                    employee = Employee.objects.get(id=emp_id)
+                                    employee_name = employee.name
+                                except Employee.DoesNotExist:
+                                    employee_name = f"Employee {emp_id}"
+                                
+                                violation = {
+                                    'employee_id': emp_id,
+                                    'employee_name': employee_name,
+                                    'date1': d1.isoformat(),
+                                    'date2': d2.isoformat(),
+                                    'shift1_name': shift1.name,
+                                    'shift2_name': shift2.name,
+                                    'shift1_start': shift1.start.isoformat(),
+                                    'shift1_end': shift1.end.isoformat(),
+                                    'shift2_start': shift2.start.isoformat(),
+                                    'shift2_end': shift2.end.isoformat(),
+                                    'actual_rest_hours': rest_hours,
+                                    'required_rest_hours': 11.0
+                                }
+                                emp_violations.append(violation)
+                                violations['detailed_violations'].append(violation)
+            
+            violations['employee_violations'][emp_id] = len(emp_violations)
+            violations['total_violations'] += len(emp_violations)
+        
         return violations
     
     def calculate_employee_statistics(self, employee, entries, year: int, month: int, algorithm: Optional[str] = None) -> Dict[str, Any]:

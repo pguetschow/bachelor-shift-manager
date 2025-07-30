@@ -133,6 +133,10 @@ class CompanyKPI(models.Model):
     employee_hours = JSONField(default=dict, blank=True)
     weekly_violations = JSONField(default=dict, blank=True)
     
+    # Detailed violation information
+    weekly_violations_detailed = JSONField(default=dict, blank=True)
+    rest_period_violations_detailed = JSONField(default=dict, blank=True)
+    
     # Calculated timestamp
     calculated_at = models.DateTimeField(auto_now=True)
     

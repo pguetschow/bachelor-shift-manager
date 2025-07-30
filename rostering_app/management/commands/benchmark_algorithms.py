@@ -6,6 +6,7 @@ import statistics
 import traceback
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Any
+from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,6 +17,7 @@ from django.utils import timezone
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.converters import employees_to_core, shifts_to_core
 from rostering_app.services.kpi_storage import KPIStorageService
+from rostering_app.services.kpi_calculator import KPICalculator
 from scheduling_core import NSGA2Scheduler, ILPScheduler
 
 # Import scheduling algorithms
@@ -88,9 +90,9 @@ class Command(BaseCommand):
 
             # Algorithm configurations - will be created per company
             algorithm_classes = [
-                # ILPScheduler,
-                # GeneticAlgorithmScheduler,
-                # SimulatedAnnealingScheduler,
+                ILPScheduler,
+                GeneticAlgorithmScheduler,
+                SimulatedAnnealingScheduler,
                 NSGA2Scheduler
             ]
 
@@ -197,8 +199,8 @@ class Command(BaseCommand):
                         # Save to database, track algorithm
                         self._save_entries(entries, algorithm.name)
 
-                        # Calculate KPIs for this company and algorithm
-                        kpis = self._calculate_kpis(company, algorithm.name)
+                        # Calculate comprehensive KPIs for this company and algorithm
+                        kpis = self._calculate_comprehensive_kpis(company, algorithm.name)
 
                         results[algorithm.name] = {
                             'runtime': runtime,
@@ -241,8 +243,8 @@ class Command(BaseCommand):
                 # Save results for this test case
                 self._save_test_results(test_case['name'], results, export_dir)
 
-                # Generate graphs for this test case
-                self._generate_test_graphs(test_case['name'], results, export_dir)
+                # Generate enhanced graphs for this test case
+                self._generate_enhanced_test_graphs(test_case['name'], results, export_dir, company)
 
             # Save overall results
             overall_file = os.path.join(export_dir, 'benchmark_results.json')
@@ -340,8 +342,8 @@ class Command(BaseCommand):
                     algorithm=algorithm_name
                 )
 
-    def _calculate_kpis(self, company, algorithm_name) -> Dict[str, Any]:
-        """Calculate comprehensive KPIs for current schedule for a given company and algorithm."""
+    def _calculate_comprehensive_kpis(self, company, algorithm_name) -> Dict[str, Any]:
+        """Calculate comprehensive KPIs including monthly breakdowns by contract type."""
         employees = list(Employee.objects.filter(company=company))
         shifts = list(Shift.objects.filter(company=company))
         start_date = date(2025, 1, 1)
@@ -352,70 +354,76 @@ class Command(BaseCommand):
         working_days = get_working_days_in_range(start_date, end_date, company)
         total_working_days = len(working_days)
 
-        # Initialize counters
-        total_hours_worked = 0
-        employee_hours = []
-        employee_shift_counts = []
-        shift_coverage_stats = {st.name: {'filled': 0, 'required': st.min_staff * total_working_days}
-                               for st in shifts}
+        # Initialize KPI calculator
+        kpi_calculator = KPICalculator(company)
 
-        # Per-employee metrics
-        employee_stats = {}
-        constraint_violations = 0
+        # Get all entries for this company and algorithm
+        entries = ScheduleEntry.objects.filter(
+            company=company,
+            algorithm=algorithm_name,
+            date__gte=start_date,
+            date__lte=end_date
+        )
 
-        for emp in employees:
-            hours_worked = 0
-            shifts_worked = 0
-            weekly_hours = {}
-
-            entries = ScheduleEntry.objects.filter(
-                employee=emp,
-                date__gte=start_date,
-                date__lte=end_date,
-                algorithm=algorithm_name,
-                company=company
+        # Monthly breakdown by contract type (32h vs 40h)
+        monthly_hours_by_contract = defaultdict(lambda: defaultdict(list))
+        monthly_stats = {}
+        
+        for month in range(1, 13):
+            month_start = date(2025, month, 1)
+            month_end = date(2025, month, 28)
+            while month_end.month == month:
+                month_end += timedelta(days=1)
+            month_end -= timedelta(days=1)
+            
+            # Calculate company analytics for this month
+            company_analytics = kpi_calculator.calculate_company_analytics(
+                entries, 2025, month, algorithm_name
             )
-
-            for entry in entries:
-                # Use KPI Calculator for consistent calculations
-                from rostering_app.services.kpi_calculator import KPICalculator
-                kpi_calculator = KPICalculator(company)
-                duration = kpi_calculator.calculate_shift_hours_in_range(entry.shift, entry.date, start_date, end_date)
-                hours_worked += duration
-                shifts_worked += 1
-
-                # Track weekly hours
-                week_key = entry.date.isocalendar()[:2]
-                weekly_hours[week_key] = weekly_hours.get(week_key, 0) + duration
-
-                # Update shift coverage
-                shift_coverage_stats[entry.shift.name]['filled'] += 1
-
-            # Check constraint violations
-            # todo: improve violation checker
-            violations = sum(1 for hours in weekly_hours.values()
-                           if hours > emp.max_hours_per_week)
-            constraint_violations += violations
-
-            # Store employee stats
-            # Calculate max possible hours based on working weeks
-            working_weeks = total_working_days / 7 if total_working_days > 0 else 0
-            max_possible_hours = emp.max_hours_per_week * working_weeks
-            utilization = (hours_worked / max_possible_hours * 100) if max_possible_hours > 0 else 0
-
-            employee_stats[emp.name] = {
-                'hours_worked': hours_worked,
-                'shifts_worked': shifts_worked,
-                'utilization': utilization,
-                'violations': violations
+            
+            # Group employees by contract type
+            contract_32h = []
+            contract_40h = []
+            
+            for emp in employees:
+                emp_entries = [e for e in entries if e.employee.id == emp.id and month_start <= e.date <= month_end]
+                emp_hours = sum(
+                    kpi_calculator.calculate_shift_hours_in_month(e.shift, e.date, month_start, month_end)
+                    for e in emp_entries
+                )
+                
+                if emp.max_hours_per_week == 32:
+                    contract_32h.append(emp_hours)
+                elif emp.max_hours_per_week == 40:
+                    contract_40h.append(emp_hours)
+            
+            monthly_stats[month] = {
+                'contract_32h_avg': statistics.mean(contract_32h) if contract_32h else 0,
+                'contract_40h_avg': statistics.mean(contract_40h) if contract_40h else 0,
+                'contract_32h_count': len(contract_32h),
+                'contract_40h_count': len(contract_40h),
+                'company_analytics': company_analytics
             }
-            # todo use employee stats
 
-            employee_hours.append(hours_worked)
-            employee_shift_counts.append(shifts_worked)
-            total_hours_worked += hours_worked
+        # Calculate coverage statistics
+        coverage_stats = kpi_calculator.calculate_coverage_stats(entries, start_date, end_date)
+        
+        # Calculate constraint violations with detailed information
+        weekly_violations_detailed = kpi_calculator.check_weekly_hours_violations_detailed(entries, start_date, end_date)
+        rest_violations_detailed = kpi_calculator.check_rest_period_violations_detailed(entries, start_date, end_date)
+        total_weekly_violations = weekly_violations_detailed['total_violations']
+        total_rest_violations = rest_violations_detailed['total_violations']
 
         # Calculate fairness metrics
+        employee_hours = []
+        for emp in employees:
+            emp_entries = [e for e in entries if e.employee.id == emp.id]
+            emp_hours = sum(
+                kpi_calculator.calculate_shift_hours_in_range(e.shift, e.date, start_date, end_date)
+                for e in emp_entries
+            )
+            employee_hours.append(emp_hours)
+
         if employee_hours:
             hours_mean = statistics.mean(employee_hours)
             hours_stdev = statistics.stdev(employee_hours) if len(employee_hours) > 1 else 0
@@ -423,12 +431,6 @@ class Command(BaseCommand):
             gini = self._calculate_gini(employee_hours)
         else:
             hours_mean = hours_stdev = hours_cv = gini = 0
-
-        # Calculate coverage rates
-        coverage_rates = {}
-        for shift_name, stats in shift_coverage_stats.items():
-            coverage_rates[shift_name] = (stats['filled'] / stats['required'] * 100
-                                         if stats['required'] > 0 else 0)
 
         # Save KPIs to database using KPI Storage Service
         try:
@@ -458,16 +460,26 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"Warning: Failed to save KPIs for {algorithm_name}: {e}"))
 
         return {
-            'total_hours_worked': total_hours_worked,
-            'avg_hours_per_employee': hours_mean,
-            'hours_std_dev': hours_stdev,
-            'hours_cv': hours_cv,
-            'gini_coefficient': gini,
-            'constraint_violations': constraint_violations,
-            'coverage_rates': coverage_rates,
-            'min_hours': min(employee_hours) if employee_hours else 0,
-            'max_hours': max(employee_hours) if employee_hours else 0,
-            'total_working_days': total_working_days
+            'monthly_stats': monthly_stats,
+            'coverage_stats': coverage_stats,
+            'constraint_violations': {
+                'weekly_violations': total_weekly_violations,
+                'rest_period_violations': total_rest_violations,
+                'total_violations': total_weekly_violations + total_rest_violations,
+                'weekly_violations_detailed': weekly_violations_detailed,
+                'rest_period_violations_detailed': rest_violations_detailed
+            },
+            'fairness_metrics': {
+                'gini_coefficient': gini,
+                'hours_std_dev': hours_stdev,
+                'hours_cv': hours_cv,
+                'min_hours': min(employee_hours) if employee_hours else 0,
+                'max_hours': max(employee_hours) if employee_hours else 0,
+                'avg_hours': hours_mean
+            },
+            'total_working_days': total_working_days,
+            'total_employees': len(employees),
+            'total_shifts': len(shifts)
         }
 
     def _calculate_gini(self, values: List[float]) -> float:
@@ -492,8 +504,8 @@ class Command(BaseCommand):
         with open(results_file, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=4, default=str)
 
-    def _generate_test_graphs(self, test_name: str, results: Dict, export_dir: str):
-        """Generate graphs for a specific test case."""
+    def _generate_enhanced_test_graphs(self, test_name: str, results: Dict, export_dir: str, company):
+        """Generate enhanced graphs for a specific test case."""
         test_dir = os.path.join(export_dir, test_name)
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
@@ -504,34 +516,49 @@ class Command(BaseCommand):
             return
 
         algorithms = list(successful.keys())
+        months = list(range(1, 13))
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'Mai', 'Jun', 
+                      'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
 
-        # 1. Runtime comparison
-        plt.figure(figsize=(10, 6))
-        runtimes = [successful[alg]['runtime'] for alg in algorithms]
-        bars = plt.bar(algorithms, runtimes)
-        plt.title(f'Laufzeitvergleich - {test_name}')
-        plt.xlabel('Algorithmus')
-        plt.ylabel('Laufzeit (Sekunden)')
-        plt.xticks(rotation=45, ha='right')
+        # 1. Average Working Hours per Month by Contract Type
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+        
+        for alg in algorithms:
+            kpis = successful[alg]['kpis']
+            monthly_stats = kpis['monthly_stats']
+            
+            # 32h contracts
+            hours_32h = [monthly_stats[month]['contract_32h_avg'] for month in months]
+            if any(h > 0 for h in hours_32h):
+                ax1.plot(month_names, hours_32h, marker='o', label=f'{alg} (32h)', linewidth=2)
+            
+            # 40h contracts
+            hours_40h = [monthly_stats[month]['contract_40h_avg'] for month in months]
+            if any(h > 0 for h in hours_40h):
+                ax2.plot(month_names, hours_40h, marker='s', label=f'{alg} (40h)', linewidth=2)
 
-        # Add value labels
-        for bar, runtime in zip(bars, runtimes):
-            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{runtime:.1f}', ha='center', va='bottom')
-
+        ax1.set_title('Durchschnittliche Arbeitsstunden pro Monat - 32h Verträge')
+        ax1.set_ylabel('Stunden')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        ax2.set_title('Durchschnittliche Arbeitsstunden pro Monat - 40h Verträge')
+        ax2.set_ylabel('Stunden')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
         plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'runtime_comparison.png'), dpi=300)
+        plt.savefig(os.path.join(test_dir, 'monthly_hours_by_contract.png'), dpi=300)
         plt.close()
 
-        # 2. Fairness comparison
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        # 2. Fairness Comparison
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
 
         # Gini coefficient
-        ginis = [successful[alg]['kpis']['gini_coefficient'] for alg in algorithms]
-        bars1 = ax1.bar(algorithms, ginis)
+        ginis = [successful[alg]['kpis']['fairness_metrics']['gini_coefficient'] for alg in algorithms]
+        bars1 = ax1.bar(algorithms, ginis, color='skyblue')
         ax1.set_title('Gini-Koeffizient (niedriger = fairer)')
         ax1.set_ylabel('Gini-Koeffizient')
-        ax1.set_xticks(range(len(algorithms)))
         ax1.set_xticklabels(algorithms, rotation=45, ha='right')
 
         for bar, val in zip(bars1, ginis):
@@ -539,36 +566,144 @@ class Command(BaseCommand):
                     f'{val:.3f}', ha='center', va='bottom')
 
         # Standard deviation
-        stdevs = [successful[alg]['kpis']['hours_std_dev'] for alg in algorithms]
-        bars2 = ax2.bar(algorithms, stdevs)
+        stdevs = [successful[alg]['kpis']['fairness_metrics']['hours_std_dev'] for alg in algorithms]
+        bars2 = ax2.bar(algorithms, stdevs, color='lightgreen')
         ax2.set_title('Standardabweichung Arbeitsstunden')
         ax2.set_ylabel('Stunden')
-        ax2.set_xticks(range(len(algorithms)))
         ax2.set_xticklabels(algorithms, rotation=45, ha='right')
 
         for bar, val in zip(bars2, stdevs):
             ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{val:.0f}', ha='center', va='bottom')
+                    f'{val:.1f}', ha='center', va='bottom')
+
+        # Coefficient of variation
+        cvs = [successful[alg]['kpis']['fairness_metrics']['hours_cv'] for alg in algorithms]
+        bars3 = ax3.bar(algorithms, cvs, color='lightcoral')
+        ax3.set_title('Variationskoeffizient (%)')
+        ax3.set_ylabel('CV (%)')
+        ax3.set_xticklabels(algorithms, rotation=45, ha='right')
+
+        for bar, val in zip(bars3, cvs):
+            ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{val:.1f}%', ha='center', va='bottom')
 
         plt.tight_layout()
         plt.savefig(os.path.join(test_dir, 'fairness_comparison.png'), dpi=300)
         plt.close()
 
-        # 3. Constraint violations
-        plt.figure(figsize=(10, 6))
-        violations = [successful[alg]['kpis']['constraint_violations'] for alg in algorithms]
-        bars = plt.bar(algorithms, violations, color=['green' if v == 0 else 'red' for v in violations])
-        plt.title(f'Constraint-Verletzungen - {test_name}')
-        plt.xlabel('Algorithmus')
-        plt.ylabel('Anzahl Verletzungen')
-        plt.xticks(rotation=45, ha='right')
+        # 3. Coverage Analysis
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        axes = axes.flatten()
 
-        for bar, val in zip(bars, violations):
-            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+        for idx, alg in enumerate(algorithms):
+            if idx >= 4:  # Limit to 4 subplots
+                break
+                
+            coverage_stats = successful[alg]['kpis']['coverage_stats']
+            shift_names = [stat['shift']['name'] for stat in coverage_stats]
+            coverage_percentages = [stat['coverage_percentage'] for stat in coverage_stats]
+            avg_staff = [stat['avg_staff'] for stat in coverage_stats]
+            min_staff = [stat['shift']['min_staff'] for stat in coverage_stats]
+            max_staff = [stat['shift']['max_staff'] for stat in coverage_stats]
+
+            # Coverage percentage
+            bars = axes[idx].bar(shift_names, coverage_percentages, color='lightblue')
+            axes[idx].set_title(f'Abdeckung - {alg}')
+            axes[idx].set_ylabel('Abdeckung (%)')
+            axes[idx].set_xticklabels(shift_names, rotation=45, ha='right')
+            axes[idx].axhline(y=100, color='red', linestyle='--', alpha=0.7, label='100% Abdeckung')
+            axes[idx].legend()
+
+            # Add value labels
+            for bar, val in zip(bars, coverage_percentages):
+                axes[idx].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                             f'{val:.1f}%', ha='center', va='bottom')
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, 'coverage_analysis.png'), dpi=300)
+        plt.close()
+
+        # 4. Constraint Violations
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+        # Weekly violations
+        weekly_violations = [successful[alg]['kpis']['constraint_violations']['weekly_violations'] for alg in algorithms]
+        bars1 = ax1.bar(algorithms, weekly_violations, color=['green' if v == 0 else 'red' for v in weekly_violations])
+        ax1.set_title('Wöchentliche Stunden-Verletzungen')
+        ax1.set_ylabel('Anzahl Verletzungen')
+        ax1.set_xticklabels(algorithms, rotation=45, ha='right')
+
+        for bar, val in zip(bars1, weekly_violations):
+            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{val}', ha='center', va='bottom')
+
+        # Rest period violations
+        rest_violations = [successful[alg]['kpis']['constraint_violations']['rest_period_violations'] for alg in algorithms]
+        bars2 = ax2.bar(algorithms, rest_violations, color=['green' if v == 0 else 'orange' for v in rest_violations])
+        ax2.set_title('Ruhezeit-Verletzungen')
+        ax2.set_ylabel('Anzahl Verletzungen')
+        ax2.set_xticklabels(algorithms, rotation=45, ha='right')
+
+        for bar, val in zip(bars2, rest_violations):
+            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
                     f'{val}', ha='center', va='bottom')
 
         plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'violations_comparison.png'), dpi=300)
+        plt.savefig(os.path.join(test_dir, 'constraint_violations.png'), dpi=300)
+        plt.close()
+
+        # 5. Additional Interesting Metrics
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        axes = axes.flatten()
+
+        # Runtime comparison
+        runtimes = [successful[alg]['runtime'] for alg in algorithms]
+        bars1 = axes[0].bar(algorithms, runtimes, color='purple')
+        axes[0].set_title('Laufzeitvergleich')
+        axes[0].set_ylabel('Laufzeit (Sekunden)')
+        axes[0].set_xticklabels(algorithms, rotation=45, ha='right')
+
+        for bar, runtime in zip(bars1, runtimes):
+            axes[0].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                        f'{runtime:.1f}s', ha='center', va='bottom')
+
+        # Total hours worked
+        total_hours = [successful[alg]['kpis']['fairness_metrics']['avg_hours'] * successful[alg]['kpis']['total_employees'] for alg in algorithms]
+        bars2 = axes[1].bar(algorithms, total_hours, color='gold')
+        axes[1].set_title('Gesamtstunden (Durchschnitt × Mitarbeiter)')
+        axes[1].set_ylabel('Stunden')
+        axes[1].set_xticklabels(algorithms, rotation=45, ha='right')
+
+        for bar, hours in zip(bars2, total_hours):
+            axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                        f'{hours:.0f}h', ha='center', va='bottom')
+
+        # Min/Max hours spread
+        min_hours = [successful[alg]['kpis']['fairness_metrics']['min_hours'] for alg in algorithms]
+        max_hours = [successful[alg]['kpis']['fairness_metrics']['max_hours'] for alg in algorithms]
+        
+        x_pos = np.arange(len(algorithms))
+        bars3 = axes[2].bar(x_pos - 0.2, min_hours, 0.4, label='Min Stunden', color='lightblue')
+        bars4 = axes[2].bar(x_pos + 0.2, max_hours, 0.4, label='Max Stunden', color='darkblue')
+        axes[2].set_title('Min/Max Stundenverteilung')
+        axes[2].set_ylabel('Stunden')
+        axes[2].set_xticks(x_pos)
+        axes[2].set_xticklabels(algorithms, rotation=45, ha='right')
+        axes[2].legend()
+
+        # Total violations
+        total_violations = [successful[alg]['kpis']['constraint_violations']['total_violations'] for alg in algorithms]
+        bars5 = axes[3].bar(algorithms, total_violations, color=['green' if v == 0 else 'red' for v in total_violations])
+        axes[3].set_title('Gesamte Constraint-Verletzungen')
+        axes[3].set_ylabel('Anzahl Verletzungen')
+        axes[3].set_xticklabels(algorithms, rotation=45, ha='right')
+
+        for bar, val in zip(bars5, total_violations):
+            axes[3].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                        f'{val}', ha='center', va='bottom')
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, 'additional_metrics.png'), dpi=300)
         plt.close()
 
     def _generate_comparison_graphs(self, all_results: Dict, export_dir: str):

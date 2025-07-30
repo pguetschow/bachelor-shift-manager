@@ -16,10 +16,10 @@ class NSGA2Scheduler(SchedulingAlgorithm):
     Optimized NSGA-II scheduler with simplified repair mechanism for better performance.
     """
 
-    def __init__(self, population_size=30, generations=50,
-                 crossover_prob=0.8, mutation_prob=0.2,
+    def __init__(self, population_size=50, generations=75,
+                 crossover_prob=0.8, mutation_prob=0.4,
                  repair_iterations=3, sundays_off=False,
-                 coverage_weight=1.0, utilization_weight=2.0, fairness_weight=0.1):
+                 coverage_weight=1.2, utilization_weight=2.0, fairness_weight=0.3):
         self.population_size = population_size
         self.generations = generations
         self.crossover_prob = crossover_prob
@@ -302,7 +302,11 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         return fixes
 
     def _aggressive_fill(self, solution, weekly_hours):
-        """Aggressively fill shifts to improve coverage and utilization."""
+        """Aggressively fill shifts to improve coverage and utilization with fairness."""
+        # Scale capacity limit based on problem size (more aggressive for larger problems)
+        num_employees = len(self.problem.employees)
+        capacity_scale = 0.95 if num_employees > 50 else 0.90  # More aggressive for large companies
+        
         for date in self.working_days:
             week_key = date.isocalendar()[:2]
 
@@ -320,15 +324,24 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                             emp = self.problem.emp_by_id[emp_id]
                             current_weekly = weekly_hours[emp_id][week_key]
                             
-                            # Allow up to 95% of max hours for better utilization
-                            max_allowed = emp.max_hours_per_week * 0.95
+                            # Calculate capacity like ILP
+                            employee_absences = len(emp.absence_dates)
+                            yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+                            weekly_capacity = yearly_capacity / 52
+                            
+                            # Allow up to capacity_scale of weekly capacity
+                            max_allowed = weekly_capacity * capacity_scale
                             if current_weekly + shift.duration <= max_allowed:
-                                # Score by remaining capacity (prefer employees with more available time)
-                                remaining = max_allowed - current_weekly
-                                candidates.append((emp_id, remaining))
+                                # Calculate current utilization percentage
+                                current_util = current_weekly / weekly_capacity
+                                
+                                # Prefer employees with lower current utilization (more fair)
+                                # This ensures work is distributed more evenly
+                                fairness_score = 1.0 - current_util  # Lower util = higher score
+                                candidates.append((emp_id, fairness_score))
 
                     if candidates:
-                        # Sort by remaining capacity (highest first)
+                        # Sort by fairness score (lowest utilization first)
                         candidates.sort(key=lambda x: x[1], reverse=True)
                         
                         # Fill as much as possible
@@ -366,7 +379,7 @@ class NSGA2Scheduler(SchedulingAlgorithm):
 
         coverage_rate = filled_positions / total_positions if total_positions > 0 else 0
 
-        # Calculate utilization
+        # Calculate utilization using ILP-inspired approach
         emp_hours = defaultdict(float)
         for (date, shift_id), emp_ids in individual.items():
             shift = self.problem.shift_by_id[shift_id]
@@ -376,16 +389,20 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         utilizations = []
         for emp in self.problem.employees:
             worked = emp_hours.get(emp.id, 0)
-            # Calculate actual capacity considering absences
-            working_days_available = sum(
-                1 for d in self.working_days
-                if d not in emp.absence_dates
-            )
-            daily_capacity = emp.max_hours_per_week / (6 if self.sundays_off else 7)
-            capacity = working_days_available * daily_capacity
-
-            if capacity > 0:
-                util = min(worked / capacity, 1.0)
+            
+            # Calculate capacity like ILP: yearly capacity minus absences
+            employee_absences = len(emp.absence_dates)
+            yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+            
+            # Calculate working days in the problem period
+            working_days_in_period = len(self.working_days)
+            total_working_days_in_year = 52 * (6 if self.sundays_off else 7)
+            
+            # Scale capacity to the problem period
+            period_capacity = yearly_capacity * (working_days_in_period / total_working_days_in_year)
+            
+            if period_capacity > 0:
+                util = min(worked / period_capacity, 1.0)
                 utilizations.append(util)
 
         avg_utilization = np.mean(utilizations) if utilizations else 0
@@ -448,13 +465,15 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         num_mutations = random.randint(2, 5)
 
         for _ in range(num_mutations):
-            # Bias towards adding staff (70% add, 30% remove)
-            mutation_type = random.choices(['add', 'remove'], weights=[0.7, 0.3])[0]
+            # Bias towards adding staff and redistributing (60% add, 20% remove, 20% redistribute)
+            mutation_type = random.choices(['add', 'remove', 'redistribute'], weights=[0.6, 0.2, 0.2])[0]
 
             if mutation_type == 'add':
                 self._mutation_add_staff_fast(individual)
             elif mutation_type == 'remove':
                 self._mutation_remove_staff_fast(individual)
+            elif mutation_type == 'redistribute':
+                self._mutation_redistribute_fair(individual)
 
         # Quick repair
         self._quick_repair(individual)
@@ -486,13 +505,29 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                     if emp_id not in assigned:
                         emp = self.problem.emp_by_id[emp_id]
                         weekly_hours = self._get_weekly_hours_fast(emp_id, week_key, individual)
-                        # Allow up to 95% of max hours
-                        if weekly_hours + shift.duration <= emp.max_hours_per_week * 0.95:
-                            candidates.append(emp_id)
+                        
+                        # Calculate capacity like ILP
+                        employee_absences = len(emp.absence_dates)
+                        yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+                        weekly_capacity = yearly_capacity / 52
+                        
+                        # Scale capacity limit based on problem size
+                        num_employees = len(self.problem.employees)
+                        capacity_scale = 0.95 if num_employees > 50 else 0.90
+                        
+                        # Allow up to capacity_scale of weekly capacity
+                        if weekly_hours + shift.duration <= weekly_capacity * capacity_scale:
+                            # Calculate current utilization
+                            current_util = weekly_hours / weekly_capacity
+                            # Prefer employees with lower utilization
+                            fairness_score = 1.0 - current_util
+                            candidates.append((emp_id, fairness_score))
 
                 if candidates:
+                    # Sort by fairness score and select best candidates
+                    candidates.sort(key=lambda x: x[1], reverse=True)
                     add_count = min(gap, len(candidates))
-                    selected = random.sample(candidates, add_count)
+                    selected = [candidates[i][0] for i in range(add_count)]
                     assigned.extend(selected)
 
     def _mutation_remove_staff_fast(self, individual):
@@ -513,6 +548,64 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                 if len(assigned) > self.problem.shift_by_id[shift_id].min_staff:
                     emp_id = random.choice(assigned)
                     assigned.remove(emp_id)
+
+    def _mutation_redistribute_fair(self, individual):
+        """Redistribute work to improve fairness."""
+        # Calculate current utilization for all employees
+        emp_hours = defaultdict(float)
+        for (date, shift_id), emp_ids in individual.items():
+            shift = self.problem.shift_by_id[shift_id]
+            for emp_id in emp_ids:
+                emp_hours[emp_id] += shift.duration
+
+        # Find most and least utilized employees
+        utilizations = []
+        for emp in self.problem.employees:
+            worked = emp_hours.get(emp.id, 0)
+            
+            # Calculate capacity like ILP
+            employee_absences = len(emp.absence_dates)
+            yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+            working_days_in_period = len(self.working_days)
+            total_working_days_in_year = 52 * (6 if self.sundays_off else 7)
+            period_capacity = yearly_capacity * (working_days_in_period / total_working_days_in_year)
+            
+            util = worked / period_capacity if period_capacity > 0 else 0
+            utilizations.append((emp.id, util))
+
+        utilizations.sort(key=lambda x: x[1], reverse=True)
+        
+        if len(utilizations) >= 2:
+            most_utilized = utilizations[0]  # Highest utilization
+            least_utilized = utilizations[-1]  # Lowest utilization
+            
+            # If there's a significant gap (>10%), try to redistribute
+            if most_utilized[1] - least_utilized[1] > 0.1:
+                # Find a shift where most_utilized is assigned
+                for (date, shift_id), assigned in individual.items():
+                    if most_utilized[0] in assigned:
+                        shift = self.problem.shift_by_id[shift_id]
+                        
+                        # Check if least_utilized can take this shift
+                        if (least_utilized[0] in self.daily_availability.get(date, []) and
+                            least_utilized[0] not in assigned):
+                            
+                            # Check if least_utilized has capacity
+                            current_hours = emp_hours.get(least_utilized[0], 0)
+                            emp = self.problem.emp_by_id[least_utilized[0]]
+                            employee_absences = len(emp.absence_dates)
+                            yearly_capacity = emp.max_hours_per_week * 52 - (employee_absences * 8)
+                            weekly_capacity = yearly_capacity / 52
+                            
+                            # Scale capacity limit based on problem size
+                            num_employees = len(self.problem.employees)
+                            capacity_scale = 0.95 if num_employees > 50 else 0.90
+                            
+                            if current_hours + shift.duration <= weekly_capacity * capacity_scale:
+                                # Redistribute: remove from most_utilized, add to least_utilized
+                                assigned.remove(most_utilized[0])
+                                assigned.append(least_utilized[0])
+                                break
 
     def _decode_solution(self, individual) -> List[ScheduleEntry]:
         """Convert solution dictionary to schedule entries."""

@@ -128,6 +128,20 @@ class KPIStorageService:
             list(entries), year, month, algorithm
         )
         
+        # Calculate detailed violations
+        start_date = date(year, month, 1)
+        end_date = date(year, month, 28)
+        while end_date.month == month:
+            end_date += timedelta(days=1)
+        end_date -= timedelta(days=1)
+        
+        weekly_violations_detailed = self.kpi_calculator.check_weekly_hours_violations_detailed(
+            list(entries), start_date, end_date
+        )
+        rest_period_violations_detailed = self.kpi_calculator.check_rest_period_violations_detailed(
+            list(entries), start_date, end_date
+        )
+        
         # Store KPI
         kpi, created = CompanyKPI.objects.update_or_create(
             company=self.company,
@@ -146,6 +160,8 @@ class KPIStorageService:
                 'rest_period_violations': analytics['rest_period_violations'],
                 'employee_hours': analytics['employee_hours'],
                 'weekly_violations': analytics['weekly_violations'],
+                'weekly_violations_detailed': weekly_violations_detailed,
+                'rest_period_violations_detailed': rest_period_violations_detailed,
             }
         )
         

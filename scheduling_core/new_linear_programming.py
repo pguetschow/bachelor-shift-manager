@@ -30,7 +30,7 @@ class ILPScheduler(SchedulingAlgorithm):
 
     @property
     def name(self) -> str:
-        return "Optimized ILP (Utilization)"
+        return "Integer Linear Programming"
 
     # ------------------------------------------------------------------
     # Public entry point

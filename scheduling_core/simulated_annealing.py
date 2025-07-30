@@ -1,7 +1,7 @@
 import math
 import random
 from collections import defaultdict
-from datetime import timedelta
+from datetime import timedelta, date
 from enum import Enum
 from typing import List, Dict
 
@@ -226,13 +226,13 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         penalty = 0
 
         # Weights
-        w_understaff = 10_000_000
+        w_understaff = 5_000_000
+        w_rest_period = 1_000_000
         w_overstaff = 1_000_000
         w_weekly_hours = 100_000
-        w_rest_period = 100_000
-        w_coverage_bonus = -1_000
+        w_utilization = -25_000
+        w_coverage_bonus = -10_000
         w_full_coverage = -5_000
-        w_utilization = -2_000
         w_preference = -100
 
         # Track metrics
@@ -461,7 +461,9 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                     # Check weekly capacity
                     weekly_hours = self._get_employee_weekly_hours(solution, emp.id, week_key)
                     if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                        candidates.append(emp.id)
+                        # Check rest period violations
+                        if not self._check_rest_period_violation_for_employee(solution, emp.id, date, shift):
+                            candidates.append(emp.id)
 
         # Add employees - ENSURE we don't exceed max_staff
         if candidates:
@@ -507,13 +509,15 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 if not has_shift:
                     weekly_hours = self._get_employee_weekly_hours(solution, emp.id, week_key)
                     if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                        worked = sum(
-                            s.duration for (d, sid), emps in solution.assignments.items()
-                            if emp.id in emps for s in [self.problem.shift_by_id[sid]]
-                        )
-                        capacity = self.employee_capacity[emp.id]
-                        utilization = worked / capacity if capacity > 0 else 1
-                        candidates.append((emp.id, utilization))
+                        # Check rest period violations
+                        if not self._check_rest_period_violation_for_employee(solution, emp.id, date, shift):
+                            worked = sum(
+                                s.duration for (d, sid), emps in solution.assignments.items()
+                                if emp.id in emps for s in [self.problem.shift_by_id[sid]]
+                            )
+                            capacity = self.employee_capacity[emp.id]
+                            utilization = worked / capacity if capacity > 0 else 1
+                            candidates.append((emp.id, utilization))
 
         if candidates:
             # Sort by utilization (lower first)
@@ -568,9 +572,11 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 if (target_date == source_date and
                     emp_id not in target_assigned and
                     len(target_assigned) < target_shift.max_staff):
-                    source_assigned.remove(emp_id)
-                    target_assigned.append(emp_id)
-                    return
+                    # Check rest period violations
+                    if not self._check_rest_period_violation_for_employee(solution, emp_id, target_date, target_shift):
+                        source_assigned.remove(emp_id)
+                        target_assigned.append(emp_id)
+                        return
 
     def _swap_for_better_coverage(self, solution: Solution):
         """Swap employees to improve coverage."""
@@ -618,9 +624,11 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 )
 
                 if not has_other_shift:
-                    source_assigned.remove(emp_id)
-                    target_assigned.append(emp_id)
-                    return
+                    # Check rest period violations
+                    if not self._check_rest_period_violation_for_employee(solution, emp_id, target_date, target_shift):
+                        source_assigned.remove(emp_id)
+                        target_assigned.append(emp_id)
+                        return
 
     def _boost_underutilized_employee(self, solution: Solution):
         """Assign more shifts to underutilized employees - FIXED."""
@@ -667,11 +675,13 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                         weekly_hours = self._get_employee_weekly_hours(solution, emp_id, week_key)
 
                         if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                            assigned.append(emp_id)
-                            additions += 1
+                            # Check rest period violations
+                            if not self._check_rest_period_violation_for_employee(solution, emp_id, date, shift):
+                                assigned.append(emp_id)
+                                additions += 1
 
-                            if additions >= max_additions:
-                                return
+                                if additions >= max_additions:
+                                    return
 
     def _get_employee_weekly_hours(self, solution: Solution, emp_id: int, week_key: tuple) -> float:
         """Get total hours for employee in a specific week."""
@@ -682,9 +692,30 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                     hours += shift.duration
         return hours
 
+    def _check_rest_period_violation_for_employee(self, solution: Solution, emp_id: int, date: date, shift) -> bool:
+        """Check if adding employee to shift on date would cause rest period violations."""
+        kpi_calculator = KPICalculator(self.company)
+        
+        # Check previous day
+        prev_date = date - timedelta(days=1)
+        for s in self.problem.shifts:
+            if emp_id in solution.assignments.get((prev_date, s.id), []):
+                if kpi_calculator.violates_rest_period(s, shift, prev_date):
+                    return True
+        
+        # Check next day
+        next_date = date + timedelta(days=1)
+        for s in self.problem.shifts:
+            if emp_id in solution.assignments.get((next_date, s.id), []):
+                if kpi_calculator.violates_rest_period(shift, s, date):
+                    return True
+        
+        return False
+
     def _greedy_fill_gaps(self, solution: Solution):
-        """Final greedy pass - FIXED to respect max_staff."""
+        """Final greedy pass - FIXED to respect max_staff and rest period violations."""
         improvements = 0
+        kpi_calculator = KPICalculator(self.company)
 
         for (date, shift_id), assigned in solution.assignments.items():
             if date not in self.working_days:
@@ -721,7 +752,29 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                             capacity = self.employee_capacity[emp.id]
                             utilization = worked / capacity if capacity > 0 else 1
 
-                            if utilization < 0.95:
+                            # --- REST PERIOD CHECKS ---
+                            prev_date = date - timedelta(days=1)
+                            next_date = date + timedelta(days=1)
+                            prev_shift = None
+                            next_shift = None
+                            # Find previous day's shift (if any)
+                            for s in self.problem.shifts:
+                                if emp.id in solution.assignments.get((prev_date, s.id), []):
+                                    prev_shift = s
+                                    break
+                            # Find next day's shift (if any)
+                            for s in self.problem.shifts:
+                                if emp.id in solution.assignments.get((next_date, s.id), []):
+                                    next_shift = s
+                                    break
+                            rest_ok = True
+                            if prev_shift:
+                                if kpi_calculator.violates_rest_period(prev_shift, shift, prev_date):
+                                    rest_ok = False
+                            if next_shift:
+                                if kpi_calculator.violates_rest_period(shift, next_shift, date):
+                                    rest_ok = False
+                            if rest_ok and utilization < 0.95:
                                 candidates.append((emp.id, utilization))
 
             if candidates:
