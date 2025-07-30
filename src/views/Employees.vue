@@ -346,13 +346,13 @@ const getUtilizationClass = (percentage) => {
 const previousMonth = () => {
   const newDate = new Date(currentYear.value, currentMonth.value - 2)
   scheduleStore.setCurrentDate(newDate)
-  loadEmployeeData()
+  loadEmployeesData()
 }
 
 const nextMonth = () => {
   const newDate = new Date(currentYear.value, currentMonth.value)
   scheduleStore.setCurrentDate(newDate)
-  loadEmployeeData()
+  loadEmployeesData()
 }
 
 const loadEmployeeData = async () => {
