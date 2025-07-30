@@ -90,19 +90,19 @@ class Command(BaseCommand):
 
             # Algorithm configurations - will be created per company
             algorithm_classes = [
-                ILPScheduler,
+                # ILPScheduler,
                 GeneticAlgorithmScheduler,
-                NewSimulatedAnnealingScheduler,
+                # NewSimulatedAnnealingScheduler,
                 # SimulatedAnnealingScheduler,
-                NSGA2Scheduler
+                # NSGA2Scheduler
             ]
 
             # Filter algorithms if requested
             if algorithm_filter:
                 algorithm_map = {
-                    'LinearProgramming': ILPScheduler,
+                    # 'LinearProgramming': ILPScheduler,
                     'GeneticAlgorithm': GeneticAlgorithmScheduler,
-                    'NewSimulatedAnnealingScheduler': NewSimulatedAnnealingScheduler,
+                    # 'NewSimulatedAnnealingScheduler': NewSimulatedAnnealingScheduler,
                     'SimulatedAnnealing': SimulatedAnnealingScheduler,
                     'NSGA2Scheduler': NSGA2Scheduler,
                 }

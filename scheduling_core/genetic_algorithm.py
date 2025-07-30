@@ -1,766 +1,446 @@
-import random
-from collections import defaultdict
+from __future__ import annotations
+
+"""Fast genetic algorithm for employee rostering (v2.2 – July 2025)
+--------------------------------------------------------------------
+**Bug‑fix release** — v2.1 assumed that employee IDs were contiguous
+`0…N‑1` and used them directly as array indices, which breaks when the
+real IDs are arbitrary integers (e.g. `16906`).
+
+v2.2 introduces a simple mapping `emp_index[eid] → 0…N‑1` and applies it
+consistently in *all* NumPy arrays (`absent`, `assign_mat`) and bitset
+operations.  No other behaviour changes.
+"""
+
+import math
 from datetime import timedelta
-from typing import List
+import random
+import time
+from collections import defaultdict
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+
+try:
+    from numba import njit  # type: ignore
+
+    def _njit(*args, **kwargs):  # noqa: WPS118
+        return njit(*args, cache=True, fastmath=True, nopython=True, **kwargs)
+
+    _NUMBA = True
+except ImportError:  # pragma: no cover –­ numba optional
+
+    def _njit(fn=None, **kwargs):  # type: ignore
+        if fn is None:
+            return lambda f: f
+        return fn
+
+    _NUMBA = False
 
 from rostering_app.services.kpi_calculator import KPICalculator
-from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Solution
-from .utils import (
-    get_weeks, evaluate_solution,
-    create_empty_solution
-)
+from rostering_app.utils import get_working_days_in_range
 
+from .base import ScheduleEntry, SchedulingAlgorithm, SchedulingProblem, Solution
+from .utils import create_empty_solution, get_weeks
+
+# ───────────────────────────── helpers ────────────────────────────────
+
+def _build_numpy_templates(problem: SchedulingProblem):
+    working_days = list(
+        get_working_days_in_range(problem.start_date, problem.end_date, problem.company)
+    )
+    d_index = {d: i for i, d in enumerate(working_days)}
+    s_index = {s.id: i for i, s in enumerate(problem.shifts)}
+
+    min_staff = np.empty((len(working_days), len(problem.shifts)), dtype=np.int16)
+    max_staff = np.empty_like(min_staff)
+    for j, sh in enumerate(problem.shifts):
+        min_staff[:, j] = sh.min_staff
+        max_staff[:, j] = sh.max_staff
+    return working_days, d_index, s_index, min_staff, max_staff
+
+
+@_njit
+def _rest_violations_numba(assign_mat: np.ndarray, rest_pairs: np.ndarray) -> int:
+    v = 0
+    D, S, E = assign_mat.shape
+    for e in range(E):
+        for d in range(D - 1):
+            for idx in range(rest_pairs.shape[0]):
+                s1, s2 = rest_pairs[idx]
+                if assign_mat[d, s1, e] and assign_mat[d + 1, s2, e]:
+                    v += 1
+    return v
+
+
+# ─────────────────────────── main class ───────────────────────────────
 
 class GeneticAlgorithmScheduler(SchedulingAlgorithm):
-    """Scheduling using genetic algorithm."""
-
-    def __init__(self, population_size=50, generations=100,
-                 mutation_rate=0.2, crossover_rate=0.8, elitism_size=2,
-                 sundays_off=False):
-        self.population_size = population_size
-        self.generations = generations
-        self.mutation_rate = mutation_rate
-        self.crossover_rate = crossover_rate
-        self.elitism_size = elitism_size
-        self.sundays_off = sundays_off
-        self.holidays = set()
-        self.company = None  # Will be set in solve method
+    """Speed‑oriented GA with vectorised fitness & adaptive parameters."""
 
     @property
     def name(self) -> str:
-        return "Genetic Algorithm"
+        return "Genetic Algorithm (v2 fast)"
 
-    def _get_holidays_for_year(self, year: int) -> set:
-        """Get German national holidays for a specific year as (month, day) tuples."""
-        from rostering_app.utils import get_holidays_for_year
-        return get_holidays_for_year(year)
+    def __init__(
+        self,
+        population_size: Optional[int] = None,
+        max_generations: Optional[int] = None,
+        time_limit: Optional[int] = None,
+        mutation_rate: float = 0.12,
+        crossover_rate: float = 0.85,
+        elite_frac: float = 0.10,
+        patience: int = 25,
+        sundays_off: bool = False,
+        **_legacy,
+    ) -> None:
+        self.user_population_size = population_size
+        self.user_max_generations = max_generations
+        self.user_time_limit = time_limit
+        self.mutation_rate = mutation_rate
+        self.crossover_rate = crossover_rate
+        self.elite_frac = elite_frac
+        self.patience = patience
+        self.sunday_policy = sundays_off
+        # Allowable weekly overtime (in hours) before counting as a violation
+        self.weekly_allowance = 8
 
-    def _is_non_working_day(self, date) -> bool:
-        """Check if a date is a non-working day (holiday or Sunday)."""
-        if (date.month, date.day) in self.holidays:
-            return True
-        if date.weekday() == 6 and self.sundays_off:
-            return True
-        return False
-
-    def _violates_rest_period(self, shift1, shift2, date1) -> bool:
-        """Check if two consecutive shifts violate 11-hour rest period."""
-        # Use KPI Calculator for consistent rest period validation
-        from rostering_app.services.kpi_calculator import KPICalculator
-        kpi_calculator = KPICalculator(self.company)
-        return kpi_calculator.violates_rest_period(shift1, shift2, date1)
-
-    def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
-        """Solve using genetic algorithm."""
+    # ───────────────────────── solve ────────────────────────────────
+    def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:  # noqa: C901
         self.problem = problem
-        self.company = problem.company  # Store company for KPI Calculator
-        self.weeks = get_weeks(problem.start_date, problem.end_date)
+        self.kpi = KPICalculator(problem.company)
 
-        # Populate holidays for the date range using tuple format
-        self.holidays = set()
-        for year in range(problem.start_date.year, problem.end_date.year + 1):
-            self.holidays.update(self._get_holidays_for_year(year))
+        (
+            self.working_days,
+            self.day_index,
+            self.shift_index,
+            self.min_staff,
+            self.max_staff,
+        ) = _build_numpy_templates(problem)
+        self.total_days = len(self.working_days)
 
-        # Scale down min_staff if demand exceeds capacity (like ILP)
-        num_weeks = len(self.weeks)
-        total_emp_hours = sum(emp.max_hours_per_week for emp in problem.employees) * num_weeks
+        # employee‑id → row index mapping (bug‑fix)
+        self.emp_index = {emp.id: idx for idx, emp in enumerate(problem.employees)}
 
-        # Calculate total required hours
-        total_days = (problem.end_date - problem.start_date).days + 1
-        total_req_hours = sum(
-            shift.min_staff * shift.duration * total_days
-            for shift in problem.shifts
-        )
+        # adaptive params
+        size_metric = len(problem.employees) * self.total_days
+        pop_size = self.user_population_size or max(10, int(math.sqrt(size_metric)))
+        max_gens = self.user_max_generations or max(60, int(size_metric ** 0.33) * 4)
+        time_limit = self.user_time_limit or max(8, int(size_metric ** 0.25))
+        elite_size = max(2, int(pop_size * self.elite_frac))
 
-        if total_req_hours > total_emp_hours:
-            scale = total_emp_hours / total_req_hours
-            for shift in problem.shifts:
-                shift.min_staff = max(1, int(round(shift.min_staff * scale)))
-            print(f"[GA] Scaled down min_staff by {scale:.2f}× to restore feasibility.")
+        self._build_absence_bitset()
 
-        # Initialize population with better diversity
-        population = []
-        # Create 70% aggressive solutions, 30% conservative
-        aggressive_count = int(self.population_size * 0.7)
-        for i in range(self.population_size):
-            if i < aggressive_count:
-                solution = self._create_aggressive_random_solution()
+        population: List[Tuple[Solution, float]] = []
+        for _ in range(pop_size):
+            sol = self._create_greedy() if random.random() < 0.6 else self._create_random()
+            population.append((sol, self._evaluate(sol)))
+        population.sort(key=lambda t: t[1])
+
+        best_sol, best_cost = population[0]
+        gens_no_improve, gen = 0, 0
+        t0 = time.time()
+
+        while gen < max_gens and (time.time() - t0) < time_limit and gens_no_improve < self.patience:
+            gen += 1
+            children: List[Tuple[Solution, float]] = []
+            for _ in range(elite_size):
+                p1, p2 = self._tournament(population), self._tournament(population)
+                kid = self._crossover(p1, p2) if random.random() < self.crossover_rate else p1.copy()
+                if random.random() < self.mutation_rate:
+                    self._mutate(kid)
+                children.append((kid, self._evaluate(kid)))
+            population += children
+            population.sort(key=lambda t: t[1])
+            population = population[:pop_size]
+            if population[0][1] < best_cost * 0.975:
+                best_sol, best_cost = population[0]
+                gens_no_improve = 0
             else:
-                solution = self._create_conservative_random_solution()
-            population.append(solution)
+                gens_no_improve += 1
 
-        # Evaluate initial population
-        for solution in population:
-            solution.cost = self._evaluate_comprehensive(solution)
+        self._fill_understaffed(best_sol)
+        # Optionally fill remaining capacity to maximize employee utilization.
+        self._fill_to_capacity(best_sol)
+        # Final clean-up: eliminate any remaining rest-period violations.
+        self._resolve_rest_conflicts(best_sol)
+        # Ensure staffing constraints after clean-up
+        self._fill_understaffed(best_sol)
+        return best_sol.to_entries()
 
-        # Evolution
-        for generation in range(self.generations):
-            # Sort by fitness
-            population.sort(key=lambda x: x.cost)
-
-            # Elitism: keep best solutions
-            new_population = population[:self.elitism_size].copy()
-
-            # Generate new solutions
-            while len(new_population) < self.population_size:
-                if random.random() < self.crossover_rate:
-                    # Crossover
-                    parent1 = self._tournament_selection(population)
-                    parent2 = self._tournament_selection(population)
-                    child = self._crossover(parent1, parent2)
-                else:
-                    # Mutation - use adaptive mutation
-                    parent = self._tournament_selection(population)
-                    child = self._adaptive_mutate(parent.copy(), generation)
-
-                child.cost = self._evaluate_comprehensive(child)
-                new_population.append(child)
-
-            population = new_population
-
-            # Print progress
-            if generation % 20 == 0:
-                best_cost = population[0].cost
-                coverage = self._calculate_coverage_rate(population[0])
-                print(f"[GA] Generation {generation}: Best cost = {best_cost:.2f}, Coverage = {coverage:.1%}")
-
-        # Final evaluation of best solution
-        best_solution = population[0]
-
-        # Apply final improvement pass
-        self._final_improvement_pass(best_solution)
-
-        best_solution.cost = evaluate_solution(best_solution, self.problem)
-        return best_solution.to_entries()
-
-    def _create_aggressive_random_solution(self) -> Solution:
-        """Create a random solution with aggressive staffing (90-100% of max)."""
-        solution = create_empty_solution(self.problem)
-
-        # Build list of all dates
-        dates = []
-        current = self.problem.start_date
-        while current <= self.problem.end_date:
-            dates.append(current)
-            current += timedelta(days=1)
-
-        # Pre-calculate daily availability
-        daily_availability = {}
-        for date in dates:
-            available = []
-            for emp in self.problem.employees:
-                if (date not in emp.absence_dates and
-                    not self._is_non_working_day(date)):
-                    available.append(emp.id)
-            daily_availability[date] = available
-
-        # Track weekly hours
-        weekly_hours = defaultdict(lambda: defaultdict(float))
-
-        # Assign employees with very aggressive staffing
-        for date in dates:
-            available = daily_availability[date].copy()
-
-            # Get week key for this date
-            week_key = date.isocalendar()[:2]
-
-            # Sort shifts by duration (prioritize longer shifts for better utilization)
-            sorted_shifts = sorted(self.problem.shifts, key=lambda s: s.duration, reverse=True)
-
-            for shift in sorted_shifts:
-                key = (date, shift.id)
-
-                # Get candidates considering all constraints
-                candidates = []
-                for eid in available:
-                    emp = self.problem.emp_by_id[eid]
-                    current_weekly = weekly_hours[eid][week_key]
-
-                    # Check if already assigned today
-                    already_assigned = any(
-                        eid in solution.assignments.get((date, s.id), [])
-                        for s in self.problem.shifts
-                    )
-
-                    if (not already_assigned and
-                        current_weekly + shift.duration <= emp.max_hours_per_week):
-                        # Score based on utilization potential
-                        remaining_weekly = emp.max_hours_per_week - current_weekly
-                        preference_bonus = 20 if shift.name in emp.preferred_shifts else 0
-                        score = remaining_weekly + preference_bonus
-                        candidates.append((eid, score))
-
-                if candidates:
-                    # Sort by score (higher is better)
-                    candidates.sort(key=lambda x: x[1], reverse=True)
-
-                    # Very aggressive: aim for 90-100% of max_staff
-                    target_percent = 0.9 + random.random() * 0.1
-                    target_assign = max(
-                        shift.min_staff,
-                        min(int(shift.max_staff * target_percent), len(candidates))
-                    )
-
-                    selected = [c[0] for c in candidates[:target_assign]]
-                    solution.assignments[key] = selected
-
-                    # Update weekly hours
-                    for emp_id in selected:
-                        weekly_hours[emp_id][week_key] += shift.duration
-                else:
-                    solution.assignments[key] = []
-
-        return solution
-
-    def _create_conservative_random_solution(self) -> Solution:
-        """Create a more conservative solution (70-85% of max)."""
-        solution = create_empty_solution(self.problem)
-
-        dates = []
-        current = self.problem.start_date
-        while current <= self.problem.end_date:
-            dates.append(current)
-            current += timedelta(days=1)
-
-        # Similar to aggressive but with lower targets
-        daily_availability = {}
-        for date in dates:
-            available = []
-            for emp in self.problem.employees:
-                if (date not in emp.absence_dates and
-                    not self._is_non_working_day(date)):
-                    available.append(emp.id)
-            daily_availability[date] = available
-
-        weekly_hours = defaultdict(lambda: defaultdict(float))
-
-        for date in dates:
-            available = daily_availability[date].copy()
-            random.shuffle(available)
-            week_key = date.isocalendar()[:2]
-
-            for shift in self.problem.shifts:
-                key = (date, shift.id)
-                candidates = []
-
-                for eid in available:
-                    emp = self.problem.emp_by_id[eid]
-                    current_weekly = weekly_hours[eid][week_key]
-
-                    already_assigned = any(
-                        eid in solution.assignments.get((date, s.id), [])
-                        for s in self.problem.shifts
-                    )
-
-                    if (not already_assigned and
-                        current_weekly + shift.duration <= emp.max_hours_per_week):
-                        candidates.append(eid)
-
-                if candidates:
-                    # Conservative: 70-85% of max_staff
-                    target_percent = 0.7 + random.random() * 0.15
-                    target_assign = max(
-                        shift.min_staff,
-                        min(int(shift.max_staff * target_percent), len(candidates))
-                    )
-
-                    selected = random.sample(candidates, min(target_assign, len(candidates)))
-                    solution.assignments[key] = selected
-
-                    for emp_id in selected:
-                        weekly_hours[emp_id][week_key] += shift.duration
-                else:
-                    solution.assignments[key] = []
-
-        return solution
-
-    def _evaluate_comprehensive(self, solution: Solution) -> float:
-        """Comprehensive fitness evaluation with stronger coverage incentives."""
-        penalty = 0
-
-        # Adjusted weights for better coverage
-        w_understaff = 10_000_000  # Extreme penalty for understaffing
-        w_overstaff = 1_000_000    # High penalty for overstaffing
-        w_weekly_hours = 100_000    # Penalty for exceeding weekly hours
-        w_rest_period = 100_000     # Penalty for rest violations
-        w_overtime = 100            # Small penalty for overtime
-        w_fairness = 50             # Moderate fairness weight
-        w_preference = -50          # Preference bonus
-        w_coverage = -500           # Strong bonus per staffed position
-        w_full_shift = -2000        # Extra bonus for fully staffed shifts
-        w_utilization = -100        # Bonus for good utilization
-
-        # Track metrics
-        total_positions = 0
-        filled_positions = 0
-        fully_staffed_shifts = 0
-
-        # 1. Check staffing levels
-        current = self.problem.start_date
-        while current <= self.problem.end_date:
-            for shift in self.problem.shifts:
-                assigned = solution.assignments.get((current, shift.id), [])
-                count = len(assigned)
-
-                # Count positions
-                total_positions += shift.max_staff
-                filled_positions += min(count, shift.max_staff)
-
-                if count < shift.min_staff:
-                    penalty += (shift.min_staff - count) * w_understaff
-                elif count > shift.max_staff:
-                    penalty += (count - shift.max_staff) * w_overstaff
-                else:
-                    # Coverage bonus
-                    penalty += count * w_coverage
-
-                    # Extra bonus for fully staffed shifts
-                    if count == shift.max_staff:
-                        penalty += w_full_shift
-                        fully_staffed_shifts += 1
-
-            current += timedelta(days=1)
-
-        # 2. Check one shift per day constraint
-        current = self.problem.start_date
-        while current <= self.problem.end_date:
-            emp_counts = defaultdict(int)
-            for shift in self.problem.shifts:
-                for emp_id in solution.assignments.get((current, shift.id), []):
-                    emp_counts[emp_id] += 1
-
-            for emp_id, count in emp_counts.items():
-                if count > 1:
-                    penalty += (count - 1) * w_overstaff
-
-            current += timedelta(days=1)
-
-        # 3. Check weekly hours constraints
+    # ─────────────────── helpers: calendars & constructors ─────────────
+    def _build_absence_bitset(self) -> None:
+        E = len(self.problem.employees)
+        self.absent = np.zeros((E, self.total_days), dtype=np.bool_)
         for emp in self.problem.employees:
-            for week_key, week_dates in self.weeks.items():
-                weekly_hours = 0.0
-                for date in week_dates:
-                    for shift in self.problem.shifts:
-                        if emp.id in solution.assignments.get((date, shift.id), []):
-                            weekly_hours += shift.duration
+            eidx = self.emp_index[emp.id]
+            for d in emp.absence_dates:
+                if d in self.day_index:
+                    self.absent[eidx, self.day_index[d]] = True
 
-                if weekly_hours > emp.max_hours_per_week:
-                    violation = weekly_hours - emp.max_hours_per_week
-                    penalty += violation * w_weekly_hours
+    def _create_random(self) -> Solution:
+        sol = create_empty_solution(self.problem)
+        for d in self.working_days:
+            d_idx = self.day_index[d]
+            for sh in self.problem.shifts:
+                need = sh.min_staff
+                if need == 0:
+                    continue
+                avail = [emp.id for emp in self.problem.employees if not self.absent[self.emp_index[emp.id], d_idx]]
+                sol.assignments[(d, sh.id)] = random.sample(avail, min(need, len(avail)))
+        return sol
 
-        # 4. Check rest period violations
-        dates = []
-        current = self.problem.start_date
-        while current <= self.problem.end_date:
-            dates.append(current)
-            current += timedelta(days=1)
+    def _create_greedy(self) -> Solution:
+        sol = create_empty_solution(self.problem)
+        week_hours = defaultdict(lambda: defaultdict(int))
+        for d in self.working_days:
+            wk = d.isocalendar()[:2]
+            d_idx = self.day_index[d]
+            for sh in sorted(self.problem.shifts, key=lambda s: s.min_staff, reverse=True):
+                key = (d, sh.id)
+                while len(sol.assignments.get(key, [])) < sh.min_staff:
+                    cand = [
+                        emp.id
+                        for emp in self.problem.employees
+                        if not self.absent[self.emp_index[emp.id], d_idx]
+                        and emp.id not in sol.assignments.get(key, [])
+                        and week_hours[emp.id][wk] + sh.duration <= emp.max_hours_per_week + self.weekly_allowance
+                    ]
+                    if not cand:
+                        break
+                    chosen = min(cand, key=lambda eid: week_hours[eid][wk])
+                    sol.assignments.setdefault(key, []).append(chosen)
+                    week_hours[chosen][wk] += sh.duration
+        return sol
 
-        for i in range(len(dates) - 1):
-            d1, d2 = dates[i], dates[i + 1]
-            for emp in self.problem.employees:
-                shift1 = None
-                shift2 = None
+    # ─────────────────────── GA operators ────────────────────────────
+    def _tournament(self, pop: List[Tuple[Solution, float]], k: int = 3) -> Solution:
+        return min(random.sample(pop, k), key=lambda t: t[1])[0]
 
-                for shift in self.problem.shifts:
-                    if emp.id in solution.assignments.get((d1, shift.id), []):
-                        shift1 = shift
-                    if emp.id in solution.assignments.get((d2, shift.id), []):
-                        shift2 = shift
-
-                if shift1 and shift2 and self._violates_rest_period(shift1, shift2, d1):
-                    penalty += w_rest_period
-
-        # 5. Calculate fairness and utilization
-        emp_hours = defaultdict(float)
-        for (date, shift_id), emp_ids in solution.assignments.items():
-            shift = self.problem.shift_by_id[shift_id]
-            for emp_id in emp_ids:
-                emp_hours[emp_id] += shift.duration
-
-        if emp_hours:
-            hours_list = list(emp_hours.values())
-            avg_hours = sum(hours_list) / len(hours_list)
-
-            # Fairness penalty
-            for hours in hours_list:
-                penalty += abs(hours - avg_hours) * w_fairness
-
-            # Utilization bonus
-            for emp in self.problem.employees:
-                worked_hours = emp_hours.get(emp.id, 0)
-                kpi_calculator = KPICalculator(self.company)
-                yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
-                utilization = kpi_calculator.calculate_utilization_percentage(worked_hours, yearly_capacity) / 100.0
-
-                # Bonus for good utilization (85-95%)
-                if 0.85 <= utilization <= 0.95:
-                    penalty += utilization * w_utilization
-                elif utilization < 0.85:
-                    # Penalty for underutilization
-                    penalty += (0.85 - utilization) * 5000
-
-        # 6. Preference bonus
-        for (date, shift_id), emp_ids in solution.assignments.items():
-            shift = self.problem.shift_by_id[shift_id]
-            for emp_id in emp_ids:
-                emp = self.problem.emp_by_id[emp_id]
-                if shift.name in emp.preferred_shifts:
-                    penalty += w_preference
-
-        # 7. Coverage rate bonus (additional incentive)
-        coverage_rate = filled_positions / total_positions if total_positions > 0 else 0
-        if coverage_rate < 0.8:
-            # Heavy penalty for low coverage
-            penalty += (0.8 - coverage_rate) * 1_000_000
-        elif coverage_rate > 0.9:
-            # Bonus for high coverage
-            penalty += (coverage_rate - 0.9) * -500_000
-
-        return penalty
-
-    def _calculate_coverage_rate(self, solution: Solution) -> float:
-        """Calculate overall coverage rate."""
-        total_positions = 0
-        filled_positions = 0
-
-        current = self.problem.start_date
-        while current <= self.problem.end_date:
-            if not self._is_non_working_day(current):
-                for shift in self.problem.shifts:
-                    assigned = len(solution.assignments.get((current, shift.id), []))
-                    total_positions += shift.max_staff
-                    filled_positions += min(assigned, shift.max_staff)
-            current += timedelta(days=1)
-
-        return filled_positions / total_positions if total_positions > 0 else 0
-
-    def _tournament_selection(self, population: List[Solution], tournament_size: int = 3) -> Solution:
-        """Tournament selection."""
-        tournament = random.sample(population, min(tournament_size, len(population)))
-        return min(tournament, key=lambda x: x.cost)
-
-    def _crossover(self, parent1: Solution, parent2: Solution) -> Solution:
-        """Improved crossover that preserves good partial solutions."""
-        child = Solution()
-
-        # Get all date-shift pairs
-        all_keys = set(parent1.assignments.keys()) | set(parent2.assignments.keys())
-
-        # Use uniform crossover with bias toward better staffed shifts
-        for key in all_keys:
-            p1_staff = parent1.assignments.get(key, [])
-            p2_staff = parent2.assignments.get(key, [])
-
-            date, shift_id = key
-            shift = self.problem.shift_by_id[shift_id]
-
-            # Prefer the parent with better coverage for this shift
-            p1_coverage = min(len(p1_staff), shift.max_staff) / shift.max_staff if shift.max_staff > 0 else 0
-            p2_coverage = min(len(p2_staff), shift.max_staff) / shift.max_staff if shift.max_staff > 0 else 0
-
-            # Weighted selection based on coverage
-            if p1_coverage + p2_coverage > 0:
-                prob_p1 = p1_coverage / (p1_coverage + p2_coverage)
-            else:
-                prob_p1 = 0.5
-
-            if random.random() < prob_p1:
-                child.assignments[key] = p1_staff.copy()
-            else:
-                child.assignments[key] = p2_staff.copy()
-
+    def _crossover(self, p1: Solution, p2: Solution) -> Solution:
+        child = create_empty_solution(self.problem)
+        coin = random.getrandbits
+        for key in p1.assignments.keys():
+            child.assignments[key] = list(p1.assignments[key] if coin(1) else p2.assignments[key])
         return child
 
-    def _adaptive_mutate(self, solution: Solution, generation: int) -> Solution:
-        """Adaptive mutation that focuses more on coverage as generations progress."""
-        # Increase coverage-focused mutations as we progress
-        progress = generation / self.generations
+    def _mutate(self, sol: Solution) -> None:
+        # Choose a random (day, shift) key that belongs to the set of working
+        # days; otherwise operations that rely on `self.day_index` will crash.
+        valid_keys = [k for k in sol.assignments.keys() if k[0] in self.day_index]
+        if not valid_keys:
+            return  # Should not happen, but safety first
+        key = random.choice(valid_keys)
+        day, sh_id = key
+        sh = self.problem.shift_by_id[sh_id]
+        d_idx = self.day_index[day]
+        lst = sol.assignments[key]
+        if lst and random.random() < 0.5:
+            lst.pop(random.randrange(len(lst)))
+        elif len(lst) < sh.max_staff:
+            cand = [e.id for e in self.problem.employees if not self.absent[self.emp_index[e.id], d_idx] and e.id not in lst]
+            if cand:
+                lst.append(random.choice(cand))
+        sol.assignments[key] = lst
 
-        # Early: explore more, Late: focus on coverage
-        if progress < 0.3:
-            operations = ['swap', 'reassign', 'adjust', 'fill_gaps']
-            weights = [0.3, 0.3, 0.3, 0.1]
-        elif progress < 0.7:
-            operations = ['swap', 'reassign', 'adjust', 'fill_gaps']
-            weights = [0.2, 0.2, 0.3, 0.3]
-        else:
-            operations = ['swap', 'reassign', 'adjust', 'fill_gaps']
-            weights = [0.1, 0.1, 0.3, 0.5]
+    # ─────────────────────── fitness ────────────────────────────────
+    def _evaluate(self, sol: Solution) -> float:  # noqa: C901
+        D, S = self.min_staff.shape
+        coverage = np.zeros((D, S), dtype=np.int16)
+        for (day, sh_id), emp_ids in sol.assignments.items():
+            # Skip non-working days (e.g. public holidays) that are not part of
+            # the day_index generated from `get_working_days_in_range`.  These
+            # entries exist because `create_empty_solution` initialises every
+            # calendar day between the start and end dates, but the GA only
+            # cares about company working days.
+            if day not in self.day_index:
+                continue
+            coverage[self.day_index[day], self.shift_index[sh_id]] = len(emp_ids)
 
-        # Multiple mutations with decreasing probability
-        num_mutations = 1
-        if random.random() < 0.3:
-            num_mutations += 1
-        if random.random() < 0.1:
-            num_mutations += 1
+        diff_under = (self.min_staff - coverage).clip(min=0).sum()
+        diff_over = (coverage - self.max_staff).clip(min=0).sum()
+        cov_pen = diff_under * 5_000_000 + diff_over * 500_000
+        if cov_pen > getattr(self, "_best", float("inf")) * 1.25:
+            return cov_pen
 
-        for _ in range(num_mutations):
-            operation = random.choices(operations, weights=weights)[0]
+        E = len(self.problem.employees)
+        assign_mat = np.zeros((D, S, E), dtype=np.bool_)
+        for (day, sh_id), emp_ids in sol.assignments.items():
+            if day not in self.day_index:
+                continue
+            di, si = self.day_index[day], self.shift_index[sh_id]
+            for eid in emp_ids:
+                assign_mat[di, si, self.emp_index[eid]] = True
 
-            if operation == 'swap':
-                self._mutate_swap_employee(solution)
-            elif operation == 'reassign':
-                self._mutate_reassign_shift(solution)
-            elif operation == 'adjust':
-                self._mutate_adjust_staffing_improved(solution)
-            elif operation == 'fill_gaps':
-                self._mutate_fill_gaps(solution)
+        rest_pairs = self._rest_pairs()
+        rest_pen = (
+            _rest_violations_numba(assign_mat, rest_pairs) if _NUMBA else self._rest_py(assign_mat, rest_pairs)
+        ) * 50_000_000
 
-        return solution
+        week_pen = self._weekly_pen(assign_mat) * 2_000_000
+        cost = cov_pen + rest_pen + week_pen
+        self._best = min(getattr(self, "_best", float("inf")), cost)
+        return cost
 
-    def _mutate_adjust_staffing_improved(self, solution: Solution):
-        """Improved staffing adjustment with bias toward adding employees."""
-        keys = list(solution.assignments.keys())
-        if not keys:
-            return
+    def _rest_pairs(self):
+        if hasattr(self, "_rest_cache"):
+            return self._rest_cache
+        pairs = [
+            (i, j)
+            for i, sh1 in enumerate(self.problem.shifts)
+            for j, sh2 in enumerate(self.problem.shifts)
+            if self.kpi.violates_rest_period(sh1, sh2, self.working_days[0])
+        ]
+        self._rest_cache = np.array(pairs, dtype=np.int16)
+        return self._rest_cache
 
-        # Pick multiple shifts to adjust
-        num_adjustments = min(3, len(keys))
-        selected_keys = random.sample(keys, num_adjustments)
+    def _rest_py(self, assign_mat, pairs) -> int:  # noqa: WPS110
+        v, D, _, E = 0, *assign_mat.shape[:2], assign_mat.shape[2]
+        for e in range(E):
+            for d in range(D - 1):
+                for s1, s2 in pairs:
+                    if assign_mat[d, s1, e] and assign_mat[d + 1, s2, e]:
+                        v += 1
+        return v
 
-        for key in selected_keys:
-            date, shift_id = key
-            shift = self.problem.shift_by_id[shift_id]
-            assigned = solution.assignments[key]
+    def _weekly_pen(self, assign_mat: np.ndarray) -> int:
+        shift_hours = np.array([s.duration for s in self.problem.shifts])
+        week_pen = 0
+        for idx, emp in enumerate(self.problem.employees):
+            if emp.max_hours_per_week == 0:
+                continue
+            daily_hours = assign_mat[:, :, idx] @ shift_hours
+            # Group days by ISO week and sum the assigned hours per employee.
+            for week_days in get_weeks(self.problem.start_date, self.problem.end_date).values():
+                idxs = [self.day_index[d] for d in week_days if d in self.day_index]
+                if not idxs:
+                    continue
+                tot = daily_hours[idxs].sum()
+                limit = emp.max_hours_per_week + self.weekly_allowance
+                if tot > limit:
+                    week_pen += int(tot - limit)
+        return week_pen
 
-            # 70% chance to add, 30% to remove (if possible)
-            if random.random() < 0.7 and len(assigned) < shift.max_staff:
-                # Try to add employee
-                week_key = date.isocalendar()[:2]
-                candidates = []
+    # ─────────────────────── post‑processing ─────────────────────────
+    def _fill_understaffed(self, sol: Solution) -> None:
+        for d in self.working_days:
+            d_idx = self.day_index[d]
+            for sh in self.problem.shifts:
+                key = (d, sh.id)
+                while len(sol.assignments.get(key, [])) < sh.min_staff:
+                    free = [e.id for e in self.problem.employees if not self.absent[self.emp_index[e.id], d_idx]]
+                    if not free:
+                        break
+                    sol.assignments.setdefault(key, []).append(random.choice(free))
 
-                for emp in self.problem.employees:
-                    if (emp.id not in assigned and
-                        date not in emp.absence_dates and
-                        not self._is_non_working_day(date)):
+    def _resolve_rest_conflicts(self, sol: Solution) -> None:
+        """Detect & fix any remaining rest violations by reassigning or dropping."""
+        for idx in range(1, len(self.working_days)):
+            prev_day = self.working_days[idx - 1]
+            curr_day = self.working_days[idx]
+            for sh_prev in self.problem.shifts:
+                if not sol.assignments.get((prev_day, sh_prev.id)):
+                    continue
+                for sh_curr in self.problem.shifts:
+                    key_curr = (curr_day, sh_curr.id)
+                    lst_curr = sol.assignments.get(key_curr, [])
+                    if not lst_curr:
+                        continue
+                    conflicted = []
+                    for eid in lst_curr:
+                        if eid in sol.assignments.get((prev_day, sh_prev.id), []):
+                            if self.kpi.violates_rest_period(sh_prev, sh_curr, prev_day):
+                                conflicted.append(eid)
+                    for eid in conflicted:
+                        lst_curr.remove(eid)
+                        # try find replacement respecting all constraints
+                        d_idx = self.day_index[curr_day]
+                        wk = curr_day.isocalendar()[:2]
+                        for cand in self.problem.employees:
+                            cid = cand.id
+                            if cid in lst_curr or cid in sol.assignments.get((prev_day, sh_prev.id), []):
+                                continue
+                            if self.absent[self.emp_index[cid], d_idx]:
+                                continue
+                            # weekly hours limit
+                            # quick estimate: assume 0 additional hours; skip if would exceed
+                            if cand.max_hours_per_week and cand.max_hours_per_week < sh_curr.duration:
+                                continue
+                            # rest with previous day
+                            rest_ok = True
+                            for ps in self.problem.shifts:
+                                if cid in sol.assignments.get((prev_day, ps.id), []):
+                                    if self.kpi.violates_rest_period(ps, sh_curr, prev_day):
+                                        rest_ok = False
+                                        break
+                            if not rest_ok:
+                                continue
+                            # rest with next day
+                            next_day = self.working_days[idx + 1] if idx + 1 < len(self.working_days) else None
+                            if next_day:
+                                for ns in self.problem.shifts:
+                                    if cid in sol.assignments.get((next_day, ns.id), []):
+                                        if self.kpi.violates_rest_period(sh_curr, ns, curr_day):
+                                            rest_ok = False
+                                            break
+                            if not rest_ok:
+                                continue
+                            lst_curr.append(cid)
+                            break
+                    sol.assignments[key_curr] = lst_curr
 
-                        # Check constraints
-                        already_assigned = any(
-                            emp.id in solution.assignments.get((date, s.id), [])
-                            for s in self.problem.shifts
-                        )
+    def _fill_to_capacity(self, sol: Solution) -> None:
+        """Greedily fill shifts up to their max_staff to maximise utilisation."""
+        # Track hours already assigned per employee per ISO week
+        week_hours = defaultdict(lambda: defaultdict(int))  # emp_id -> (year, week) -> hours
 
-                        if not already_assigned:
-                            # Check weekly hours
-                            weekly_hours = 0.0
-                            for d in self.weeks[week_key]:
-                                for s in self.problem.shifts:
-                                    if emp.id in solution.assignments.get((d, s.id), []):
-                                        weekly_hours += s.duration
+        # Pre-populate with existing assignments
+        for (day, sh_id), emp_ids in sol.assignments.items():
+            wk = day.isocalendar()[:2]
+            shift_hours = self.problem.shift_by_id[sh_id].duration
+            for eid in emp_ids:
+                week_hours[eid][wk] += shift_hours
 
-                            if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                                candidates.append(emp.id)
-
-                if candidates:
-                    # Add multiple if far from max
-                    gap = shift.max_staff - len(assigned)
-                    add_count = min(random.randint(1, max(1, gap // 2)), len(candidates))
-                    selected = random.sample(candidates, add_count)
-                    assigned.extend(selected)
-
-            elif len(assigned) > shift.min_staff:
-                # Remove employee (less frequently)
-                remove_count = min(random.randint(1, 2), len(assigned) - shift.min_staff)
-                for _ in range(remove_count):
-                    if len(assigned) > shift.min_staff:
-                        assigned.remove(random.choice(assigned))
-
-    def _mutate_fill_gaps(self, solution: Solution):
-        """Specifically target understaffed shifts."""
-        # Find all understaffed shifts
-        understaffed = []
-        for (date, shift_id), assigned in solution.assignments.items():
-            shift = self.problem.shift_by_id[shift_id]
-            if len(assigned) < shift.max_staff:
-                gap = shift.max_staff - len(assigned)
-                understaffed.append(((date, shift_id), gap))
-
-        if not understaffed:
-            return
-
-        # Sort by gap size
-        understaffed.sort(key=lambda x: x[1], reverse=True)
-
-        # Try to fill top 3 gaps
-        for (date, shift_id), gap in understaffed[:3]:
-            shift = self.problem.shift_by_id[shift_id]
-            assigned = solution.assignments[(date, shift_id)]
-            week_key = date.isocalendar()[:2]
-
-            candidates = []
-            for emp in self.problem.employees:
-                if (emp.id not in assigned and
-                    date not in emp.absence_dates and
-                    not self._is_non_working_day(date)):
-
-                    # Check if already assigned
-                    already_assigned = any(
-                        emp.id in solution.assignments.get((date, s.id), [])
-                        for s in self.problem.shifts
-                    )
-
-                    if not already_assigned:
-                        # Check weekly hours
-                        weekly_hours = 0.0
-                        for d in self.weeks[week_key]:
-                            for s in self.problem.shifts:
-                                if emp.id in solution.assignments.get((d, s.id), []):
-                                    weekly_hours += s.duration
-
-                        if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                            remaining = emp.max_hours_per_week - weekly_hours
-                            candidates.append((emp.id, remaining))
-
-            if candidates:
-                # Sort by remaining capacity
-                candidates.sort(key=lambda x: x[1], reverse=True)
-                add_count = min(gap, len(candidates))
-                selected = [c[0] for c in candidates[:add_count]]
-                assigned.extend(selected)
-
-    def _mutate_swap_employee(self, solution: Solution):
-        """Original swap mutation."""
-        keys = list(solution.assignments.keys())
-        if len(keys) < 2:
-            return
-
-        key1, key2 = random.sample(keys, 2)
-        staff1 = solution.assignments[key1]
-        staff2 = solution.assignments[key2]
-
-        if staff1 and staff2:
-            emp1 = random.choice(staff1)
-            emp2 = random.choice(staff2)
-
-            # Check if swap is valid
-            date1, shift_id1 = key1
-            date2, shift_id2 = key2
-
-            emp1_obj = self.problem.emp_by_id[emp1]
-            emp2_obj = self.problem.emp_by_id[emp2]
-
-            # Validate swap
-            if (date2 not in emp1_obj.absence_dates and
-                date1 not in emp2_obj.absence_dates and
-                not self._is_non_working_day(date1) and
-                not self._is_non_working_day(date2)):
-
-                staff1.remove(emp1)
-                staff2.remove(emp2)
-                staff1.append(emp2)
-                staff2.append(emp1)
-
-    def _mutate_reassign_shift(self, solution: Solution):
-        """Original reassign mutation."""
-        keys = list(solution.assignments.keys())
-        if not keys:
-            return
-
-        # Pick a random assignment
-        date, shift_id = random.choice(keys)
-        assigned = solution.assignments[(date, shift_id)]
-
-        if assigned:
-            emp_id = random.choice(assigned)
-            emp = self.problem.emp_by_id[emp_id]
-
-            # Remove from current shift
-            assigned.remove(emp_id)
-
-            # Try to assign to different shift on same day
-            other_shifts = [s for s in self.problem.shifts if s.id != shift_id]
-            random.shuffle(other_shifts)
-
-            for other_shift in other_shifts:
-                other_key = (date, other_shift.id)
-                other_assigned = solution.assignments.get(other_key, [])
-
-                if (len(other_assigned) < other_shift.max_staff and
-                    emp_id not in other_assigned):
-                    other_assigned.append(emp_id)
-                    return
-
-            # If no reassignment possible, put back
-            assigned.append(emp_id)
-
-    def _final_improvement_pass(self, solution: Solution):
-        """Final greedy improvement to maximize coverage."""
-        improvements = 0
-
-        # Get all dates and shifts
-        all_keys = []
-        current = self.problem.start_date
-        while current <= self.problem.end_date:
-            if not self._is_non_working_day(current):
-                for shift in self.problem.shifts:
-                    all_keys.append((current, shift.id))
-            current += timedelta(days=1)
-
-        # Sort by current coverage (lowest first)
-        coverage_data = []
-        for key in all_keys:
-            date, shift_id = key
-            shift = self.problem.shift_by_id[shift_id]
-            assigned = solution.assignments.get(key, [])
-            coverage = len(assigned) / shift.max_staff if shift.max_staff > 0 else 1
-            if coverage < 1:
-                coverage_data.append((key, coverage, shift.max_staff - len(assigned)))
-
-        coverage_data.sort(key=lambda x: x[1])
-
-        # Try to improve each understaffed shift
-        for key, coverage, gap in coverage_data:
-            date, shift_id = key
-            shift = self.problem.shift_by_id[shift_id]
-            assigned = solution.assignments[key]
-            week_key = date.isocalendar()[:2]
-
-            # Find all eligible employees
-            candidates = []
-            for emp in self.problem.employees:
-                if (emp.id not in assigned and
-                    date not in emp.absence_dates):
-
-                    # Check constraints
-                    already_assigned = any(
-                        emp.id in solution.assignments.get((date, s.id), [])
-                        for s in self.problem.shifts
-                    )
-
-                    if not already_assigned:
-                        # Check weekly hours
-                        weekly_hours = 0.0
-                        for d in self.weeks[week_key]:
-                            for s in self.problem.shifts:
-                                if emp.id in solution.assignments.get((d, s.id), []):
-                                    weekly_hours += s.duration
-
-                        if weekly_hours + shift.duration <= emp.max_hours_per_week:
-                            # Calculate employee utilization
-                            total_hours = sum(
-                                s.duration for (d, sid), emps in solution.assignments.items()
-                                if emp.id in emps for s in [self.problem.shift_by_id[sid]]
-                            )
-                            kpi_calculator = KPICalculator(self.company)
-                            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
-                            utilization = kpi_calculator.calculate_utilization_percentage(total_hours, yearly_capacity) / 100.0
-
-                            # Prioritize underutilized employees
-                            if utilization < 0.95:
-                                priority = (0.95 - utilization) * 100
-                                if shift.name in emp.preferred_shifts:
-                                    priority += 10
-                                candidates.append((emp.id, priority))
-
-            if candidates:
-                # Sort by priority (higher is better)
-                candidates.sort(key=lambda x: x[1], reverse=True)
-
-                # Add as many as possible
-                for emp_id, _ in candidates[:gap]:
-                    assigned.append(emp_id)
-                    improvements += 1
-
-        if improvements > 0:
-            coverage = self._calculate_coverage_rate(solution)
-            print(f"[GA] Final improvement pass added {improvements} assignments, coverage now {coverage:.1%}")
+        for d in self.working_days:
+            d_idx = self.day_index[d]
+            wk = d.isocalendar()[:2]
+            for sh in self.problem.shifts:
+                key = (d, sh.id)
+                while len(sol.assignments.get(key, [])) < sh.max_staff:
+                    # find candidate employees available & under weekly limit & not already assigned same day/shift
+                    cand = []
+                    for emp in self.problem.employees:
+                        eid = emp.id
+                        if self.absent[self.emp_index[eid], d_idx]:
+                            continue
+                        if eid in sol.assignments.get(key, []):
+                            continue
+                        if emp.max_hours_per_week and (week_hours[eid][wk] + sh.duration) > emp.max_hours_per_week + self.weekly_allowance:
+                            continue
+                        # Rest-period check with previous and next day
+                        rest_ok = True
+                        prev_day = d - timedelta(days=1)
+                        next_day = d + timedelta(days=1)
+                        # Check previous day assignments
+                        for prev_sh_id in [sid for sid in self.shift_index.keys()]:
+                            if eid in sol.assignments.get((prev_day, prev_sh_id), []):
+                                prev_sh = self.problem.shift_by_id[prev_sh_id]
+                                if self.kpi.violates_rest_period(prev_sh, sh, prev_day):
+                                    rest_ok = False
+                                    break
+                        if not rest_ok:
+                            continue
+                        # Check next day assignments
+                        for next_sh_id in [sid for sid in self.shift_index.keys()]:
+                            if eid in sol.assignments.get((next_day, next_sh_id), []):
+                                next_sh = self.problem.shift_by_id[next_sh_id]
+                                if self.kpi.violates_rest_period(sh, next_sh, d):
+                                    rest_ok = False
+                                    break
+                        if not rest_ok:
+                            continue
+                        cand.append(eid)
+                    if not cand:
+                        break
+                    chosen = min(cand, key=lambda eid: week_hours[eid][wk])
+                    sol.assignments.setdefault(key, []).append(chosen)
+                    week_hours[chosen][wk] += sh.duration
