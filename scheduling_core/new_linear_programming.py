@@ -279,5 +279,5 @@ class ILPScheduler(SchedulingAlgorithm):
 
     def _get_holidays_for_year(self, year: int) -> Set[Tuple[int, int]]:
         """Get holidays as (month, day) tuples using utils function."""
-        from rostering_app.utils import get_holidays_for_year_as_tuples
-        return get_holidays_for_year_as_tuples(year)
+        from rostering_app.utils import get_holidays_for_year
+        return get_holidays_for_year(year)

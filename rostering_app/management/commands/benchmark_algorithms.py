@@ -90,11 +90,11 @@ class Command(BaseCommand):
 
             # Algorithm configurations - will be created per company
             algorithm_classes = [
-                # ILPScheduler,
-                # GeneticAlgorithmScheduler,
+                ILPScheduler,
+                GeneticAlgorithmScheduler,
                 NewSimulatedAnnealingScheduler,
-                SimulatedAnnealingScheduler,
-                # NSGA2Scheduler
+                # SimulatedAnnealingScheduler,
+                NSGA2Scheduler
             ]
 
             # Filter algorithms if requested

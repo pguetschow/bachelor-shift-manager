@@ -23,7 +23,7 @@ class CoolingSchedule(Enum):
 class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
     """ SA with focus on high coverage and utilization."""
 
-    def __init__(self, initial_temp=2000, final_temp=1, max_iterations=2000,
+    def __init__(self, initial_temp=1000, final_temp=0.1, max_iterations=2000,
                  cooling_schedule=CoolingSchedule.EXPONENTIAL, sundays_off=False):
         self.initial_temp = initial_temp
         self.final_temp = final_temp
