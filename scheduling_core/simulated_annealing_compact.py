@@ -224,7 +224,15 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
 
     def _cool(self, it: int) -> float:
         ratio = it / max(self.iterations - 1, 1)
-        return self.init_temp * (self.final_temp / self.init_temp) ** ratio
+        base_temp = self.init_temp * (self.final_temp / self.init_temp) ** ratio
+        
+        # Adaptive factor from less cost SA
+        if ratio < 0.3:
+            return base_temp
+        elif ratio < 0.7:
+            return base_temp * 0.7
+        else:
+            return base_temp * 0.3
 
     # final greedy fill to max_staff ------------------------------------------
     def _greedy_fill(self, sol: Solution) -> None:
