@@ -1,6 +1,7 @@
 import random
+import multiprocessing as mp
 from collections import defaultdict
-from datetime import timedelta
+from datetime import timedelta, date
 from typing import List, Tuple
 
 import numpy as np
@@ -19,7 +20,8 @@ class NSGA2Scheduler(SchedulingAlgorithm):
     def __init__(self, population_size=50, generations=75,
                  crossover_prob=0.8, mutation_prob=0.4,
                  repair_iterations=3, sundays_off=False,
-                 coverage_weight=1.2, utilization_weight=2.0, fairness_weight=0.3):
+                 coverage_weight=1.2, utilization_weight=2.0, fairness_weight=0.3,
+                 use_parallel=True):
         self.population_size = population_size
         self.generations = generations
         self.crossover_prob = crossover_prob
@@ -31,6 +33,9 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         self.fairness_weight = fairness_weight
         self.holidays = set()
         self.company = None  # Will be set in solve method
+        self.use_parallel = use_parallel
+        self.employee_capacity = {}  # Will be calculated in solve method
+        self.working_days = []  # Will be set in solve method
 
     @property
     def name(self) -> str:
@@ -49,11 +54,46 @@ class NSGA2Scheduler(SchedulingAlgorithm):
             return True
         return False
 
+    def _calculate_employee_capacities(self):
+        """Calculate actual capacity for each employee over the schedule period using KPI Calculator."""
+        self.employee_capacity = {}
+
+        for emp in self.problem.employees:
+            # Use KPI Calculator to get expected yearly hours, then scale to the problem period
+            kpi_calculator = KPICalculator(self.company)
+            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
+            
+            # Calculate total working days in the year using the same logic as KPI Calculator
+            year = self.problem.start_date.year
+            start = date(year, 1, 1)
+            end = date(year, 12, 31)
+            day = start
+            total_working_days_in_year = 0
+            
+            while day <= end:
+                if not self._is_non_working_day(day) and day not in emp.absence_dates:
+                    total_working_days_in_year += 1
+                day += timedelta(days=1)
+            
+            # Scale to the problem period
+            working_days_in_period = len(self.working_days)
+            period_capacity = yearly_capacity * (working_days_in_period / total_working_days_in_year)
+            self.employee_capacity[emp.id] = period_capacity
+
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
-        """Solve using optimized NSGA-II with simplified repair."""
+        """Solve using optimized NSGA-II with parallel evaluation."""
         self.problem = problem
         self.company = problem.company
         self.weeks = get_weeks(problem.start_date, problem.end_date)
+
+        # Get working days using rostering_app utils
+        from rostering_app.utils import get_working_days_in_range
+        self.working_days = get_working_days_in_range(
+            problem.start_date, problem.end_date, self.company
+        )
+
+        # Calculate employee capacities
+        self._calculate_employee_capacities()
 
         # Clean up any existing DEAP creator classes to avoid warnings
         if hasattr(creator, "FitnessMulti"):
@@ -102,8 +142,11 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         print("[NSGA-II Optimized] Creating initial population...")
         population = toolbox.population(n=self.population_size)
 
-        # Evaluate initial population
-        fitnesses = list(map(toolbox.evaluate, population))
+        # Evaluate initial population (parallel if enabled)
+        if self.use_parallel and mp.cpu_count() > 1:
+            fitnesses = self._evaluate_population_parallel(population)
+        else:
+            fitnesses = list(map(toolbox.evaluate, population))
         for ind, fit in zip(population, fitnesses):
             ind.fitness.values = fit
 
@@ -125,9 +168,12 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                     toolbox.mutate(mutant)
                     del mutant.fitness.values
 
-            # Evaluate offspring
+            # Evaluate offspring (parallel if enabled)
             invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-            fitnesses = map(toolbox.evaluate, invalid_ind)
+            if self.use_parallel and mp.cpu_count() > 1 and invalid_ind:
+                fitnesses = self._evaluate_population_parallel(invalid_ind)
+            else:
+                fitnesses = map(toolbox.evaluate, invalid_ind)
             for ind, fit in zip(invalid_ind, fitnesses):
                 ind.fitness.values = fit
 
@@ -146,6 +192,17 @@ class NSGA2Scheduler(SchedulingAlgorithm):
 
         # Convert to schedule entries
         return self._decode_solution(best_ind)
+
+    def _evaluate_population_parallel(self, population) -> List[Tuple[float, float, float]]:
+        """Evaluate population in parallel using all CPU cores."""
+        num_cores = mp.cpu_count()
+        
+        # Create a pool of workers
+        with mp.Pool(processes=num_cores) as pool:
+            # Evaluate solutions in parallel
+            fitnesses = pool.map(self._evaluate_fast, population)
+            
+        return fitnesses
 
     def _calculate_availability(self):
         """Pre-calculate employee availability for efficiency."""
@@ -390,19 +447,11 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         for emp in self.problem.employees:
             worked = emp_hours.get(emp.id, 0)
             
-            # Calculate capacity using KPI Calculator
-            kpi_calculator = KPICalculator(self.company)
-            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
+            # Use pre-calculated capacity
+            capacity = self.employee_capacity.get(emp.id, 0)
             
-            # Calculate working days in the problem period
-            working_days_in_period = len(self.working_days)
-            total_working_days_in_year = 52 * (6 if self.sundays_off else 7)
-            
-            # Scale capacity to the problem period
-            period_capacity = yearly_capacity * (working_days_in_period / total_working_days_in_year)
-            
-            if period_capacity > 0:
-                util = min(worked / period_capacity, 1.0)
+            if capacity > 0:
+                util = min(worked / capacity, 1.0)
                 utilizations.append(util)
 
         avg_utilization = np.mean(utilizations) if utilizations else 0

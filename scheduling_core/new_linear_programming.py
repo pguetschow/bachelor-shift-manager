@@ -144,9 +144,7 @@ class ILPScheduler(SchedulingAlgorithm):
         for day in all_dates:
             for shift in problem.shifts:
                 under_var = LpVariable(f"under_{day}_{shift.id}", lowBound=0)
-                over_var  = LpVariable(f"over_{day}_{shift.id}",  lowBound=0)
                 coverage_slack_vars[(day, shift.id, 'under')] = under_var
-                coverage_slack_vars[(day, shift.id, 'over')]  = over_var
 
                 employees_assigned = lpSum(
                     assign_var[(e.id, day, shift.id)]
@@ -154,7 +152,7 @@ class ILPScheduler(SchedulingAlgorithm):
                     if (e.id, day, shift.id) in assign_var
                 )
 
-                objective_expr += WEIGHT_UNDERSTAFF * under_var + WEIGHT_OVERSTAFF * over_var
+                objective_expr += WEIGHT_UNDERSTAFF * under_var
                 # fairness term (linear: denominator is constant)
                 objective_expr += WEIGHT_SHIFT_FAIRNESS * ((shift.max_staff - employees_assigned) / shift.max_staff)
 
@@ -193,7 +191,7 @@ class ILPScheduler(SchedulingAlgorithm):
                                         for e in problem.employees
                                         if (e.id, day, shift.id) in assign_var)
                 model += assigned_count + coverage_slack_vars[(day, shift.id, 'under')] >= shift.min_staff
-                model += assigned_count - coverage_slack_vars[(day, shift.id, 'over')]  <= shift.max_staff
+                model += assigned_count <= shift.max_staff
 
         # (3) Weekly contract cap
         for employee in problem.employees:
