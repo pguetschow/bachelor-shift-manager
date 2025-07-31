@@ -7,8 +7,8 @@
       "name": "EarlyShift",
       "start": "06:00:00",
       "end": "14:00:00",
-      "min_staff": 5,
-      "max_staff": 10
+      "min_staff": 7,
+      "max_staff": 11
     }
   },
   {
@@ -25,6 +25,18 @@
   },
   {
     "model": "rostering_app.shift",
+    "pk": 3005,
+    "fields": {
+      "company": 3,
+      "name": "SupportShift",
+      "start": "12:00:00",
+      "end": "20:00:00",
+      "min_staff": 3,
+      "max_staff": 5
+    }
+  },
+  {
+    "model": "rostering_app.shift",
     "pk": 3002,
     "fields": {
       "company": 3,
@@ -32,7 +44,7 @@
       "start": "14:00:00",
       "end": "22:00:00",
       "min_staff": 12,
-      "max_staff": 15
+      "max_staff": 16
     }
   },
   {

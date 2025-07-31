@@ -20,6 +20,7 @@ from rostering_app.converters import employees_to_core, shifts_to_core
 from rostering_app.services.kpi_storage import KPIStorageService
 from rostering_app.services.kpi_calculator import KPICalculator
 from scheduling_core import NSGA2Scheduler, ILPScheduler, NewSimulatedAnnealingScheduler
+from scheduling_core.Updated_new_linear_programming import UpdatedILPScheduler
 
 # Import scheduling algorithms
 from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
@@ -60,6 +61,12 @@ class Command(BaseCommand):
         algorithm_filter = options.get('algorithm')
         company_filter = options.get('company')
 
+        # Clear all caches for fresh benchmark run
+        self.stdout.write("Clearing caches for fresh benchmark run...")
+        from django.core.management import call_command
+        call_command('clear_cache', verbosity=0)
+        self.stdout.write(self.style.SUCCESS("✓ Caches cleared"))
+
         try:
             # Test configurations
             test_cases = [
@@ -92,11 +99,12 @@ class Command(BaseCommand):
 
             # Algorithm configurations - will be created per company
             algorithm_classes = [
+                # UpdatedILPScheduler,
                 ILPScheduler,
-                GeneticAlgorithmScheduler,
-                CompactSimulatedAnnealingScheduler,
-                # NewSimulatedAnnealingScheduler,
+                # GeneticAlgorithmScheduler,
                 # SimulatedAnnealingScheduler,
+                # CompactSimulatedAnnealingScheduler,
+                # NewSimulatedAnnealingScheduler,
                 # NSGA2Scheduler
             ]
 
@@ -104,10 +112,10 @@ class Command(BaseCommand):
             if algorithm_filter:
                 algorithm_map = {
                     'LinearProgramming': ILPScheduler,
-                    'GeneticAlgorithm': GeneticAlgorithmScheduler,
+                    # 'GeneticAlgorithm': GeneticAlgorithmScheduler,
                     # 'NewSimulatedAnnealingScheduler': NewSimulatedAnnealingScheduler,
                     # 'SimulatedAnnealing': SimulatedAnnealingScheduler,
-                    'CompactSA': CompactSimulatedAnnealingScheduler,
+                    # 'CompactSA': CompactSimulatedAnnealingScheduler,
                     # 'NSGA2Scheduler': NSGA2Scheduler,
                 }
                 if algorithm_filter in algorithm_map:

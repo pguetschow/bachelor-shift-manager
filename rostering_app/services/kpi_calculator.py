@@ -4,21 +4,20 @@ KPI Calculator Service
 This service consolidates all KPI calculations used throughout the application,
 using the new_linear_programming.py implementation as the baseline for consistency.
 """
-
+import calendar
 from calendar import monthrange
 from collections import defaultdict, Counter
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, Set, Iterable
 
 from rostering_app.utils import is_non_working_day, get_working_days_in_range
 
 # ---------------------------------------------------------------------------
 # Configuration / constants used across KPI calculations
 # ---------------------------------------------------------------------------
-WEEKLY_OVERRUN_FACTOR = 1.15         # 15% buffer over contract hours
-WEEKLY_OVERRUN_BUFFER_HOURS = 2      # Additional tolerance in hours
-ROUND_TO_HOURS = 8                   # Round calculations to nearest 8-hour block
-
+WEEKLY_OVERRUN_FACTOR = 1.15  # 15% buffer over contract hours
+WEEKLY_OVERRUN_BUFFER_HOURS = 2  # Additional tolerance in hours
+ROUND_TO_HOURS = 8  # Round calculations to nearest 8-hour block
 
 
 class KPICalculator:
@@ -26,11 +25,12 @@ class KPICalculator:
     Centralized KPI calculation service that consolidates all redundant calculations.
     Uses new_linear_programming.py as the baseline for consistent calculations.
     """
-    
+
     def __init__(self, company):
         self.company = company
         self.sundays_off = not company.sunday_is_workday
-    
+
+
     def is_date_blocked(self, employee, day: date) -> bool:
         # Use utils for company-wide non-working day
         if is_non_working_day(day, self.company):
@@ -39,50 +39,104 @@ class KPICalculator:
         if day in getattr(employee, 'absence_dates', set()):
             return True
         return False
-    
+
     def is_planned_absence(self, employee, day: date) -> bool:
         """Check if a day is a planned absence (not including holidays/Sundays)."""
         # Only check employee-specific absences, not company-wide non-working days
         return day in getattr(employee, 'absence_dates', set())
-    
+
+    def workdays_in_month(self,year: int,
+                           month: int,
+                           workweek: Iterable[int],
+                           company) -> int:
+        """How many *working* days occur in the month?
+
+        workweek : iterable of weekday ints (0=Mon … 6=Sun) on which the employee
+                   normally works.
+        company  : object passed through to `is_non_working_day`.
+        """
+        cal = calendar.Calendar()
+        return sum(
+            1
+            for day in cal.itermonthdates(year, month)
+            if (
+                    day.month == month
+                    and day.weekday() in workweek
+                    and not is_non_working_day(day, company)  # <── NEW
+            )
+        )
+
+    # def calculate_expected_month_hours(self, employee, year: int, month: int, company) -> float:
+    #     # 1) Contracted pattern ----------------------------------------------------
+    #     weekly_hours = getattr(employee, "weekly_hours",
+    #                            getattr(employee, "max_hours_per_week", 0))
+    #
+    #     # Monday-Friday unless `employee.workdays` says otherwise
+    #     workweek: Set[int] = set(getattr(employee, "workdays", {0, 1, 2, 3, 4}))
+    #     if not workweek:
+    #         return 0.0
+    #
+    #     daily_hours = weekly_hours / len(workweek)
+    #
+    #     # 2) Absences --------------------------------------------------------------
+    #     absence_dates: Set[date] = {
+    #         date.fromisoformat(d)
+    #         for d in getattr(employee, "absences", [])
+    #         if isinstance(d, str)
+    #     }
+    #     absences_this_month = {
+    #         d for d in absence_dates if d.year == year and d.month == month
+    #     }
+    #
+    #
+    #
+    #     from rostering_app.utils import get_working_days_in_range
+    #     working_days = get_working_days_in_range(start_date, end_date, company)
+    #     total_working_days = len(working_days)
+    #
+    #     # 3) Planned hours ---------------------------------------------------------
+    #     expected_hours = total_working_days * daily_hours - len(absences_this_month) * daily_hours
+    #
+    #     return round(expected_hours / 8) * 8  # optional rounding
+    #
+
     def calculate_expected_month_hours(self, employee, year: int, month: int) -> float:
-        weekly_hours = getattr(employee, 'weekly_hours', getattr(employee, 'max_hours_per_week', 0))
-        days_per_week = 6 if self.sundays_off else 7
-        if days_per_week == 0:
-            return 0.0
-        start = date(year, month, 1)
-        end = date(year, month, monthrange(year, month)[1])
-        day = start
-        workable_days = 0
-        while day <= end:
-            if not self.is_date_blocked(employee, day):
-                workable_days += 1
-            day += timedelta(days=1)
-        avg_daily_hours = weekly_hours / days_per_week
-        raw_hours = avg_daily_hours * workable_days
-        return round(raw_hours / 8) * 8  # nearest 8-hour block
-    
+        # 1) Nominal hours for one week
+        weekly_hours = getattr(
+            employee, "weekly_hours",
+            getattr(employee, "max_hours_per_week", 0)
+        )
+
+        absences_raw = getattr(employee, 'absences', [])
+        absence_dates: Set[date] = set()
+        for d in absences_raw:
+            try:
+                absence_dates.add(date.fromisoformat(d))
+            except Exception:
+                pass
+        # 3) Generate every calendar date in the requested month
+        num_days = calendar.monthrange(year, month)[1]  # e.g. 31 for July
+        month_days = {date(year, month, d) for d in range(1, num_days + 1)}
+
+        # 4) Intersection: only the absences that actually land in this month
+        absences_this_month = absence_dates & month_days
+
+        # 5) Convert full-day absences to hours (assume 8 h per day)
+        absences_hours = len(absences_this_month) * 8
+
+        # number_of_weeks_this_month = len(calendar.monthcalendar(year, month))
+        number_of_weeks_this_month = 4.33
+        # 6) Return planned hours minus the absence hours.
+        expected_month_hours = weekly_hours * number_of_weeks_this_month - absences_hours
+        expected_month_hours = round(expected_month_hours / 8) * 8  # round to nearest multiple of 8
+        return expected_month_hours
+
     def calculate_expected_yearly_hours(self, employee, year: int) -> float:
-        """Calculate expected yearly hours based on actual possible working days minus absences."""
-        weekly_hours = getattr(employee, 'weekly_hours', getattr(employee, 'max_hours_per_week', 0))
-        days_per_week = 6 if self.sundays_off else 7
-        if days_per_week == 0:
-            return 0.0
-        
-        start = date(year, 1, 1)
-        end = date(year, 12, 31)
-        day = start
-        workable_days = 0
-        
-        while day <= end:
-            if not self.is_date_blocked(employee, day):
-                workable_days += 1
-            day += timedelta(days=1)
-        
-        avg_daily_hours = weekly_hours / days_per_week
-        raw_hours = avg_daily_hours * workable_days
-        return round(raw_hours / 8) * 8  # nearest 8-hour block
-    
+        total_hours = 0.0
+        for month in range(1, 13):
+            total_hours += self.calculate_expected_month_hours(employee, year, month)
+        return total_hours
+
     def violates_rest_period(self, shift1, shift2, date1: date) -> bool:
         end_first = datetime.combine(date1, shift1.end)
         if shift1.end < shift1.start:
@@ -90,7 +144,7 @@ class KPICalculator:
         start_second = datetime.combine(date1 + timedelta(days=1), shift2.start)
         pause_hours = (start_second - end_first).total_seconds() / 3600
         return pause_hours < 11
-    
+
     def calculate_shift_hours_in_range(self, shift, shift_date: date, start_date: date, end_date: date) -> float:
         start = shift.start
         end = shift.end
@@ -104,10 +158,11 @@ class KPICalculator:
         actual_end = min(dt2, range_end)
         duration = (actual_end - actual_start).total_seconds() / 3600
         return max(duration, 0)
-    
-    def calculate_shift_hours_in_month(self, shift, shift_date: date, month_start_date: date, month_end_date: date) -> float:
+
+    def calculate_shift_hours_in_month(self, shift, shift_date: date, month_start_date: date,
+                                       month_end_date: date) -> float:
         return self.calculate_shift_hours_in_range(shift, shift_date, month_start_date, month_end_date)
-    
+
     def calculate_employee_hours(self, entries, start_date: date, end_date: date) -> Dict[int, float]:
         hours = defaultdict(float)
         for entry in entries:
@@ -115,22 +170,24 @@ class KPICalculator:
             actual_hours = self.calculate_shift_hours_in_range(entry.shift, entry.date, start_date, end_date)
             hours[emp_id] += actual_hours
         return dict(hours)
-    
-    def calculate_employee_hours_with_month_boundaries(self, entries, month_start_date: date, month_end_date: date) -> Dict[int, float]:
+
+    def calculate_employee_hours_with_month_boundaries(self, entries, month_start_date: date, month_end_date: date) -> \
+    Dict[int, float]:
         return self.calculate_employee_hours(entries, month_start_date, month_end_date)
-    
+
     def calculate_utilization_percentage(self, total_hours: float, max_monthly_hours: float) -> float:
         if max_monthly_hours > 0:
             return (total_hours / max_monthly_hours) * 100
         return 0.0
-    
+
     def calculate_overtime_undertime(self, actual_hours: float, expected_hours: float) -> Tuple[float, float]:
         diff = actual_hours - expected_hours
         overtime = max(diff, 0)
         undertime = max(-diff, 0)
         return overtime, undertime
-    
-    def calculate_weekly_hours(self, entries, start_date: date, end_date: date) -> Dict[int, Dict[Tuple[int, int], float]]:
+
+    def calculate_weekly_hours(self, entries, start_date: date, end_date: date) -> Dict[
+        int, Dict[Tuple[int, int], float]]:
         weekly_hours = defaultdict(lambda: defaultdict(float))
         for entry in entries:
             if start_date <= entry.date <= end_date:
@@ -139,7 +196,7 @@ class KPICalculator:
                 hours = self.calculate_shift_hours_in_range(entry.shift, entry.date, start_date, end_date)
                 weekly_hours[emp_id][week_key] += hours
         return dict(weekly_hours)
-    
+
     def check_weekly_hours_violations(self, entries, start_date: date, end_date: date) -> Dict[int, int]:
         weekly_hours = self.calculate_weekly_hours(entries, start_date, end_date)
         from rostering_app.models import Employee
@@ -148,30 +205,32 @@ class KPICalculator:
             employee = Employee.objects.get(id=emp_id)
             violations[emp_id] = sum(
                 1 for hours in week_data.values()
-                if hours > round((employee.max_hours_per_week * WEEKLY_OVERRUN_FACTOR) / ROUND_TO_HOURS) * ROUND_TO_HOURS + WEEKLY_OVERRUN_BUFFER_HOURS  # Uses configurable constants
+                if hours > round((
+                                             employee.max_hours_per_week * WEEKLY_OVERRUN_FACTOR) / ROUND_TO_HOURS) * ROUND_TO_HOURS + WEEKLY_OVERRUN_BUFFER_HOURS
+                # Uses configurable constants
             )
         return violations
 
     def check_weekly_hours_violations_detailed(self, entries, start_date: date, end_date: date) -> Dict[str, Any]:
         """Get detailed weekly hours violations with actual hours worked."""
         weekly_hours = self.calculate_weekly_hours(entries, start_date, end_date)
-        
+
         violations = {
             'total_violations': 0,
             'employee_violations': {},
             'detailed_violations': []
         }
-        
+
         for emp_id, week_data in weekly_hours.items():
             from rostering_app.models import Employee
             employee = Employee.objects.get(id=emp_id)
             emp_violations = []
-            
+
             for week_key, hours in week_data.items():
                 # Round max_allowed to nearest 8-hour block (like the expected hours calculation)
                 max_allowed_raw = employee.max_hours_per_week * WEEKLY_OVERRUN_FACTOR
                 max_allowed = round(max_allowed_raw / ROUND_TO_HOURS) * ROUND_TO_HOURS
-                
+
                 # Only count as violation if significantly over (more than 2 hours over)
                 if hours > max_allowed + WEEKLY_OVERRUN_BUFFER_HOURS:
                     violation = {
@@ -185,10 +244,10 @@ class KPICalculator:
                     }
                     emp_violations.append(violation)
                     violations['detailed_violations'].append(violation)
-            
+
             violations['employee_violations'][emp_id] = len(emp_violations)
             violations['total_violations'] += len(emp_violations)
-        
+
         return violations
 
     def check_rest_period_violations(self, entries, start_date: date, end_date: date) -> int:
@@ -220,7 +279,7 @@ class KPICalculator:
             'employee_violations': {},
             'detailed_violations': []
         }
-        
+
         employee_dates = defaultdict(dict)
         for entry in entries:
             if start_date <= entry.date <= end_date:
@@ -228,17 +287,17 @@ class KPICalculator:
                 if entry.date not in employee_dates[emp_id]:
                     employee_dates[emp_id][entry.date] = []
                 employee_dates[emp_id][entry.date].append(entry.shift)
-        
+
         for emp_id, dates_data in employee_dates.items():
             emp_violations = []
             dates = sorted(dates_data.keys())
-            
+
             for i in range(len(dates) - 1):
                 d1, d2 = dates[i], dates[i + 1]
                 if d2 - d1 == timedelta(days=1):  # Consecutive days
                     shifts1 = dates_data[d1]
                     shifts2 = dates_data[d2]
-                    
+
                     for shift1 in shifts1:
                         for shift2 in shifts2:
                             if self.violates_rest_period(shift1, shift2, d1):
@@ -248,7 +307,7 @@ class KPICalculator:
                                     end_first += timedelta(days=1)  # overnight shift wraps
                                 start_second = datetime.combine(d2, shift2.start)
                                 rest_hours = (start_second - end_first).total_seconds() / 3600
-                                
+
                                 # Get employee name
                                 try:
                                     from rostering_app.models import Employee
@@ -256,7 +315,7 @@ class KPICalculator:
                                     employee_name = employee.name
                                 except Employee.DoesNotExist:
                                     employee_name = f"Employee {emp_id}"
-                                
+
                                 violation = {
                                     'employee_id': emp_id,
                                     'employee_name': employee_name,
@@ -273,13 +332,14 @@ class KPICalculator:
                                 }
                                 emp_violations.append(violation)
                                 violations['detailed_violations'].append(violation)
-            
+
             violations['employee_violations'][emp_id] = len(emp_violations)
             violations['total_violations'] += len(emp_violations)
-        
+
         return violations
-    
-    def calculate_employee_statistics(self, employee, entries, year: int, month: int, algorithm: Optional[str] = None) -> Dict[str, Any]:
+
+    def calculate_employee_statistics(self, employee, entries, year: int, month: int,
+                                      algorithm: Optional[str] = None) -> Dict[str, Any]:
         from rostering_app.utils import get_working_days_in_range
         month_start = date(year, month, 1)
         month_end = date(year, month, monthrange(year, month)[1])
@@ -304,7 +364,7 @@ class KPICalculator:
             if not self.is_date_blocked(employee, day)
         )
         absence_days = max(possible_employee_days - days_worked, 0)
-        
+
         # Calculate planned absences only (excluding holidays/Sundays)
         planned_absences = sum(
             1 for day in working_days
@@ -324,8 +384,9 @@ class KPICalculator:
             'days_worked': days_worked,
             'possible_days': possible_employee_days,
         }
-    
-    def calculate_company_analytics(self, entries, year: int, month: int, algorithm: Optional[str] = None) -> Dict[str, Any]:
+
+    def calculate_company_analytics(self, entries, year: int, month: int, algorithm: Optional[str] = None) -> Dict[
+        str, Any]:
         month_start = date(year, month, 1)
         month_end = date(year, month, monthrange(year, month)[1])
         month_entries = [
@@ -365,7 +426,7 @@ class KPICalculator:
             'employee_hours': employee_hours,
             'weekly_violations': weekly_violations,
         }
-    
+
     def _calculate_gini_coefficient(self, values: List[float]) -> float:
         n = len(values)
         total = sum(values)
@@ -376,7 +437,7 @@ class KPICalculator:
         sorted_values = sorted(values)
         cumsum = sum((i + 1) * val for i, val in enumerate(sorted_values))
         return (2 * cumsum) / (n * total) - (n + 1) / n
-    
+
     def calculate_coverage_stats(self, entries, start_date: date, end_date: date) -> List[Dict[str, Any]]:
         """Return coverage stats for every shift over a date range (O(S+E) instead of O(S*E))."""
         from rostering_app.models import Shift

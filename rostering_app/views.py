@@ -153,7 +153,6 @@ def api_company_algorithms(request, company_id):
 
 @csrf_exempt
 @require_http_methods(["GET"])
-@cache_page(60 * 5)  # Cache for 5 minutes
 def api_company_schedule(request, company_id):
     """API endpoint to get schedule data for a company."""
     company = get_object_or_404(Company, pk=company_id)
@@ -284,7 +283,6 @@ def api_company_schedule(request, company_id):
 
 @csrf_exempt
 @require_http_methods(["GET"])
-@cache_page(60 * 5)  # Cache for 5 minutes
 def api_company_employees(request, company_id):
     """API endpoint to get employees for a company."""
     company = get_object_or_404(Company, pk=company_id)
@@ -625,8 +623,7 @@ def api_company_employee_statistics(request, company_id: int):
         # Use KPI values calculated (and cached) above for monthly stats
         monthly_hours = employee_kpi.monthly_hours_worked
         monthly_shifts = employee_kpi.monthly_shifts
-        
-        
+
         employees_data.append({
             "id": employee.id,
             "name": getattr(employee, "name", str(employee)),
@@ -776,7 +773,6 @@ def serve_vue_app(request):
 
 @csrf_exempt
 @require_http_methods(["GET"])
-@cache_page(60 * 5)
 def api_company_analytics(request, company_id):
     """API endpoint to get all KPIs for all algorithms for a company and month, as in the benchmark results."""
     company = get_object_or_404(Company, pk=company_id)
