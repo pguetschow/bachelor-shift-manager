@@ -4,6 +4,7 @@ import os
 import time
 import statistics
 import traceback
+import calendar
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Any
 from collections import defaultdict
@@ -448,15 +449,18 @@ class Command(BaseCommand):
                     kpi_storage.get_or_calculate_employee_kpi(emp, 2025, month, algorithm_name, force_recalculate=True)
                 
                 # Calculate and store company KPI for this month
-                company_kpi = kpi_storage.get_or_calculate_company_kpi(2025, month, algorithm_name, force_recalculate=True)
-                
+                # company_kpi = kpi_storage.get_or_calculate_company_kpi(2025, month, algorithm_name, force_recalculate=True)
                 # Calculate and store coverage KPI for this month
-                month_start = date(2025, month, 1)
-                month_end = date(2025, month, 28)  # Use 28 to ensure we get the full month
-                while month_end.month == month:
-                    month_end += timedelta(days=1)
-                month_end -= timedelta(days=1)
+                # month_start = date(2025, month, 1)
+                # month_end = date(2025, month, 28)  # Use 28 to ensure we get the full month
+                # while month_end.month == month:
+                #     month_end += timedelta(days=1)
+                # month_end -= timedelta(days=1)
                 
+                month_start = date(2025, month, 1)
+                last_day = calendar.monthrange(2025, month)[1]
+                month_end = date(2025, month, last_day)
+
                 kpi_storage.get_or_calculate_coverage_kpi(month_start, month_end, algorithm_name, force_recalculate=True)
             
             self.stdout.write(f"✓ Saved KPIs for {algorithm_name} at {company.name}")

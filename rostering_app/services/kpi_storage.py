@@ -15,6 +15,8 @@ from rostering_app.services.kpi_calculator import KPICalculator
 
 
 class KPIStorageService:
+    _entries_cache: dict[tuple[int, int, str], list[ScheduleEntry]] = {}
+
     """
     Service for managing pre-calculated KPI storage and retrieval.
     """
@@ -22,6 +24,24 @@ class KPIStorageService:
     def __init__(self, company: Company):
         self.company = company
         self.kpi_calculator = KPICalculator(company)
+        
+    # ---------------------------------------------------------------------
+    # Internal helpers
+    # ---------------------------------------------------------------------
+    def _entries_for_month(self, year: int, month: int, algorithm: Optional[str] = "") -> List[ScheduleEntry]:
+        """Return cached list of ScheduleEntry for the company/month/algorithm."""
+        key = (year, month, algorithm or "")
+        if key not in self._entries_cache:
+            qs = ScheduleEntry.objects.filter(
+                company=self.company,
+                date__year=year,
+                date__month=month,
+            ).select_related("shift", "employee")
+            if algorithm:
+                qs = qs.filter(algorithm=algorithm)
+            self._entries_cache[key] = list(qs)
+        return self._entries_cache[key]
+
     
     def get_or_calculate_employee_kpi(self, employee: Employee, year: int, month: int, 
                                     algorithm: Optional[str] = None, force_recalculate: bool = False) -> EmployeeKPI:
@@ -53,17 +73,11 @@ class KPIStorageService:
                 pass
         
         # Calculate KPI
-        entries = ScheduleEntry.objects.filter(
-            employee=employee,
-            company=self.company,
-            date__year=year,
-            date__month=month
-        )
-        if algorithm:
-            entries = entries.filter(algorithm=algorithm)
+        all_entries = self._entries_for_month(year, month, algorithm)
+        entries = [e for e in all_entries if e.employee_id == employee.id]
         
         stats = self.kpi_calculator.calculate_employee_statistics(
-            employee, list(entries), year, month, algorithm
+            employee, entries, year, month, algorithm
         )
         
         # Store KPI
@@ -117,16 +131,10 @@ class KPIStorageService:
                 pass
         
         # Calculate KPI
-        entries = ScheduleEntry.objects.filter(
-            company=self.company,
-            date__year=year,
-            date__month=month
-        )
-        if algorithm:
-            entries = entries.filter(algorithm=algorithm)
+        entries = self._entries_for_month(year, month, algorithm)
         
         analytics = self.kpi_calculator.calculate_company_analytics(
-            list(entries), year, month, algorithm
+            entries, year, month, algorithm
         )
         
         # Calculate detailed violations

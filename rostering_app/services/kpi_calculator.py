@@ -6,11 +6,19 @@ using the new_linear_programming.py implementation as the baseline for consisten
 """
 
 from calendar import monthrange
-from collections import defaultdict
+from collections import defaultdict, Counter
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Tuple, Any, Optional
 
 from rostering_app.utils import is_non_working_day, get_working_days_in_range
+
+# ---------------------------------------------------------------------------
+# Configuration / constants used across KPI calculations
+# ---------------------------------------------------------------------------
+WEEKLY_OVERRUN_FACTOR = 1.15         # 15% buffer over contract hours
+WEEKLY_OVERRUN_BUFFER_HOURS = 2      # Additional tolerance in hours
+ROUND_TO_HOURS = 8                   # Round calculations to nearest 8-hour block
+
 
 
 class KPICalculator:
@@ -140,7 +148,7 @@ class KPICalculator:
             employee = Employee.objects.get(id=emp_id)
             violations[emp_id] = sum(
                 1 for hours in week_data.values()
-                if hours > round((employee.max_hours_per_week * 1.15) / 8) * 8 + 2  # Round to 8-hour blocks + 2 hour buffer
+                if hours > round((employee.max_hours_per_week * WEEKLY_OVERRUN_FACTOR) / ROUND_TO_HOURS) * ROUND_TO_HOURS + WEEKLY_OVERRUN_BUFFER_HOURS  # Uses configurable constants
             )
         return violations
 
@@ -161,11 +169,11 @@ class KPICalculator:
             
             for week_key, hours in week_data.items():
                 # Round max_allowed to nearest 8-hour block (like the expected hours calculation)
-                max_allowed_raw = employee.max_hours_per_week * 1.15
-                max_allowed = round(max_allowed_raw / 8) * 8
+                max_allowed_raw = employee.max_hours_per_week * WEEKLY_OVERRUN_FACTOR
+                max_allowed = round(max_allowed_raw / ROUND_TO_HOURS) * ROUND_TO_HOURS
                 
                 # Only count as violation if significantly over (more than 2 hours over)
-                if hours > max_allowed + 2:
+                if hours > max_allowed + WEEKLY_OVERRUN_BUFFER_HOURS:
                     violation = {
                         'employee_id': emp_id,
                         'employee_name': employee.name,
@@ -370,33 +378,39 @@ class KPICalculator:
         return (2 * cumsum) / (n * total) - (n + 1) / n
     
     def calculate_coverage_stats(self, entries, start_date: date, end_date: date) -> List[Dict[str, Any]]:
+        """Return coverage stats for every shift over a date range (O(S+E) instead of O(S*E))."""
         from rostering_app.models import Shift
-        stats = []
-        shifts = Shift.objects.filter(company=self.company)
+
         working_days = get_working_days_in_range(start_date, end_date, self.company)
-        total_working_days = len(working_days)
-        for shift in shifts:
-            shift_entries = [entry for entry in entries if entry.shift.id == shift.id]
-            if total_working_days > 0:
-                avg_staff = len(shift_entries) / total_working_days
-                coverage_percentage = round((avg_staff / shift.max_staff) * 100, 1) if shift.max_staff > 0 else 0
-                if avg_staff < shift.min_staff:
-                    status = 'understaffed'
-                elif avg_staff > shift.max_staff:
-                    status = 'overstaffed'
-                else:
-                    status = 'optimal'
-                stats.append({
-                    'shift': {
-                        'id': shift.id,
-                        'name': shift.name,
-                        'start_time': shift.start.isoformat(),
-                        'end_time': shift.end.isoformat(),
-                        'min_staff': shift.min_staff,
-                        'max_staff': shift.max_staff
-                    },
-                    'coverage_percentage': coverage_percentage,
-                    'avg_staff': round(avg_staff, 1),
-                    'status': status
-                })
+        total_working_days = len(working_days) or 1  # avoid division by zero
+
+        # Build a Counter of shift_id -> number of assignments once (linear in E)
+        shift_counter: Counter[int] = Counter(entry.shift_id for entry in entries)
+
+        stats: List[Dict[str, Any]] = []
+        for shift in Shift.objects.filter(company=self.company):
+            assigned = shift_counter.get(shift.id, 0)
+            avg_staff = assigned / total_working_days
+            coverage_percentage = round((avg_staff / shift.max_staff) * 100, 1) if shift.max_staff > 0 else 0
+
+            if avg_staff < shift.min_staff:
+                status = "understaffed"
+            elif avg_staff > shift.max_staff:
+                status = "overstaffed"
+            else:
+                status = "optimal" if shift.min_staff <= avg_staff <= shift.max_staff else "ok"
+
+            stats.append({
+                "shift": {
+                    "id": shift.id,
+                    "name": shift.name,
+                    "start_time": shift.start.isoformat(),
+                    "end_time": shift.end.isoformat(),
+                    "min_staff": shift.min_staff,
+                    "max_staff": shift.max_staff,
+                },
+                "coverage_percentage": coverage_percentage,
+                "avg_staff": round(avg_staff, 1),
+                "status": status,
+            })
         return stats

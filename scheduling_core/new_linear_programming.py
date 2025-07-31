@@ -56,6 +56,9 @@ class ILPScheduler(SchedulingAlgorithm):
         week_to_dates = get_weeks(problem.start_date, problem.end_date)
         number_of_weeks = len(week_to_dates)
 
+        # Determine maximum shift duration for extra shift allowance logic
+        max_shift_duration = max(s.duration for s in problem.shifts)
+
         # 4) Quick feasibility sanity check: available capacity vs required hours
         total_available_hours = sum(emp.max_hours_per_week for emp in problem.employees) * number_of_weeks
         total_required_hours = sum(
@@ -116,6 +119,15 @@ class ILPScheduler(SchedulingAlgorithm):
             for employee in problem.employees
         }
 
+        # Extra shift allowance variables (at most one shift per employee per month)
+        extra_weekly_var = {
+            (employee.id, week_idx): LpVariable(
+                f"extra_{employee.id}_{week_idx}", lowBound=0, upBound=max_shift_duration
+            )
+            for employee in problem.employees
+            for week_idx in week_to_dates.keys()
+        }
+
         utilization_expr = {}
         for employee in problem.employees:
             from rostering_app.services.kpi_calculator import KPICalculator
@@ -136,6 +148,7 @@ class ILPScheduler(SchedulingAlgorithm):
         WEIGHT_UTILIZATION_GAP = -1000   # encourage high utilization (1 - util)
         WEIGHT_PREFERENCE      = -5
         WEIGHT_SHIFT_FAIRNESS  = 10_000  # penalize coverage imbalance
+        WEIGHT_EXTRA_SHIFT     = 1000      # penalty per extra shift hour
 
         # 12) Build objective expression
         objective_expr = 0
@@ -169,6 +182,9 @@ class ILPScheduler(SchedulingAlgorithm):
                     if (employee.id, day, shift.id) in assign_var and shift.name in getattr(employee, 'preferred_shifts', []):
                         objective_expr += WEIGHT_PREFERENCE * assign_var[(employee.id, day, shift.id)]
 
+        # 12c) Penalty for using extra shift hours
+        objective_expr += WEIGHT_EXTRA_SHIFT * lpSum(extra_weekly_var.values())
+
         model += objective_expr
 
         # ------------------------------------------------------------------
@@ -193,15 +209,23 @@ class ILPScheduler(SchedulingAlgorithm):
                 model += assigned_count + coverage_slack_vars[(day, shift.id, 'under')] >= shift.min_staff
                 model += assigned_count <= shift.max_staff
 
-        # (3) Weekly contract cap
+        # (3) Weekly contract cap with allowance for one extra shift per month
         for employee in problem.employees:
             for week_idx, week_dates in week_to_dates.items():
                 model += (
                     lpSum(assign_var[(employee.id, d, s.id)] * s.duration
                           for d in week_dates
                           for s in problem.shifts
-                          if (employee.id, d, s.id) in assign_var) <= employee.max_hours_per_week
+                          if (employee.id, d, s.id) in assign_var) <= employee.max_hours_per_week + extra_weekly_var[(employee.id, week_idx)]
                 )
+
+            # Limit total extra hours to at most one full shift per month
+            month_to_weeks = defaultdict(list)
+            for wk_idx, wk_dates in week_to_dates.items():
+                first_day = wk_dates[0]
+                month_to_weeks[(first_day.year, first_day.month)].append(wk_idx)
+            for ym, wk_indices in month_to_weeks.items():
+                model += lpSum(extra_weekly_var[(employee.id, w)] for w in wk_indices) <= max_shift_duration
 
         # (4) 11h rest rule between consecutive days
         for employee in problem.employees:

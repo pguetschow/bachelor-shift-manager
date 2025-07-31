@@ -17,7 +17,7 @@ from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.services import kpi_calculator
 from rostering_app.services.kpi_calculator import KPICalculator
 from rostering_app.services.kpi_storage import KPIStorageService
-from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range, monthly_hours
+from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range
 
 
 def load_company_fixtures(company):
@@ -592,15 +592,15 @@ def api_company_employee_statistics(request, company_id: int):
     working_days = get_working_days_in_range(month_start, month_end, company)
     total_working_days = len(working_days)
 
-    employees = Employee.objects.filter(company=company)
+    # Use KPI Storage Service to bulk-calculate KPIs in one go
+    kpi_storage = KPIStorageService(company)
+    employee_kpis = kpi_storage.calculate_all_employee_kpis(year, month, algorithm)
 
     employees_data = []
-    # Use KPI Storage Service for cached calculations
-    kpi_storage = KPIStorageService(company)
-
-    for employee in employees:
-        # Get cached monthly KPI or calculate and store it
-        employee_kpi = kpi_storage.get_or_calculate_employee_kpi(employee, year, month, algorithm)
+    from django.forms.models import model_to_dict
+    for employee_kpi in employee_kpis:
+        employee = employee_kpi.employee
+        # employee_kpi already available from bulk calculation
 
         # Calculate yearly statistics (not cached yet, using direct calculation)
         yearly_entries = ScheduleEntry.objects.filter(
@@ -612,23 +612,7 @@ def api_company_employee_statistics(request, company_id: int):
         if algorithm:
             yearly_entries = yearly_entries.filter(algorithm=algorithm)
 
-        # Debug: Let's see what we're getting
-        print(f"[DEBUG] Employee {employee.name}: {yearly_entries.count()} yearly entries")
-        print(f"[DEBUG] Algorithm filter: '{algorithm}'")
-        
-        # Check for duplicates and algorithms
-        entry_dates = [entry.date for entry in yearly_entries]
-        unique_dates = set(entry_dates)
-        algorithms = set(entry.algorithm for entry in yearly_entries)
-        print(f"[DEBUG] Unique dates: {len(unique_dates)}, Total entries: {len(entry_dates)}")
-        print(f"[DEBUG] Algorithms found: {algorithms}")
-        
-        # Check shift durations
-        shift_durations = {}
-        for entry in yearly_entries[:10]:  # First 10 entries
-            duration = entry.shift.get_duration()
-            shift_durations[entry.shift.name] = duration
-            print(f"[DEBUG] Shift {entry.shift.name}: {duration} hours")
+
         
         yearly_hours = sum(
             entry.shift.get_duration()
@@ -638,20 +622,10 @@ def api_company_employee_statistics(request, company_id: int):
         maxPossibleHours = kpi_storage.kpi_calculator.calculate_expected_yearly_hours(employee, year)
         yearly_utilization = kpi_storage.kpi_calculator.calculate_utilization_percentage(yearly_hours, maxPossibleHours)
 
-        # Calculate monthly hours directly to ensure accuracy
-        monthly_entries = ScheduleEntry.objects.filter(
-            employee=employee,
-            company=company,
-            date__gte=month_start,
-            date__lte=month_end
-        )
-        if algorithm:
-            monthly_entries = monthly_entries.filter(algorithm=algorithm)
+        # Use KPI values calculated (and cached) above for monthly stats
+        monthly_hours = employee_kpi.monthly_hours_worked
+        monthly_shifts = employee_kpi.monthly_shifts
         
-        monthly_hours = sum(entry.shift.get_duration() for entry in monthly_entries)
-        monthly_shifts = monthly_entries.count()
-        
-        print(f"[DEBUG] Monthly hours: {monthly_hours}, Monthly shifts: {monthly_shifts}")
         
         employees_data.append({
             "id": employee.id,
@@ -660,13 +634,13 @@ def api_company_employee_statistics(request, company_id: int):
             "max_hours_per_week": employee.max_hours_per_week,
             "monthly_stats": {
                 "possible_hours": round(employee_kpi.expected_monthly_hours, 2),
-                "worked_hours": round(monthly_hours, 2),  # Use recalculated monthly hours
-                "overtime_hours": round(max(0, monthly_hours - employee_kpi.expected_monthly_hours), 2),
-                "undertime_hours": round(max(0, employee_kpi.expected_monthly_hours - monthly_hours), 2),
-                "shifts": monthly_shifts,  # Use recalculated monthly shifts
+                "worked_hours": round(monthly_hours, 2),
+                "overtime_hours": round(employee_kpi.overtime_hours, 2),
+                "undertime_hours": round(employee_kpi.undertime_hours, 2),
+                "shifts": monthly_shifts,
                 "days_worked": employee_kpi.days_worked,
                 "absences": employee_kpi.planned_absences,
-                "utilization_percentage": round((monthly_hours / employee_kpi.expected_monthly_hours * 100) if employee_kpi.expected_monthly_hours > 0 else 0, 2),
+                "utilization_percentage": round(employee_kpi.utilization_percentage, 2),
             },
             "yearly_stats": {
                 "worked_hours": round(yearly_hours, 2),
