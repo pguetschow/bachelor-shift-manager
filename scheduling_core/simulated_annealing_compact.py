@@ -1,19 +1,21 @@
 from __future__ import annotations
-"""Compact Simulated Annealing scheduler focused on coverage & utilisation.
-
-This variant is functionally similar to the large `NewSimulatedAnnealingScheduler`
-implementation but compressed to a fraction of the lines (~230 vs 1200+) while
-preserving:
-• shift min/max-staff constraints
-• 11-hour rest-period rule (via KPI service)
-• weekly hours limit with an 8-hour allowance (≈ one extra shift)
+"""Compact Simulated Annealing scheduler (v2.1 – August 2025)
+──────────────────────────────────────────────────────────────
+Changes in v2.1
+* **Fairness objective** – extra cost proportional to the gap between
+  the most- and least-utilised employees (`alpha_max − alpha_min`), where  
+      alpha_e = worked_hours[e] / possible_hours[e]
+  and `possible_hours[e]` is the total number of hours employee *e* could
+  have worked given availability.
+* New parameters: `fairness_weight`, `weekly_allowance` removed
+* Doc-header + version bump
 """
 
 import math
 import random
 from collections import defaultdict
 from datetime import timedelta, date
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 from rostering_app.services.kpi_calculator import KPICalculator
 from rostering_app.utils import get_working_days_in_range
@@ -23,44 +25,51 @@ from .utils import create_empty_solution, get_weeks
 
 # ──────────────────────────────────────────────────────────────────────────────
 
-class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
-    """Space-efficient SA rostering algorithm."""
 
+class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
+    """Space-efficient SA rostering algorithm with fairness."""
+
+    # -------------------------------------------------------------------------
     def __init__(
         self,
         *,
-        iterations: int = 2000,
+        iterations: int = 2_000,
         init_temp: float = 800.0,
         final_temp: float = 1.0,
-        monthly_allowance: int = 8,  # flat monthly overtime allowance (≈ one extra shift)
+        monthly_allowance: int = 0,  # allowance disabled in v2.1
         sundays_off: bool = False,
+        fairness_weight: int = 75_000,
     ) -> None:
         self.iterations = iterations
         self.init_temp = init_temp
         self.final_temp = final_temp
         self.monthly_allowance = monthly_allowance
         self.sundays_off = sundays_off
+        self.fairness_weight = fairness_weight
 
     # public ------------------------------------------------------------------
     @property
     def name(self) -> str:  # noqa: D401 – short description
-        return "Simulated Annealing (compact)"
+        return "Simulated Annealing (compact v2.1 fair)"
 
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:  # noqa: C901
         self.p = problem
         self.kpi = KPICalculator(problem.company)
+
+        # days & helpers -------------------------------------------------------
         self.days: List[date] = list(
             get_working_days_in_range(problem.start_date, problem.end_date, problem.company)
         )
         self.weeks = get_weeks(problem.start_date, problem.end_date)
         self.day_idx = {d: i for i, d in enumerate(self.days)}
-
-        # quick lookup tables ---------------------------------------------------
         self.emp_index = {e.id: idx for idx, e in enumerate(problem.employees)}
         self.shift_index = {s.id: idx for idx, s in enumerate(problem.shifts)}
         self.shift_by_id = problem.shift_by_id
 
-        # greedy seed -----------------------------------------------------------
+        # pre-compute possible hours for fairness -----------------------------
+        self._compute_possible_hours()
+
+        # greedy seed ----------------------------------------------------------
         sol = self._initial_solution()
         best = sol.copy()
         best.cost = self._evaluate(best)
@@ -80,8 +89,18 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
         self._greedy_fill(best)
         return best.to_entries()
 
-    # helpers -----------------------------------------------------------------
-    # initial greedy fill: min_staff first, then up to max constrained by rules
+    # ───────────────────────── helpers ──────────────────────────────────────
+    # availability ------------------------------------------------------------
+    def _compute_possible_hours(self) -> None:
+        """Store `possible_hours[eid]` = hours employee *could* work."""
+        self.possible_hours: Dict[int, int] = {e.id: 0 for e in self.p.employees}
+        for d in self.days:
+            for sh in self.p.shifts:
+                for emp in self.p.employees:
+                    if d not in emp.absence_dates:
+                        self.possible_hours[emp.id] += sh.duration
+
+    # initial greedy fill -----------------------------------------------------
     def _initial_solution(self) -> Solution:
         sol = create_empty_solution(self.p)
         weekly = defaultdict(lambda: defaultdict(int))  # emp_id -> week_key -> hrs
@@ -90,12 +109,13 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
             wk = d.isocalendar()[:2]
             for sh in self.p.shifts:
                 key = (d, sh.id)
-                # first fill to min_staff --------------------------------------------------
+                # first fill to min_staff
                 cand = self._available_emps(d, sh, sol, weekly, need=sh.min_staff)
                 sol.assignments[key] = cand
                 for eid in cand:
                     weekly[eid][wk] += sh.duration
-        # second pass: try fill to max ----------------------------------------------------
+
+        # second pass – fill up to max_staff
         for d in self.days:
             wk = d.isocalendar()[:2]
             for sh in self.p.shifts:
@@ -109,7 +129,7 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
                     weekly[chosen][wk] += sh.duration
         return sol
 
-    # candidate employees ------------------------------------------------------
+    # candidate employees -----------------------------------------------------
     def _available_emps(
         self,
         day: date,
@@ -117,7 +137,7 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
         sol: Solution,
         weekly: Dict[int, Dict[Tuple[int, int], int]],
         *,
-        need: int | None = None,
+        need: Optional[int] = None,
     ) -> List[int]:
         wk_key = day.isocalendar()[:2]
         res: List[int] = []
@@ -126,13 +146,13 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
                 break
             if day in emp.absence_dates:
                 continue
-            # already a shift that day?
+            # already working a shift today?
             if any(emp.id in sol.assignments.get((day, s.id), []) for s in self.p.shifts):
                 continue
             # weekly hours limit
             if (
-                weekly[emp.id][wk_key] + shift.duration
-                > emp.max_hours_per_week 
+                emp.max_hours_per_week
+                and weekly[emp.id][wk_key] + shift.duration > emp.max_hours_per_week
             ):
                 continue
             if self._rest_violation(emp.id, day, shift, sol):
@@ -144,12 +164,10 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
     def _rest_violation(self, eid: int, day: date, shift, sol: Solution) -> bool:
         prev, nxt = day - timedelta(days=1), day + timedelta(days=1)
         for sh in self.p.shifts:
-            # prev day
             if eid in sol.assignments.get((prev, sh.id), []) and self.kpi.violates_rest_period(
                 sh, shift, prev
             ):
                 return True
-            # next day
             if eid in sol.assignments.get((nxt, sh.id), []) and self.kpi.violates_rest_period(
                 shift, sh, day
             ):
@@ -157,9 +175,11 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
         return False
 
     # evaluation --------------------------------------------------------------
-    def _evaluate(self, sol: Solution) -> float:  # lower better
+    def _evaluate(self, sol: Solution) -> float:  # lower is better
         pen, bonus = 0, 0
         weekly_hrs = defaultdict(lambda: defaultdict(int))
+        worked_hrs = defaultdict(int)  # for fairness
+
         for (d, sid), emps in sol.assignments.items():
             sh = self.shift_by_id[sid]
             staff = len(emps)
@@ -168,18 +188,31 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
             elif staff > sh.max_staff:
                 pen += (staff - sh.max_staff) * 500_000
             else:
-                bonus -= staff * 10_000  # encourage filled positions
+                bonus -= staff * 10_000  # encourage fully staffed shifts
             for eid in emps:
                 weekly_hrs[eid][d.isocalendar()[:2]] += sh.duration
-        # weekly hours penalty ---------------------------------------------------
+                worked_hrs[eid] += sh.duration
+
+        # weekly hours penalty -------------------------------------------------
         for emp in self.p.employees:
             for wk, hrs in weekly_hrs[emp.id].items():
-                limit = emp.max_hours_per_week 
-                if hrs > limit:
-                    pen += (hrs - limit) * 2_000_000
-        # rest period penalty ----------------------------------------------------
+                if emp.max_hours_per_week and hrs > emp.max_hours_per_week:
+                    pen += (hrs - emp.max_hours_per_week) * 2_000_000
+
+        # rest period penalty --------------------------------------------------
         pen += self._rest_violations(sol) * 50_000_000
-        return pen + bonus
+
+        # ─── fairness penalty (NEW) ──────────────────────────────────────────
+        ratios = [
+            worked_hrs[eid] / ph
+            for eid, ph in self.possible_hours.items()
+            if ph > 0
+        ]
+        fair_pen = 0
+        if ratios:
+            fair_pen = (max(ratios) - min(ratios)) * self.fairness_weight
+
+        return pen + bonus + fair_pen
 
     def _rest_violations(self, sol: Solution) -> int:
         v = 0
@@ -205,8 +238,7 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
         assigned = nb.assignments.get(key, [])
         if assigned and (random.random() < 0.5):  # remove one
             assigned.pop(random.randrange(len(assigned)))
-        else:  # try add
-            # build weekly hrs map quick
+        else:  # try to add
             wk_map = defaultdict(lambda: defaultdict(int))
             for (d, sid), emps in nb.assignments.items():
                 s = self.shift_by_id[sid]
@@ -224,15 +256,13 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
 
     def _cool(self, it: int) -> float:
         ratio = it / max(self.iterations - 1, 1)
-        base_temp = self.init_temp * (self.final_temp / self.init_temp) ** ratio
-        
-        # Adaptive factor from less cost SA
+        base = self.init_temp * (self.final_temp / self.init_temp) ** ratio
+        # aggressive cooling mid-run
         if ratio < 0.3:
-            return base_temp
+            return base
         elif ratio < 0.7:
-            return base_temp * 0.7
-        else:
-            return base_temp * 0.3
+            return base * 0.7
+        return base * 0.3
 
     # final greedy fill to max_staff ------------------------------------------
     def _greedy_fill(self, sol: Solution) -> None:
@@ -241,6 +271,7 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
             hrs = self.shift_by_id[sid].duration
             for eid in emps:
                 weekly[eid][d.isocalendar()[:2]] += hrs
+
         for d in self.days:
             wk = d.isocalendar()[:2]
             for sh in self.p.shifts:
