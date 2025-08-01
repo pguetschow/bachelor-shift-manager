@@ -314,7 +314,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                 ym = (day.year, day.month)
                 month_hours[ym] += hrs
             for (_, _), tot in month_hours.items():
-                expected = self.kpi.calculate_expected_month_hours(emp, day.year, day.month)
+                expected = self.kpi.calculate_expected_month_hours(emp, day.year, day.month, self.problem.company)
                 limit = expected
                 if tot > limit:
                     month_pen += int(tot - limit)

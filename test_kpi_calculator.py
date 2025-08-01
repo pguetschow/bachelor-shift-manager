@@ -120,7 +120,7 @@ def test_kpi_calculator():
     print(f"   Date {test_date} blocked for employee1: {is_blocked}")
     
     print(f"\n2. Testing expected month hours...")
-    expected_hours = kpi_calculator.calculate_expected_month_hours(employee1, 2025, 1)
+    expected_hours = kpi_calculator.calculate_expected_month_hours(employee1, 2025, 1, company)
     print(f"   Expected hours for employee1 in January 2025: {expected_hours}")
     
     print(f"\n3. Testing rest period violation...")

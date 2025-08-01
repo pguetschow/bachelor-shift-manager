@@ -66,76 +66,152 @@ class KPICalculator:
             )
         )
 
+    # -----------------------------------------------------------------------------
+    # Patched KPI‑Calculator mix‑in functions
+    # -----------------------------------------------------------------------------
+
+    def calculate_expected_month_hours(self, employee, year: int, month: int, company=None) -> float:  # noqa: N802
+        """Expected *contractual* hours in *year‑month* after deducting holidays & absences.
+
+        *   **Shift length is fixed to 8 h** – any fractional daily workload is
+            translated into *fewer full‑day shifts* rather than shorter days.
+        *   Only **employee vacation days in this month** are deducted.  Public
+            holidays and company‑wide non‑working days are already excluded from
+            the base *working‑day* count via :pyfunc:`_workdays_in_month`.
+        """
+        if company is None:
+            company = self.company  # fall back to the calculator‑wide default
+
+        # 1) Contract parameters --------------------------------------------------
+        weekly_hours = getattr(employee, "weekly_hours", getattr(employee, "max_hours_per_week", 0))
+        if weekly_hours % 8 != 0:
+            raise ValueError(
+                f"Weekly hours {weekly_hours} for employee {employee} are not a multiple of the 8‑hour shift length."
+            )
+        shifts_per_week = weekly_hours // 8  # always an int (32→4, 40→5)
+
+        company_workweek = getattr(company, "working_days_per_week", 5) or 5
+        workweek_days = getattr(company, "workweek", list(range(company_workweek)))  # 0‑Mon …
+
+        # 2) Company workdays in the target month --------------------------------
+        workdays_in_month = self.workdays_in_month(year, month, workweek_days, company)
+
+        # 3) Planned absences this month (vacation etc.) --------------------------
+        absences_raw = getattr(employee, "absences", [])
+        absence_dates: Set[date] = {date.fromisoformat(d) for d in absences_raw if isinstance(d, str)}
+        # Consider *only* those falling on company workdays of the month
+        first_day, last_day = date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
+        month_workdays: Set[date] = {d for d in (first_day + timedelta(days=n)  # type: ignore[attr-defined]
+                                                 for n in range((last_day - first_day).days + 1))
+                                     if d.weekday() in workweek_days and not is_non_working_day(d, company)}
+        absences_this_month = absence_dates & month_workdays
+
+        # 4) Expected *shifts* & hours -------------------------------------------
+        expected_shifts_raw = (workdays_in_month * shifts_per_week) / company_workweek
+        expected_shifts = round(expected_shifts_raw) - len(absences_this_month)
+        expected_hours = expected_shifts * 8
+
+        # 5) Round to nearest 8‑h block to stay compatible with the ILP model ----
+        expected_hours = round(expected_hours / 8) * 8
+        return max(expected_hours, 0)
+
+    def calculate_expected_yearly_hours(self, employee, year: int) -> float:  # noqa: N802
+        """Aggregate the *monthly* contractual hours (already holiday‑adjusted)."""
+        total = 0.0
+        for m in range(1, 13):
+            total += self.calculate_expected_month_hours(employee, year, m)
+        # Keep the original 8‑hour rounding for consistency
+        return round(total / 8) * 8
+
     # def calculate_expected_month_hours(self, employee, year: int, month: int, company) -> float:
-    #     # 1) Contracted pattern ----------------------------------------------------
+    #     # 1) Contracted hours --------------------------------------------
+    #     weekly_hours = getattr(
+    #         employee, "weekly_hours", getattr(employee, "max_hours_per_week", 0)
+    #     )
+    #     workweek = getattr(company, "working_days_per_week", 5) or 5
+    #     daily_hours = weekly_hours / workweek
+    #
+    #     # 2) Date range ---------------------------------------------------
+    #     last_day = calendar.monthrange(year, month)[1]
+    #     month_start = date(year, month, 1)
+    #     month_end = date(year, month, last_day)
+    #
+    #     # 3) Company working days in range -------------------------------
+    #     working_days: Set[date] = set(
+    #         get_working_days_in_range(month_start, month_end, company)
+    #     )
+    #
+    #     # 4) Absences -----------------------------------------------------
+    #     raw_absences: Set[date] = {
+    #         date.fromisoformat(d)
+    #         for d in getattr(employee, "absences", [])
+    #         if isinstance(d, str)
+    #     }
+    #     absences_on_working_days = {d for d in raw_absences if d in working_days}
+    #
+    #     # 5) Expected hours ----------------------------------------------
+    #     total_working_days = len(working_days)
+    #     expected_hours = (total_working_days - len(absences_on_working_days)) * daily_hours
+    #
+    #     # 6)  rounding -------------------------------------------
+    #     expected_hours = round(expected_hours / 8) * 8
+    #
+    #     return expected_hours
+    #
+    # def calculate_expected_yearly_hours(self, employee, year: int) -> float:
     #     weekly_hours = getattr(employee, "weekly_hours",
     #                            getattr(employee, "max_hours_per_week", 0))
     #
-    #     # Monday-Friday unless `employee.workdays` says otherwise
-    #     workweek: Set[int] = set(getattr(employee, "workdays", {0, 1, 2, 3, 4}))
-    #     if not workweek:
-    #         return 0.0
-    #
-    #     daily_hours = weekly_hours / len(workweek)
-    #
-    #     # 2) Absences --------------------------------------------------------------
     #     absence_dates: Set[date] = {
     #         date.fromisoformat(d)
     #         for d in getattr(employee, "absences", [])
     #         if isinstance(d, str)
     #     }
-    #     absences_this_month = {
-    #         d for d in absence_dates if d.year == year and d.month == month
-    #     }
     #
+    #     total_hours = weekly_hours * 52 - len(absence_dates)
     #
-    #
-    #     from rostering_app.utils import get_working_days_in_range
-    #     working_days = get_working_days_in_range(start_date, end_date, company)
-    #     total_working_days = len(working_days)
-    #
-    #     # 3) Planned hours ---------------------------------------------------------
-    #     expected_hours = total_working_days * daily_hours - len(absences_this_month) * daily_hours
-    #
-    #     return round(expected_hours / 8) * 8  # optional rounding
+    #     return total_hours
     #
 
-    def calculate_expected_month_hours(self, employee, year: int, month: int) -> float:
-        # 1) Nominal hours for one week
-        weekly_hours = getattr(
-            employee, "weekly_hours",
-            getattr(employee, "max_hours_per_week", 0)
-        )
 
-        absences_raw = getattr(employee, 'absences', [])
-        absence_dates: Set[date] = set()
-        for d in absences_raw:
-            try:
-                absence_dates.add(date.fromisoformat(d))
-            except Exception:
-                pass
-        # 3) Generate every calendar date in the requested month
-        num_days = calendar.monthrange(year, month)[1]  # e.g. 31 for July
-        month_days = {date(year, month, d) for d in range(1, num_days + 1)}
 
-        # 4) Intersection: only the absences that actually land in this month
-        absences_this_month = absence_dates & month_days
+    # def calculate_expected_month_hours(self, employee, year: int, month: int) -> float:
+    #     # 1) Nominal hours for one week
+    #     weekly_hours = getattr(
+    #         employee, "weekly_hours",
+    #         getattr(employee, "max_hours_per_week", 0)
+    #     )
+    #
+    #     absences_raw = getattr(employee, 'absences', [])
+    #     absence_dates: Set[date] = set()
+    #     for d in absences_raw:
+    #         try:
+    #             absence_dates.add(date.fromisoformat(d))
+    #         except Exception:
+    #             pass
+    #     # 3) Generate every calendar date in the requested month
+    #     num_days = calendar.monthrange(year, month)[1]  # e.g. 31 for July
+    #     month_days = {date(year, month, d) for d in range(1, num_days + 1)}
+    #
+    #     # 4) Intersection: only the absences that actually land in this month
+    #     absences_this_month = absence_dates & month_days
+    #
+    #     # 5) Convert full-day absences to hours (assume 8 h per day)
+    #     absences_hours = len(absences_this_month) * 8
+    #
+    #     # number_of_weeks_this_month = len(calendar.monthcalendar(year, month))
+    #     number_of_weeks_this_month = 4.33
+    #     # 6) Return planned hours minus the absence hours.
+    #     expected_month_hours = weekly_hours * number_of_weeks_this_month - absences_hours
+    #     expected_month_hours = round(expected_month_hours / 8) * 8  # round to nearest multiple of 8
+    #     return expected_month_hours
 
-        # 5) Convert full-day absences to hours (assume 8 h per day)
-        absences_hours = len(absences_this_month) * 8
-
-        # number_of_weeks_this_month = len(calendar.monthcalendar(year, month))
-        number_of_weeks_this_month = 4.33
-        # 6) Return planned hours minus the absence hours.
-        expected_month_hours = weekly_hours * number_of_weeks_this_month - absences_hours
-        expected_month_hours = round(expected_month_hours / 8) * 8  # round to nearest multiple of 8
-        return expected_month_hours
-
-    def calculate_expected_yearly_hours(self, employee, year: int) -> float:
-        total_hours = 0.0
-        for month in range(1, 13):
-            total_hours += self.calculate_expected_month_hours(employee, year, month)
-        return total_hours
+    # def calculate_expected_yearly_hours(self, employee, year: int) -> float:
+    #     total_hours = 0.0
+    #     for month in range(1, 13):
+    #         total_hours += self.calculate_expected_month_hours(employee, year, month, self.company)
+    #     return total_hours
+    #
 
     def violates_rest_period(self, shift1, shift2, date1: date) -> bool:
         end_first = datetime.combine(date1, shift1.end)
@@ -354,7 +430,7 @@ class KPICalculator:
             for entry in month_entries
         )
         monthly_shifts = len(month_entries)
-        expected_monthly_hours = self.calculate_expected_month_hours(employee, year, month)
+        expected_monthly_hours = self.calculate_expected_month_hours(employee, year, month, self.company)
         overtime, undertime = self.calculate_overtime_undertime(monthly_hours_worked, expected_monthly_hours)
         utilization = self.calculate_utilization_percentage(monthly_hours_worked, expected_monthly_hours)
         working_days = get_working_days_in_range(month_start, month_end, self.company)

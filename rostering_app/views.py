@@ -459,7 +459,7 @@ def api_company_employee_schedule(request, company_id, employee_id):
 
     # Calculate max monthly hours using KPI calculator that accounts for absences
     kpi_calculator = KPICalculator(company)
-    max_monthly_hours = kpi_calculator.calculate_expected_month_hours(employee, year, month)
+    max_monthly_hours = kpi_calculator.calculate_expected_month_hours(employee, year, month, company)
     utilization_percentage = kpi_calculator.calculate_utilization_percentage(total_hours, max_monthly_hours)
 
     return JsonResponse({
