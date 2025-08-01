@@ -16,7 +16,7 @@ from django.views.decorators.http import require_http_methods
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.services import kpi_calculator
 from rostering_app.services.kpi_calculator import KPICalculator
-from rostering_app.services.kpi_storage import KPIStorageService
+
 from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range
 
 
@@ -468,7 +468,8 @@ def api_company_employee_schedule(request, company_id, employee_id):
             'name': employee.name,
             'position': getattr(employee, 'position', 'Mitarbeiter'),
             'max_hours_per_week': employee.max_hours_per_week,
-            'preferred_shifts': employee.preferred_shifts
+            'preferred_shifts': employee.preferred_shifts,
+            'absences': employee.absences
         },
         'schedule_data': schedule_data,
         'statistics': {
@@ -532,14 +533,33 @@ def api_company_employee_yearly_schedule(request, company_id, employee_id):
     total_possible_yearly_hours = kpi_calculator.calculate_expected_yearly_hours(employee, year)
     yearly_utilization = kpi_calculator.calculate_utilization_percentage(total_hours, total_possible_yearly_hours)
 
+    # Format schedule data for frontend KPI calculation
+    schedule_data = []
+    for entry in entries:
+        schedule_data.append({
+            'id': entry.id,
+            'date': entry.date.isoformat(),
+            'shift': {
+                'id': entry.shift.id,
+                'name': entry.shift.name,
+                'start_time': entry.shift.start.isoformat(),
+                'end_time': entry.shift.end.isoformat(),
+                'min_staff': entry.shift.min_staff,
+                'max_staff': entry.shift.max_staff
+            },
+            'algorithm': entry.algorithm or 'Unknown'
+        })
+
     return JsonResponse({
         'employee': {
             'id': employee.id,
             'name': employee.name,
             'position': getattr(employee, 'position', 'Mitarbeiter'),
             'max_hours_per_week': employee.max_hours_per_week,
-            'preferred_shifts': employee.preferred_shifts
+            'preferred_shifts': employee.preferred_shifts,
+            'absences': employee.absences
         },
+        'schedule_data': schedule_data,
         'yearly_statistics': {
             'total_hours': total_hours,
             'total_shifts': total_shifts,
@@ -590,39 +610,44 @@ def api_company_employee_statistics(request, company_id: int):
     working_days = get_working_days_in_range(month_start, month_end, company)
     total_working_days = len(working_days)
 
-    # Use KPI Storage Service to bulk-calculate KPIs in one go
-    kpi_storage = KPIStorageService(company)
-    employee_kpis = kpi_storage.calculate_all_employee_kpis(year, month, algorithm)
-
+    # Calculate KPIs directly using KPICalculator
+    kpi_calculator = KPICalculator(company)
+    employees = Employee.objects.filter(company=company)
+    
     employees_data = []
-    from django.forms.models import model_to_dict
-    for employee_kpi in employee_kpis:
-        employee = employee_kpi.employee
-        # employee_kpi already available from bulk calculation
-
-        # Calculate yearly statistics (not cached yet, using direct calculation)
+    for employee in employees:
+        # Get monthly entries for this employee
+        monthly_entries = ScheduleEntry.objects.filter(
+            employee=employee,
+            company=company,
+            date__gte=month_start,
+            date__lte=month_end
+        )
+        if algorithm:
+            monthly_entries = monthly_entries.filter(algorithm=algorithm)
+        
+        # Calculate monthly statistics
+        monthly_stats = kpi_calculator.calculate_employee_statistics(
+            employee, list(monthly_entries), year, month, algorithm
+        )
+        
+        # Calculate yearly statistics
         yearly_entries = ScheduleEntry.objects.filter(
             employee=employee,
-            company=company,  # Add company filter to ensure we only get entries for this company
+            company=company,
             date__gte=year_start,
             date__lte=year_end
         )
         if algorithm:
             yearly_entries = yearly_entries.filter(algorithm=algorithm)
-
-
         
         yearly_hours = sum(
             entry.shift.get_duration()
             for entry in yearly_entries
         )
         yearly_shifts = yearly_entries.count()
-        maxPossibleHours = kpi_storage.kpi_calculator.calculate_expected_yearly_hours(employee, year)
-        yearly_utilization = kpi_storage.kpi_calculator.calculate_utilization_percentage(yearly_hours, maxPossibleHours)
-
-        # Use KPI values calculated (and cached) above for monthly stats
-        monthly_hours = employee_kpi.monthly_hours_worked
-        monthly_shifts = employee_kpi.monthly_shifts
+        maxPossibleHours = kpi_calculator.calculate_expected_yearly_hours(employee, year)
+        yearly_utilization = kpi_calculator.calculate_utilization_percentage(yearly_hours, maxPossibleHours)
 
         employees_data.append({
             "id": employee.id,
@@ -630,14 +655,14 @@ def api_company_employee_statistics(request, company_id: int):
             "position": getattr(employee, "position", "Mitarbeiter"),
             "max_hours_per_week": employee.max_hours_per_week,
             "monthly_stats": {
-                "possible_hours": round(employee_kpi.expected_monthly_hours, 2),
-                "worked_hours": round(monthly_hours, 2),
-                "overtime_hours": round(employee_kpi.overtime_hours, 2),
-                "undertime_hours": round(employee_kpi.undertime_hours, 2),
-                "shifts": monthly_shifts,
-                "days_worked": employee_kpi.days_worked,
-                "absences": employee_kpi.planned_absences,
-                "utilization_percentage": round(employee_kpi.utilization_percentage, 2),
+                "possible_hours": round(monthly_stats['expected_monthly_hours'], 2),
+                "worked_hours": round(monthly_stats['monthly_hours_worked'], 2),
+                "overtime_hours": round(monthly_stats['overtime_hours'], 2),
+                "undertime_hours": round(monthly_stats['undertime_hours'], 2),
+                "shifts": monthly_stats['monthly_shifts'],
+                "days_worked": monthly_stats['days_worked'],
+                "absences": monthly_stats['planned_absences'],
+                "utilization_percentage": round(monthly_stats['utilization_percentage'], 2),
             },
             "yearly_stats": {
                 "worked_hours": round(yearly_hours, 2),
@@ -785,39 +810,51 @@ def api_company_analytics(request, company_id):
     available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
     available_algorithms = sorted([alg for alg in available_algorithms if alg])
 
-    # Use KPI Storage Service for cached calculations
-    kpi_storage = KPIStorageService(company)
+    # Calculate KPIs directly using KPICalculator
+    kpi_calculator = KPICalculator(company)
 
     results = {}
     for algorithm in available_algorithms:
         start_time = time.time()
         
-        # Get cached company KPI or calculate and store it
-        company_kpi = kpi_storage.get_or_calculate_company_kpi(year, month, algorithm)
+        # Get entries for this algorithm
+        entries = ScheduleEntry.objects.filter(
+            company=company,
+            date__year=year,
+            date__month=month,
+            algorithm=algorithm
+        )
         
-        # Get cached coverage KPI or calculate and store it
+        # Calculate company analytics
+        company_analytics = kpi_calculator.calculate_company_analytics(
+            list(entries), year, month, algorithm
+        )
+        
+        # Calculate coverage stats
         first_day = datetime.date(year, month, 1)
         last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
-        coverage_kpi = kpi_storage.get_or_calculate_coverage_kpi(first_day, last_day, algorithm)
+        coverage_stats = kpi_calculator.calculate_coverage_stats(
+            list(entries), first_day, last_day
+        )
         
-        # Extract coverage rates from cached data
+        # Extract coverage rates from calculated data
         coverage_rates = {}
-        for stat in coverage_kpi.shift_coverage:
+        for stat in coverage_stats:
             shift_name = stat['shift']['name']
             coverage_rates[shift_name] = stat['coverage_percentage']
         
         runtime = time.time() - start_time
         results[algorithm] = {
-            'total_hours_worked': company_kpi.total_hours_worked,
-            'avg_hours_per_employee': company_kpi.avg_hours_per_employee,
-            'hours_std_dev': company_kpi.hours_std_dev,
-            'hours_cv': company_kpi.hours_cv,
-            'gini_coefficient': company_kpi.gini_coefficient,
-            'constraint_violations': company_kpi.total_weekly_violations,
+            'total_hours_worked': company_analytics['total_hours_worked'],
+            'avg_hours_per_employee': company_analytics['avg_hours_per_employee'],
+            'hours_std_dev': company_analytics['hours_std_dev'],
+            'hours_cv': company_analytics['hours_cv'],
+            'gini_coefficient': company_analytics['gini_coefficient'],
+            'constraint_violations': company_analytics['total_weekly_violations'],
             'coverage_rates': coverage_rates,
-            'min_hours': company_kpi.min_hours,
-            'max_hours': company_kpi.max_hours,
-            'total_working_days': coverage_kpi.total_working_days,
+            'min_hours': company_analytics['min_hours'],
+            'max_hours': company_analytics['max_hours'],
+            'total_working_days': len(coverage_stats),
             'runtime': runtime,
         }
     return JsonResponse({'algorithms': results, 'year': year, 'month': month})

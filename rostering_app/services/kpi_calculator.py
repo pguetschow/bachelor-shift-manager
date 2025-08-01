@@ -89,9 +89,8 @@ class KPICalculator:
                 f"Weekly hours {weekly_hours} for employee {employee} are not a multiple of the 8‑hour shift length."
             )
         shifts_per_week = weekly_hours // 8  # always an int (32→4, 40→5)
-
-        company_workweek = getattr(company, "working_days_per_week", 5) or 5
-        workweek_days = getattr(company, "workweek", list(range(company_workweek)))  # 0‑Mon …
+        company_workweek = 7 if company.sunday_is_workday else 6
+        workweek_days =  list(range(company_workweek))
 
         # 2) Company workdays in the target month --------------------------------
         workdays_in_month = self.workdays_in_month(year, month, workweek_days, company)
@@ -114,14 +113,21 @@ class KPICalculator:
         # 5) Round to nearest 8‑h block to stay compatible with the ILP model ----
         expected_hours = round(expected_hours / 8) * 8
         return max(expected_hours, 0)
+    #
+    # def calculate_expected_yearly_hours(self, employee, year: int) -> float:
+    #     weekly_hours = getattr(employee, "weekly_hours",
+    #                            getattr(employee, "max_hours_per_week", 0))
+    #
+    #     absence_dates: Set[date] = {
+    #         date.fromisoformat(d)
+    #         for d in getattr(employee, "absences", [])
+    #         if isinstance(d, str)
+    #     }
+    #
+    #     total_hours = weekly_hours * 52 - (len(absence_dates) * 8)
+    #
+    #     return total_hours
 
-    def calculate_expected_yearly_hours(self, employee, year: int) -> float:  # noqa: N802
-        """Aggregate the *monthly* contractual hours (already holiday‑adjusted)."""
-        total = 0.0
-        for m in range(1, 13):
-            total += self.calculate_expected_month_hours(employee, year, m)
-        # Keep the original 8‑hour rounding for consistency
-        return round(total / 8) * 8
 
     # def calculate_expected_month_hours(self, employee, year: int, month: int, company) -> float:
     #     # 1) Contracted hours --------------------------------------------
@@ -158,20 +164,21 @@ class KPICalculator:
     #
     #     return expected_hours
     #
-    # def calculate_expected_yearly_hours(self, employee, year: int) -> float:
-    #     weekly_hours = getattr(employee, "weekly_hours",
-    #                            getattr(employee, "max_hours_per_week", 0))
-    #
-    #     absence_dates: Set[date] = {
-    #         date.fromisoformat(d)
-    #         for d in getattr(employee, "absences", [])
-    #         if isinstance(d, str)
-    #     }
-    #
-    #     total_hours = weekly_hours * 52 - len(absence_dates)
-    #
-    #     return total_hours
-    #
+
+    def calculate_expected_yearly_hours(self, employee, year: int) -> float:
+        weekly_hours = getattr(employee, "weekly_hours",
+                               getattr(employee, "max_hours_per_week", 0))
+
+        absence_dates: Set[date] = {
+            date.fromisoformat(d)
+            for d in getattr(employee, "absences", [])
+            if isinstance(d, str)
+        }
+
+        total_hours = weekly_hours * 52 - len(absence_dates)
+
+        return total_hours
+
 
 
 
@@ -211,7 +218,7 @@ class KPICalculator:
     #     for month in range(1, 13):
     #         total_hours += self.calculate_expected_month_hours(employee, year, month, self.company)
     #     return total_hours
-    #
+
 
     def violates_rest_period(self, shift1, shift2, date1: date) -> bool:
         end_first = datetime.combine(date1, shift1.end)

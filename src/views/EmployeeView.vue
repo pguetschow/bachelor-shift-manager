@@ -317,6 +317,7 @@ import { de } from 'date-fns/locale'
 import { Chart, registerables } from 'chart.js'
 import { useCompanyStore } from '@/stores/company'
 import { useScheduleStore } from '@/stores/schedule'
+import { KPICalculator } from '@/services/kpiCalculator'
 
 // Register Chart.js components
 Chart.register(...registerables)
@@ -341,14 +342,25 @@ const workloadChart = ref(null)
 const yearlyChart = ref(null)
 const yearlyData = ref(null)
 
-const employeeScheduleData = computed(() => scheduleStore.employeeScheduleData)
-const employee = computed(() => employeeScheduleData.value.employee || {})
-const employeeSchedule = computed(() => employeeScheduleData.value.schedule_data || [])
-const employeeStats = computed(() => employeeScheduleData.value.statistics || {})
-const weeklyWorkload = computed(() => employeeScheduleData.value.weekly_workload || [])
+// Real-time data storage
+const employeeData = ref(null)
+const employeeSchedule = ref([])
+const employeeStats = ref({})
+const weeklyWorkload = ref([])
+const yearlyData = ref(null)
 
+// Computed properties for real-time calculations
+const employee = computed(() => employeeData.value?.employee || {})
 const currentHours = computed(() => employeeStats.value.total_hours || 0)
 const scheduledShifts = computed(() => employeeStats.value.total_shifts || 0)
+
+// KPI Calculator instance
+const kpiCalculator = computed(() => {
+  if (company.value) {
+    return new KPICalculator(company.value)
+  }
+  return null
+})
 
 const formatNumber = (num) => {
   if (num === null || num === undefined) return '0'
@@ -431,33 +443,79 @@ const nextMonth = () => {
 }
 
 const loadEmployeeData = async () => {
-  if (route.params.companyId && route.params.employeeId) {
-    await scheduleStore.loadEmployeeScheduleData(
-      route.params.companyId,
-      route.params.employeeId,
-      currentYear.value,
-      currentMonth.value,
-      scheduleStore.selectedAlgorithm
-    )
-    
-    // Create chart after data is loaded
-    await nextTick()
-    setTimeout(() => {
-      createWorkloadChart()
-    }, 100) // Small delay to ensure canvas is rendered
+  if (route.params.companyId && route.params.employeeId && kpiCalculator.value) {
+    try {
+      // Load raw schedule data from API
+      const response = await fetch(`/api/companies/${route.params.companyId}/employees/${route.params.employeeId}/schedule/?year=${currentYear.value}&month=${currentMonth.value}&algorithm=${scheduleStore.selectedAlgorithm || ''}`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      
+      // Store raw data
+      employeeData.value = data
+      employeeSchedule.value = data.schedule_data || []
+      
+      // Calculate KPIs in real-time
+      const stats = kpiCalculator.value.calculateEmployeeStatistics(
+        data.employee,
+        data.schedule_data || [],
+        currentYear.value,
+        currentMonth.value
+      )
+      
+      employeeStats.value = stats
+      weeklyWorkload.value = stats.weekly_workload || []
+      
+      // Create chart after data is loaded
+      await nextTick()
+      setTimeout(() => {
+        createWorkloadChart()
+      }, 100)
+    } catch (error) {
+      console.error('Error loading employee data:', error)
+      // Set empty data on error
+      employeeData.value = null
+      employeeSchedule.value = []
+      employeeStats.value = {}
+      weeklyWorkload.value = []
+    }
   }
 }
 
 const loadYearlyData = async () => {
-  if (route.params.companyId && route.params.employeeId) {
-    await scheduleStore.loadEmployeeYearlyData(
-      route.params.companyId,
-      route.params.employeeId,
-      currentYear.value,
-      scheduleStore.selectedAlgorithm
-    )
-    yearlyData.value = scheduleStore.employeeYearlyData
-    await createYearlyChart()
+  if (route.params.companyId && route.params.employeeId && kpiCalculator.value) {
+    try {
+      // Load raw yearly data from API
+      const response = await fetch(`/api/companies/${route.params.companyId}/employees/${route.params.employeeId}/yearly/?year=${currentYear.value}&algorithm=${scheduleStore.selectedAlgorithm || ''}`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      
+      // Calculate yearly KPIs in real-time
+      const yearlyStats = kpiCalculator.value.calculateYearlyStatistics(
+        data.employee,
+        data.schedule_data || [],
+        currentYear.value
+      )
+      
+      yearlyData.value = {
+        ...data,
+        yearly_statistics: yearlyStats,
+        monthly_breakdown: yearlyStats.monthly_breakdown
+      }
+      
+      await createYearlyChart()
+    } catch (error) {
+      console.error('Error loading yearly data:', error)
+      // Set empty data on error
+      yearlyData.value = null
+    }
   }
 }
 
@@ -639,6 +697,12 @@ watch(weeklyWorkload, async (newData) => {
     }, 100)
   }
 }, { deep: true })
+
+// Watch for algorithm changes to recalculate KPIs
+watch(() => scheduleStore.selectedAlgorithm, async () => {
+  await loadEmployeeData()
+  await loadYearlyData()
+})
 </script>
 
 <style scoped>

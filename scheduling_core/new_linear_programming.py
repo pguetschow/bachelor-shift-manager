@@ -25,7 +25,7 @@ class ILPScheduler(SchedulingAlgorithm):
     # ------------------------------------------------------------------
     # Construction / meta
     # ------------------------------------------------------------------
-    def __init__(self, *, sundays_off: bool = False, min_util_factor: float = 0.85,
+    def __init__(self, *, sundays_off: bool = False, min_util_factor: float = 0.9,
                  monthly_ot_cap: float = 0.05, yearly_ot_cap: float = 0.00):
         self.sundays_off = sundays_off
         self.MIN_UTIL_FACTOR = min_util_factor
@@ -35,14 +35,15 @@ class ILPScheduler(SchedulingAlgorithm):
         self.company = None  # injected in ``solve``
 
     @property
-    def name(self) -> str:  # noqa: D401 – property name
-        return "Optimized ILP (Strict Cap)"
+    def name(self) -> str:
+        return "Optimized ILP"
 
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
     def solve(self, problem: SchedulingProblem) -> Tuple[str, List[ScheduleEntry]]:
         self.company = problem.company
+        self.problem = problem
         kpi_calc = KPICalculator(self.company)
 
         # 1) Plan‑Zeitraster (nur echte Arbeitstage)
@@ -90,7 +91,8 @@ class ILPScheduler(SchedulingAlgorithm):
         # ------------------------------------------------------------------
         W_OVER = 10_000_000
         W_UNDER = 1_000_000
-        W_OT = 250_000
+        W_OPTDEV = 100_000
+        W_OT = 50_000
         W_UT = 25_000
         W_MU_FAIR = 50_000
         W_PREF = -5
@@ -110,12 +112,15 @@ class ILPScheduler(SchedulingAlgorithm):
                 model += covered - over  <= sh.max_staff
                 obj += W_UNDER * under + W_OVER * over
 
+                optimal_staff = (sh.min_staff + sh.max_staff) / 2
+                dev = LpVariable(f"dev_{d}_{sh.id}", 0)
+                model += covered - optimal_staff <= dev
+                model += optimal_staff - covered <= dev
+                obj += W_OPTDEV * dev
+
         # Mitarbeiter‑Term + Präferenzen
         for emp in problem.employees:
-            yearly_cap = sum(
-                kpi_calc.calculate_expected_month_hours(emp, *ym, self.company)
-                for ym in months
-            )
+            yearly_cap = kpi_calc.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
             obj += W_UTIL * (1 - tot_hours[emp.id] / yearly_cap)
 
             prefs = set(getattr(emp, "preferred_shifts", []))
@@ -164,10 +169,7 @@ class ILPScheduler(SchedulingAlgorithm):
         for emp in problem.employees:
             model += tot_hours[emp.id] == lpSum(x[(emp.id, d, sh.id)] * sh.duration
                                                for d in dates for sh in problem.shifts if (emp.id, d, sh.id) in x)
-            yearly_cap = sum(
-                kpi_calc.calculate_expected_month_hours(emp, *ym, self.company)
-                for ym in months
-            )
+            yearly_cap = kpi_calc.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
             model += tot_hours[emp.id] <= yearly_cap #no yearly OT
             model += tot_hours[emp.id] >= yearly_cap * 0.85  # Minimum Auslastung 85 %
 
@@ -183,18 +185,3 @@ class ILPScheduler(SchedulingAlgorithm):
             if var.varValue and var.varValue > 0.5
         ]
         return schedule
-
-    def _get_holidays_for_year(self, year: int) -> Set[Tuple[int, int, int]]:
-        if year == 2025:
-            return {
-                (2025, 1, 1), (2025, 1, 6), (2025, 4, 18), (2025, 4, 21),
-                (2025, 5, 1), (2025, 5, 29), (2025, 6, 9), (2025, 10, 3),
-                (2025, 12, 25), (2025, 12, 26),
-            }
-        if year == 2026:
-            return {
-                (2026, 1, 1), (2026, 1, 6), (2026, 4, 3), (2026, 4, 6),
-                (2026, 5, 1), (2026, 5, 14), (2026, 5, 25), (2026, 10, 3),
-                (2026, 12, 25), (2026, 12, 26),
-            }
-        return set()

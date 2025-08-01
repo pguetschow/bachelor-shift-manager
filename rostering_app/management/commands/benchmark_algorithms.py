@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.converters import employees_to_core, shifts_to_core
-from rostering_app.services.kpi_storage import KPIStorageService
+
 from rostering_app.services.kpi_calculator import KPICalculator
 from scheduling_core import NSGA2Scheduler, ILPScheduler, NewSimulatedAnnealingScheduler
 from scheduling_core.Updated_new_linear_programming import UpdatedILPScheduler
@@ -61,11 +61,6 @@ class Command(BaseCommand):
         algorithm_filter = options.get('algorithm')
         company_filter = options.get('company')
 
-        # Clear all caches for fresh benchmark run
-        self.stdout.write("Clearing caches for fresh benchmark run...")
-        from django.core.management import call_command
-        call_command('clear_cache', verbosity=0)
-        self.stdout.write(self.style.SUCCESS("✓ Caches cleared"))
 
         try:
             # Test configurations
@@ -102,10 +97,10 @@ class Command(BaseCommand):
                 # UpdatedILPScheduler,
                 ILPScheduler,
                 # GeneticAlgorithmScheduler,
-                # SimulatedAnnealingScheduler,
+                # # SimulatedAnnealingScheduler,
                 # CompactSimulatedAnnealingScheduler,
                 # NewSimulatedAnnealingScheduler,
-                # NSGA2Scheduler
+                # # NSGA2Scheduler
             ]
 
             # Filter algorithms if requested
@@ -446,35 +441,8 @@ class Command(BaseCommand):
         else:
             hours_mean = hours_stdev = hours_cv = gini = 0
 
-        # Save KPIs to database using KPI Storage Service
-        try:
-            kpi_storage = KPIStorageService(company)
-            
-            # Save KPIs for each month of the year (2025)
-            for month in range(1, 13):
-                # Calculate and store employee KPIs for this month
-                for emp in employees:
-                    kpi_storage.get_or_calculate_employee_kpi(emp, 2025, month, algorithm_name, force_recalculate=True)
-                
-                # Calculate and store company KPI for this month
-                # company_kpi = kpi_storage.get_or_calculate_company_kpi(2025, month, algorithm_name, force_recalculate=True)
-                # Calculate and store coverage KPI for this month
-                # month_start = date(2025, month, 1)
-                # month_end = date(2025, month, 28)  # Use 28 to ensure we get the full month
-                # while month_end.month == month:
-                #     month_end += timedelta(days=1)
-                # month_end -= timedelta(days=1)
-                
-                month_start = date(2025, month, 1)
-                last_day = calendar.monthrange(2025, month)[1]
-                month_end = date(2025, month, last_day)
-
-                kpi_storage.get_or_calculate_coverage_kpi(month_start, month_end, algorithm_name, force_recalculate=True)
-            
-            self.stdout.write(f"✓ Saved KPIs for {algorithm_name} at {company.name}")
-            
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"Warning: Failed to save KPIs for {algorithm_name}: {e}"))
+        # Note: KPI storage has been removed - KPIs are now calculated in real-time
+        self.stdout.write(f"✓ KPI calculation moved to real-time processing for {algorithm_name} at {company.name}")
 
         return {
             'monthly_stats': monthly_stats,

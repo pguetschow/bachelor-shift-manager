@@ -7,7 +7,7 @@ from django.db import transaction
 from datetime import date
 
 from rostering_app.models import Company, Employee
-from rostering_app.services.kpi_storage import KPIStorageService
+
 
 
 class Command(BaseCommand):
@@ -70,8 +70,6 @@ class Command(BaseCommand):
             self.stdout.write(f'Processing company: {company.name}')
             
             try:
-                kpi_storage = KPIStorageService(company)
-                
                 # Get available algorithms for this company
                 from rostering_app.models import ScheduleEntry
                 available_algorithms = ScheduleEntry.objects.filter(
@@ -96,20 +94,18 @@ class Command(BaseCommand):
                     self.stdout.write(f'  Processing algorithm: {alg}')
                     
                     try:
-                        # Calculate all KPIs for this company, year, month, and algorithm
-                        results = kpi_storage.calculate_all_kpis(year, month, alg)
-                        
-                        employee_count = len(results['employee_kpis'])
+                        # Note: KPI calculation is now done in real-time by the frontend
+                        # This command is no longer needed as KPIs are calculated on-demand
                         self.stdout.write(
                             self.style.SUCCESS(
-                                f'    ✓ Calculated KPIs for {employee_count} employees'
+                                f'    ✓ KPI calculation moved to real-time frontend processing'
                             )
                         )
                         
                     except Exception as e:
                         self.stdout.write(
                             self.style.ERROR(
-                                f'    ✗ Error calculating KPIs for algorithm {alg}: {e}'
+                                f'    ✗ Error processing algorithm {alg}: {e}'
                             )
                         )
                 
