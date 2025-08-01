@@ -96,10 +96,10 @@ class Command(BaseCommand):
             algorithm_classes = [
                 # UpdatedILPScheduler,
                 ILPScheduler,
-                # GeneticAlgorithmScheduler,
+                GeneticAlgorithmScheduler,
                 # # SimulatedAnnealingScheduler,
-                # CompactSimulatedAnnealingScheduler,
-                # NewSimulatedAnnealingScheduler,
+                CompactSimulatedAnnealingScheduler,
+                NewSimulatedAnnealingScheduler,
                 # # NSGA2Scheduler
             ]
 
