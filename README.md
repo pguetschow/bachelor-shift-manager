@@ -1,38 +1,42 @@
 # Shift Manager - Employee Scheduling System
 
-A modern employee scheduling system with a Django backend and Vue.js frontend, featuring advanced scheduling algorithms, analytics, and a responsive UI.
+Ein modernes Mitarbeiterplanungssystem mit Django-Backend und Vue.js-Frontend, das fortschrittliche Planungsalgorithmen, umfassende Analysen und eine responsive Benutzeroberfläche bietet.
 
 ## 🚀 Features
-- Multi-company support
-- Advanced scheduling algorithms (Linear Programming, Genetic Algorithm, Simulated Annealing)
-- Employee and shift management
-- Real-time analytics and algorithm comparison
-- Mobile-responsive design
-- Dockerized for easy deployment
+- **Multi-Unternehmen Support** - Verwaltung mehrerer Unternehmen mit verschiedenen Größen
+- **Fortschrittliche Planungsalgorithmen** - Lineare Programmierung, Genetischer Algorithmus, Simulated Annealing
+- **Umfassende Analysen** - KPI-Berechnungen, Abdeckungsraten, Stundenverteilung, Constraint-Verletzungen
+- **Mitarbeiter- und Schichtverwaltung** - Flexible Konfiguration von Arbeitszeiten und Abwesenheiten
+- **Echtzeit-Algorithmusvergleich** - Performance-Metriken und Benchmarking
+- **Mehrere Ansichten** - Dashboard, Monatsansicht, Tagesansicht, Mitarbeiteransicht
+- **Mobile-responsive Design** - Optimiert für alle Geräte
+- **Docker-Containerisierung** - Einfache Bereitstellung und Skalierung
+- **Deutsche Lokalisierung** - Vollständig auf Deutsch verfügbar
 
-## 📝 Prerequisites
+## 📝 Voraussetzungen
 - Python 3.8+
 - Node.js 16+
-- npm or yarn
-- Docker 20.10+ (for containerized setup)
+- npm oder yarn
+- Docker 20.10+ (für containerisierte Einrichtung)
+- MySQL 8.0 (wird automatisch mit Docker bereitgestellt)
 
-## ⚡ Quick Start
+## ⚡ Schnellstart
 
-### Docker (Recommended)
+### Docker (Empfohlen)
 ```bash
-# Clone the repository
+# Repository klonen
 git clone <repository-url>
 cd shift-manager
 
-# Start in development mode
+# Entwicklungsumgebung starten
 ./scripts/start.sh          # Linux/macOS
 scripts\start.bat           # Windows
 
-# Or use Docker Compose directly
+# Oder Docker Compose direkt verwenden
 docker-compose up -d --build
 ```
 
-### Local Development
+### Lokale Entwicklung
 #### Backend
 ```bash
 pip install -r requirements.txt
@@ -42,84 +46,148 @@ python manage.py createsuperuser
 python manage.py loaddata rostering_app/fixtures/companies.json
 python manage.py runserver
 ```
+
 #### Frontend
 ```bash
 npm install
 npm run dev
 ```
 
-## 🏗️ Project Structure
+## 🏗️ Projektstruktur
 ```
 shift-manager/
-├── src/                # Vue.js frontend
-│   ├── components/     # UI components
-│   ├── views/          # Pages
-│   ├── stores/         # Pinia state
-│   ├── services/       # API services
-│   └── assets/         # Static assets
-├── rostering_app/      # Django app
-│   ├── models.py       # Data models
-│   ├── views.py        # API views
-│   └── fixtures/       # Sample data
-├── scheduling_core/    # Scheduling algorithms
-├── Dockerfile*         # Docker configs
-├── docker-compose*.yml # Docker Compose
-└── requirements.txt    # Python dependencies
+├── src/                    # Vue.js 3 Frontend
+│   ├── components/         # UI-Komponenten
+│   ├── views/             # Seiten (Dashboard, Analytics, etc.)
+│   ├── stores/            # Pinia State Management
+│   ├── services/          # API-Services
+│   ├── router/            # Vue Router Konfiguration
+│   └── assets/            # Statische Assets
+├── rostering_app/         # Django App
+│   ├── models.py          # Datenmodelle (Company, Employee, Shift, ScheduleEntry)
+│   ├── views.py           # API-Endpunkte
+│   ├── services/          # KPI-Berechnungen und Analytics
+│   ├── fixtures/          # Beispieldaten für verschiedene Unternehmensgrößen
+│   └── management/        # Django Management Commands
+├── scheduling_core/       # Planungsalgorithmen
+│   ├── linear_programming.py
+│   ├── genetic_algorithm.py
+│   └── simulated_annealing_compact.py
+├── rostering_project/     # Django Projekt-Konfiguration
+├── Dockerfile*            # Docker-Konfigurationen
+├── docker-compose*.yml    # Docker Compose
+└── requirements.txt       # Python-Abhängigkeiten
 ```
 
-## 🎯 Usage
-- Access the app at http://localhost:3000 (frontend) and http://localhost:8000 (backend API)
-- Django Admin: http://localhost:8000/admin
-- Main workflow:
-  1. Create/select a company
-  2. Add employees and shifts
-  3. Generate schedules using different algorithms
-  4. Compare results and analyze statistics
+## 🎯 Verwendung
+- **Frontend**: http://localhost:3000 (Entwicklung) / http://localhost (Docker)
+- **Backend API**: http://localhost:8000
+- **Django Admin**: http://localhost:8000/admin
 
-## 🔑 Key API Endpoints
-- `GET /api/companies/` - List companies
-- `GET /api/companies/{id}/algorithms/` - Available algorithms
-- `GET /api/companies/{id}/schedule/` - Schedule data
-- `GET /api/companies/{id}/employees/` - Employees
-- `GET /api/companies/{id}/shifts/` - Shifts
-- `GET /api/companies/{id}/analytics/` - Algorithm KPIs
+### Hauptworkflow:
+1. **Unternehmen auswählen** - Wählen Sie aus 4 vorkonfigurierten Unternehmen (klein, mittel, groß, größer)
+2. **Dashboard erkunden** - Übersicht über Mitarbeiter, Schichten und Abdeckung
+3. **Analysen anzeigen** - Detaillierte KPI-Berechnungen und Statistiken
+4. **Algorithmusvergleich** - Performance-Vergleich verschiedener Planungsalgorithmen
+5. **Monats-/Tagesansicht** - Detaillierte Zeitplanübersichten
+6. **Mitarbeiteransicht** - Individuelle Mitarbeiterstatistiken und Zeitpläne
 
-## 🛠️ Troubleshooting & Deployment
-- If ports are in use, change them in `docker-compose.yml` or `vite.config.js`
-- For production, use `docker-compose.prod.yml` and set environment variables as needed
-- To rebuild: `docker-compose build --no-cache`
-- For SSR, use `npm run build:ssr` and serve with Node or Django management command
+## 🔑 Wichtige API-Endpunkte
+- `GET /api/companies/` - Unternehmen auflisten
+- `GET /api/companies/{id}/` - Unternehmensdetails
+- `GET /api/companies/{id}/algorithms/` - Verfügbare Algorithmen
+- `GET /api/companies/{id}/schedule/` - Zeitplandaten
+- `GET /api/companies/{id}/employees/` - Mitarbeiter
+- `GET /api/companies/{id}/shifts/` - Schichten
+- `GET /api/companies/{id}/analytics/` - Algorithmus-KPIs
+- `GET /api/companies/{id}/day/{date}/` - Tagesplan
+- `GET /api/companies/{id}/employee/{employeeId}/` - Mitarbeiterdetails
 
+## 📊 Analytics & KPIs
+Das System berechnet umfassende Kennzahlen:
+- **Abdeckungsraten** - Durchschnittliche und tägliche Schichtabdeckung
+- **Stundenverteilung** - Durchschnitt, Standardabweichung, Min/Max Stunden pro Mitarbeiter
+- **Constraint-Verletzungen** - Wochenstunden- und Ruhezeitverletzungen
+- **Gini-Koeffizient** - Messung der Stundenverteilungsgleichheit
+- **Algorithmus-Performance** - Laufzeiten und Qualitätsmetriken
 
+## 🛠️ Fehlerbehebung & Bereitstellung
 
-## 🐳 Docker Deployment
+### Entwicklung
+```bash
+# Ports ändern (falls belegt)
+# docker-compose.yml oder vite.config.js anpassen
 
-### Development
+# Cache leeren und neu bauen
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+### Produktion
+```bash
+# Mit SSL-Zertifikaten
+./scripts/start.sh prod
+
+# Manuelle Einrichtung
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+### Docker-Befehle
+```bash
+# Logs anzeigen
+docker-compose logs -f
+
+# Backend-Shell zugreifen
+docker-compose exec backend python manage.py shell
+
+# Django-Befehle ausführen
+docker-compose exec backend python manage.py migrate
+docker-compose exec backend python manage.py createsuperuser
+
+# Services skalieren
+docker-compose -f docker-compose.prod.yml up -d --scale backend=3
+```
+
+## 🐳 Docker-Bereitstellung
+
+### Entwicklung
 ```bash
 docker-compose up -d
 ```
 
-### Production
+### Produktion
 ```bash
-# With SSL certificates
+# Mit SSL-Zertifikaten
 ./scripts/start.sh prod
 
-# Manual setup
+# Manuelle Einrichtung
 docker-compose -f docker-compose.prod.yml up -d
 ```
 
-### Docker Commands
-```bash
-# View logs
-docker-compose logs -f
-
-# Access backend shell
-docker-compose exec backend python manage.py shell
-
-# Run Django commands
-docker-compose exec backend python manage.py migrate
-docker-compose exec backend python manage.py createsuperuser
-
-# Scale services
-docker-compose -f docker-compose.prod.yml up -d --scale backend=3
+### Umgebungsvariablen
+Erstellen Sie eine `.env.local` Datei für lokale Konfiguration:
+```env
+DEBUG=True
+SECRET_KEY=your-secret-key
+ALLOWED_HOSTS=localhost,127.0.0.1
+MYSQL_DATABASE=shift_manager
+MYSQL_USER=shift_manager
+MYSQL_PASSWORD=shift_manager_password
 ```
+
+## 📈 Beispieldaten
+Das System enthält vorkonfigurierte Beispieldaten für verschiedene Unternehmensgrößen:
+- **Kleines Unternehmen**: 10 Mitarbeiter, 2 Schichten
+- **Mittleres Unternehmen**: 30 Mitarbeiter, 3 Schichten  
+- **Großes Unternehmen**: 100 Mitarbeiter, 4 Schichten
+- **Größeres Unternehmen**: 60 Mitarbeiter, 4 Schichten
+
+## 🔧 Technologie-Stack
+- **Frontend**: Vue.js 3, Pinia, Vue Router, Chart.js, Bootstrap Icons
+- **Backend**: Django 4, Django REST Framework, MySQL
+- **Algorithmen**: PuLP (Linear Programming), DEAP (Genetic Algorithm), SciPy
+- **Deployment**: Docker, Nginx, Gunicorn
+- **Analytics**: Pandas, NumPy, Matplotlib
+
+## 📝 Lizenz
+Dieses Projekt ist für Bildungs- und Demonstrationszwecke entwickelt.

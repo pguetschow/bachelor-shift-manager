@@ -3,7 +3,7 @@
     "model": "rostering_app.employee",
     "pk": 2001,
     "fields": {
-      "name": "Alice",
+      "name": "Alice Weber",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-21",
@@ -44,7 +44,7 @@
     "model": "rostering_app.employee",
     "pk": 2002,
     "fields": {
-      "name": "Bob",
+      "name": "Bob Müller",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-01",
@@ -86,7 +86,7 @@
     "model": "rostering_app.employee",
     "pk": 2003,
     "fields": {
-      "name": "Charlie",
+      "name": "Charlie Schmidt",
       "max_hours_per_week": 32,
       "absences": [
         "2025-01-10",
@@ -120,7 +120,7 @@
     "model": "rostering_app.employee",
     "pk": 2004,
     "fields": {
-      "name": "Diana",
+      "name": "Diana Fischer",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-02",
@@ -162,7 +162,7 @@
     "model": "rostering_app.employee",
     "pk": 2005,
     "fields": {
-      "name": "Ethan",
+      "name": "Ethan Wagner",
       "max_hours_per_week": 32,
       "absences": [
         "2025-01-06",
@@ -197,7 +197,7 @@
     "model": "rostering_app.employee",
     "pk": 2006,
     "fields": {
-      "name": "Fiona",
+      "name": "Fiona Becker",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-09",
@@ -239,7 +239,7 @@
     "model": "rostering_app.employee",
     "pk": 2007,
     "fields": {
-      "name": "George",
+      "name": "George Schulz",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-09",
@@ -281,7 +281,7 @@
     "model": "rostering_app.employee",
     "pk": 2008,
     "fields": {
-      "name": "Hannah",
+      "name": "Hannah Hoffmann",
       "max_hours_per_week": 32,
       "absences": [
         "2025-01-23",
@@ -315,7 +315,7 @@
     "model": "rostering_app.employee",
     "pk": 2009,
     "fields": {
-      "name": "Ian",
+      "name": "Ian Meyer",
       "max_hours_per_week": 32,
       "absences": [
         "2025-01-21",
@@ -349,7 +349,7 @@
     "model": "rostering_app.employee",
     "pk": 2010,
     "fields": {
-      "name": "Julia",
+      "name": "Julia Klein",
       "max_hours_per_week": 40,
       "absences": [
         "2025-03-13",
@@ -391,7 +391,7 @@
     "model": "rostering_app.employee",
     "pk": 2011,
     "fields": {
-      "name": "Kevin",
+      "name": "Kevin Lange",
       "max_hours_per_week": 32,
       "absences": [
         "2025-03-21",
@@ -426,7 +426,7 @@
     "model": "rostering_app.employee",
     "pk": 2012,
     "fields": {
-      "name": "Laura",
+      "name": "Laura Krause",
       "max_hours_per_week": 32,
       "absences": [
         "2025-01-07",
@@ -461,7 +461,7 @@
     "model": "rostering_app.employee",
     "pk": 2013,
     "fields": {
-      "name": "Mike",
+      "name": "Mike Richter",
       "max_hours_per_week": 32,
       "absences": [
         "2025-01-14",
@@ -496,7 +496,7 @@
     "model": "rostering_app.employee",
     "pk": 2014,
     "fields": {
-      "name": "Nina",
+      "name": "Nina Wolf",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-07",
@@ -537,7 +537,7 @@
     "model": "rostering_app.employee",
     "pk": 2015,
     "fields": {
-      "name": "Oliver",
+      "name": "Oliver Berg",
       "max_hours_per_week": 32,
       "absences": [
         "2025-01-31",
@@ -571,7 +571,7 @@
     "model": "rostering_app.employee",
     "pk": 2016,
     "fields": {
-      "name": "Patricia",
+      "name": "Patricia Neumann",
       "max_hours_per_week": 32,
       "absences": [
         "2025-01-21",
@@ -606,7 +606,7 @@
     "model": "rostering_app.employee",
     "pk": 2017,
     "fields": {
-      "name": "Quentin",
+      "name": "Quentin Brandt",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-31",
@@ -648,7 +648,7 @@
     "model": "rostering_app.employee",
     "pk": 2018,
     "fields": {
-      "name": "Rachel",
+      "name": "Rachel Otto",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-02",
@@ -690,7 +690,7 @@
     "model": "rostering_app.employee",
     "pk": 2019,
     "fields": {
-      "name": "Sam",
+      "name": "Sam Schulze",
       "max_hours_per_week": 32,
       "absences": [
         "2025-02-04",
@@ -724,7 +724,7 @@
     "model": "rostering_app.employee",
     "pk": 2020,
     "fields": {
-      "name": "Tina",
+      "name": "Tina Krüger",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-01",
@@ -763,7 +763,7 @@
     "model": "rostering_app.employee",
     "pk": 2021,
     "fields": {
-      "name": "Uwe",
+      "name": "Uwe Möller",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-01",
@@ -804,7 +804,7 @@
     "model": "rostering_app.employee",
     "pk": 2022,
     "fields": {
-      "name": "Vera",
+      "name": "Vera Peters",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-22",
@@ -845,7 +845,7 @@
     "model": "rostering_app.employee",
     "pk": 2023,
     "fields": {
-      "name": "Walter",
+      "name": "Walter Schubert",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-06",
@@ -887,7 +887,7 @@
     "model": "rostering_app.employee",
     "pk": 2024,
     "fields": {
-      "name": "Xena",
+      "name": "Xena Lorenz",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-03",
@@ -929,7 +929,7 @@
     "model": "rostering_app.employee",
     "pk": 2025,
     "fields": {
-      "name": "Yannis",
+      "name": "Yannis Friedrich",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-14",
@@ -971,7 +971,7 @@
     "model": "rostering_app.employee",
     "pk": 2026,
     "fields": {
-      "name": "Zoe",
+      "name": "Zoe Jung",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-03",
@@ -1012,7 +1012,7 @@
     "model": "rostering_app.employee",
     "pk": 2027,
     "fields": {
-      "name": "Oscar",
+      "name": "Oscar Franke",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-21",
@@ -1054,7 +1054,7 @@
     "model": "rostering_app.employee",
     "pk": 2028,
     "fields": {
-      "name": "Paula",
+      "name": "Paula Dietrich",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-06",
@@ -1095,7 +1095,7 @@
     "model": "rostering_app.employee",
     "pk": 2029,
     "fields": {
-      "name": "Rita",
+      "name": "Rita Bauer",
       "max_hours_per_week": 40,
       "absences": [
         "2025-01-10",
@@ -1136,7 +1136,7 @@
     "model": "rostering_app.employee",
     "pk": 2030,
     "fields": {
-      "name": "Steve",
+      "name": "Steve Schwarz",
       "max_hours_per_week": 32,
       "absences": [
         "2025-01-09",
