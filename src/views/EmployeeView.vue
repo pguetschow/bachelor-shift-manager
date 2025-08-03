@@ -399,6 +399,7 @@ const getShiftDisplayName = (shiftName) => {
     'MorningShift': 'Morgenschicht',
     'LateShift': 'Spätschicht',
     'NightShift': 'Nachtschicht'
+    'SupportShift': 'Unterstützungsschicht'
   }
   return shiftMap[shiftName] || shiftName
 }

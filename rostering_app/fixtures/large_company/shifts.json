@@ -8,7 +8,7 @@
       "start": "06:00:00",
       "end": "14:00:00",
       "min_staff": 7,
-      "max_staff": 11
+      "max_staff": 13
     }
   },
   {
@@ -31,8 +31,8 @@
       "name": "SupportShift",
       "start": "12:00:00",
       "end": "20:00:00",
-      "min_staff": 4,
-      "max_staff": 7
+      "min_staff": 5,
+      "max_staff": 9
     }
   },
   {
@@ -43,8 +43,8 @@
       "name": "LateShift",
       "start": "14:00:00",
       "end": "22:00:00",
-      "min_staff": 12,
-      "max_staff": 16
+      "min_staff": 13,
+      "max_staff": 17
     }
   },
   {
@@ -56,7 +56,7 @@
       "start": "22:00:00",
       "end": "06:00:00",
       "min_staff": 12,
-      "max_staff": 15
+      "max_staff": 16
     }
   }
 ]

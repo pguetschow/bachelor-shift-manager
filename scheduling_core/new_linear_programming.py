@@ -41,7 +41,7 @@ class ILPScheduler(SchedulingAlgorithm):
 
     @property
     def name(self) -> str:
-        return "Optimized ILP"
+        return "Integer Linear Programming"
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -250,9 +250,16 @@ class ILPScheduler(SchedulingAlgorithm):
         # Lösen & Ergebnis extrahieren
         # ------------------------------------------------------------------
         num_threads = max(1, os.cpu_count() - 2)
-        status = model.solve(PULP_CBC_CMD(msg=False, timeLimit=6000, threads=num_threads, presolve=True))
+        if problem.company.name == 'Großes Unternehmen':
+            # accept a small optimality gap of 1% in order to prevent hour long runtimes
+            print("Use relative Gap of 1% for Großes Unternehmen")
+            status = model.solve(PULP_CBC_CMD(msg=False, timeLimit=3600, threads=num_threads, presolve=True, gapRel=0.01))
+        else:
+
+            print(f"Use no relative Gap for {problem.company}")
+            status = model.solve(PULP_CBC_CMD(msg=False, timeLimit=3600, threads=num_threads))
         if LpStatus[status] != 'Optimal':
-            print(f"[OptILP DEBUG] Status: {LpStatus[status]}")
+            print(f"[ILP DEBUG] Status: {LpStatus[status]}")
 
         schedule = [
             ScheduleEntry(eid, d, sid)
