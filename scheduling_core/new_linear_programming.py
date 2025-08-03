@@ -250,14 +250,19 @@ class ILPScheduler(SchedulingAlgorithm):
         # Lösen & Ergebnis extrahieren
         # ------------------------------------------------------------------
         num_threads = max(1, os.cpu_count() - 2)
-        if problem.company.name == 'Großes Unternehmen':
-            # accept a small optimality gap of 1% in order to prevent hour long runtimes
-            print("Use relative Gap of 1% for Großes Unternehmen")
-            status = model.solve(PULP_CBC_CMD(msg=False, timeLimit=3600, threads=num_threads, presolve=True, gapRel=0.01))
-        else:
+        solver_args = {
+            "msg": False,
+            "timeLimit": 3600,
+            "threads": num_threads,
+        }
 
-            print(f"Use no relative Gap for {problem.company}")
-            status = model.solve(PULP_CBC_CMD(msg=False, timeLimit=3600, threads=num_threads))
+        if problem.company.name == 'Großes Unternehmen':
+            print("Use relative Gap of 0.5% for Großes Unternehmen")
+            solver_args["gapRel"] = 0.005
+        else:
+            print(f"Use no relative Gap for {problem.company.name}")
+
+        status = model.solve(PULP_CBC_CMD(**solver_args))
         if LpStatus[status] != 'Optimal':
             print(f"[ILP DEBUG] Status: {LpStatus[status]}")
 
