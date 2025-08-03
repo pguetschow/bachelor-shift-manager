@@ -1,4 +1,5 @@
 import math
+import os
 from collections import defaultdict
 from datetime import timedelta, date
 from typing import List, Set, Tuple
@@ -232,7 +233,8 @@ class ILPScheduler(SchedulingAlgorithm):
         # ------------------------------------------------------------------
         # Lösen & Ergebnis extrahieren
         # ------------------------------------------------------------------
-        status = model.solve(PULP_CBC_CMD(msg=False, timeLimit=600))
+        num_threads = max(1, os.cpu_count() - 2)
+        status = model.solve(PULP_CBC_CMD(msg=False, timeLimit=6000, threads=num_threads))
         print(f"[OptILP DEBUG] Status: {LpStatus[status]}")
 
         schedule = [

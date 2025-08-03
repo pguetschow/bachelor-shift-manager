@@ -6,10 +6,8 @@ from .base import (
     SchedulingProblem,
 )
 from .genetic_algorithm import GeneticAlgorithmScheduler
-from .multi_ga import NSGA2Scheduler
 from .new_linear_programming import ILPScheduler
-from .simulated_annealing import SimulatedAnnealingScheduler, CoolingSchedule
-from .simulated_annealing_less_cost import NewSimulatedAnnealingScheduler
+from .simulated_annealing_compact import SimulatedAnnealingScheduler
 
 __all__ = [
     'Employee',
@@ -17,8 +15,5 @@ __all__ = [
     'SchedulingProblem',
     'GeneticAlgorithmScheduler',
     'SimulatedAnnealingScheduler',
-    'NewSimulatedAnnealingScheduler',
-    'CoolingSchedule',
-    'NSGA2Scheduler',
     'ILPScheduler',
 ]

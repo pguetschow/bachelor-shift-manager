@@ -4,7 +4,6 @@ import os
 import statistics
 import time
 import traceback
-from collections import defaultdict
 from datetime import date, timedelta
 from typing import Dict, List, Any
 
@@ -15,11 +14,10 @@ from rostering_app.converters import employees_to_core, shifts_to_core
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.services.enhanced_analytics import EnhancedAnalytics
 from rostering_app.services.kpi_calculator import KPICalculator
-from scheduling_core import ILPScheduler, NewSimulatedAnnealingScheduler
-# Import scheduling algorithms
+from scheduling_core import ILPScheduler
 from scheduling_core.base import SchedulingProblem
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
-from scheduling_core.simulated_annealing_compact import CompactSimulatedAnnealingScheduler
+from scheduling_core.simulated_annealing_compact import SimulatedAnnealingScheduler
 
 
 class Command(BaseCommand):
@@ -53,7 +51,6 @@ class Command(BaseCommand):
         company_filter = options.get('company')
 
         try:
-            # Test configurations
             test_cases = [
                 {
                     'name': 'small_company',
@@ -68,35 +65,36 @@ class Command(BaseCommand):
                     'shift_fixture': 'rostering_app/fixtures/medium_company/shifts.json'
                 },
                 {
+                    'name': 'bigger_company',
+                    'display_name': 'Größeres Unternehmen (60 MA, 4 Schichten)',
+                    'employee_fixture': 'rostering_app/fixtures/bigger_company/employees.json',
+                    'shift_fixture': 'rostering_app/fixtures/bigger_company/shifts.json'
+                },
+                {
                     'name': 'large_company',
-                    'display_name': 'Großes Unternehmen (100 MA, 4 Schichten)',
+                    'display_name': 'Großes Unternehmen (100 MA, 5 Schichten)',
                     'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
                     'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
                 }
             ]
 
-            # Filter test cases if requested
             if company_filter:
                 test_cases = [tc for tc in test_cases if tc['name'] == company_filter]
                 if not test_cases:
                     self.stdout.write(self.style.ERROR(f"Company '{company_filter}' not found"))
                     return
 
-            # Algorithm configurations - will be created per company
             algorithm_classes = [
                 ILPScheduler,
                 GeneticAlgorithmScheduler,
-                CompactSimulatedAnnealingScheduler,
-                NewSimulatedAnnealingScheduler,
+                SimulatedAnnealingScheduler,
             ]
 
-            # Filter algorithms if requested
             if algorithm_filter:
                 algorithm_map = {
                     'LinearProgramming': ILPScheduler,
                     'GeneticAlgorithm': GeneticAlgorithmScheduler,
-                    'NewSimulatedAnnealingScheduler': NewSimulatedAnnealingScheduler,
-                    'CompactSA': CompactSimulatedAnnealingScheduler,
+                    'CompactSA': SimulatedAnnealingScheduler,
                 }
                 if algorithm_filter in algorithm_map:
                     algorithm_classes = [algorithm_map[algorithm_filter]]
@@ -104,17 +102,13 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.ERROR(f"Algorithm '{algorithm_filter}' not found"))
                     return
 
-            # Create export directory
             export_dir = 'export'
             if not os.path.exists(export_dir):
                 os.makedirs(export_dir)
 
-            # Load fixtures if requested
             if load_fixtures:
-                # Only clear schedule entries, keep company/employee/shift data
                 ScheduleEntry.objects.all().delete()
 
-                # Clear the database first for complete reload
                 Employee.objects.all().delete()
                 Shift.objects.all().delete()
                 Company.objects.all().delete()
@@ -125,7 +119,6 @@ class Command(BaseCommand):
                 self._load_company_fixtures('rostering_app/fixtures/companies.json')
                 self.stdout.write(f"Loaded {Company.objects.count()} companies")
 
-                # Load all fixtures for all companies before running benchmarks
                 for test_case in test_cases:
                     self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
 
@@ -134,7 +127,6 @@ class Command(BaseCommand):
             else:
                 self.stdout.write("Using existing database data (no fixtures loaded)")
 
-            # Run benchmarks for each test case
             all_results = {}
 
             for test_case in test_cases:
@@ -142,10 +134,10 @@ class Command(BaseCommand):
                 self.stdout.write(f"Benchmarking: {test_case['display_name']}")
                 self.stdout.write(f"{'=' * 60}\n")
 
-                # Get the company for this test case
                 company_name_mapping = {
                     'small_company': 'Kleines Unternehmen',
                     'medium_company': 'Mittleres Unternehmen',
+                    'bigger_company': 'Größeres Unternehmen',
                     'large_company': 'Großes Unternehmen'
                 }
 
@@ -165,37 +157,23 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.ERROR(f"Company not found for test case {test_case['name']}"))
                     continue
 
-                # Create problem instance for this company
                 problem = self._create_problem(company)
                 self.stdout.write(
                     f"Problem created with {len(problem.employees)} employees and {len(problem.shifts)} shifts")
 
-                # Create algorithms for this specific company
                 algorithms = []
                 for algorithm_class in algorithm_classes:
                     algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
 
-                # Benchmark algorithms
                 results = {}
-                company_success = True
-                company_error = ""
-
                 for algorithm in algorithms:
                     self.stdout.write(f"\nTesting {algorithm.name}...")
-
-                    # Clear existing schedule entries for this algorithm and company combination
                     self._clear_algorithm_company_entries(company, algorithm.name)
-
-                    # Time the algorithm
                     start_time = time.time()
                     try:
                         entries = algorithm.solve(problem)
                         runtime = time.time() - start_time
-
-                        # Save to database, track algorithm
                         self._save_entries(entries, algorithm.name)
-
-                        # Calculate comprehensive KPIs for this company and algorithm
                         kpis = self._calculate_comprehensive_kpis(company, algorithm.name)
 
                         results[algorithm.name] = {
@@ -217,15 +195,11 @@ class Command(BaseCommand):
                             'status': 'failed',
                             'error': str(e)
                         }
-                        company_success = False
-                        company_error = str(e)
                         self.stdout.write(self.style.ERROR(
                             f"✗ {algorithm.name} failed: {str(e)}"
                         ))
-                        # Print the full traceback to the console
                         traceback.print_exc()
 
-                # Store results
                 all_results[test_case['name']] = {
                     'display_name': test_case['display_name'],
                     'results': results,
@@ -236,18 +210,13 @@ class Command(BaseCommand):
                     }
                 }
 
-                # Save results for this test case
                 self._save_test_results(test_case['name'], results, export_dir)
-
-                # Generate enhanced graphs for this test case using analytics service
                 self._generate_enhanced_test_graphs_with_analytics(test_case['name'], results, export_dir, company)
 
-            # Save overall results
             overall_file = os.path.join(export_dir, 'benchmark_results.json')
             with open(overall_file, 'w', encoding='utf-8') as f:
                 json.dump(all_results, f, indent=4, default=str)
 
-            # Generate comparison graphs across all test cases using analytics service
             EnhancedAnalytics.generate_comparison_graphs_across_test_cases(all_results, export_dir)
 
             self.stdout.write(self.style.SUCCESS(
@@ -255,9 +224,6 @@ class Command(BaseCommand):
             ))
 
         except Exception as e:
-            # Mark benchmark as failed
-            error_message = f"Benchmark failed: {str(e)}\n{traceback.format_exc()}"
-
             self.stdout.write(self.style.ERROR(
                 f"Benchmark failed: {str(e)}"
             ))
@@ -265,7 +231,6 @@ class Command(BaseCommand):
             raise
 
     def _clear_algorithm_company_entries(self, company, algorithm_name):
-        """Clear schedule entries for specific algorithm and company combination."""
         deleted_count = ScheduleEntry.objects.filter(
             company=company,
             algorithm=algorithm_name
@@ -275,8 +240,6 @@ class Command(BaseCommand):
             self.stdout.write(f"Cleared {deleted_count} existing entries for {algorithm_name} at {company.name}")
 
     def _load_fixtures(self, employee_file: str, shift_file: str):
-        """Load fixture data into database."""
-        # Load employees
         with open(employee_file, 'r', encoding='utf-8') as f:
             employee_data = json.load(f)
             for item in employee_data:
@@ -284,7 +247,6 @@ class Command(BaseCommand):
                 if 'company' in fields:
                     fields['company'] = Company.objects.get(pk=fields['company'])
                 Employee.objects.create(**fields)
-        # Load shift types
         with open(shift_file, 'r', encoding='utf-8') as f:
             shift_data = json.load(f)
             for item in shift_data:
@@ -294,7 +256,6 @@ class Command(BaseCommand):
                 Shift.objects.create(**fields)
 
     def _load_company_fixtures(self, company_file: str):
-        """Load company fixture data into database."""
         with open(company_file, 'r', encoding='utf-8') as f:
             company_data = json.load(f)
             for item in company_data:
@@ -306,8 +267,6 @@ class Command(BaseCommand):
                     Company.objects.create(**fields)
 
     def _create_problem(self, company) -> SchedulingProblem:
-        """Create scheduling problem from database."""
-        # Convert Django models to core data structures using converters
         company_employees = Employee.objects.filter(company=company)
         self.stdout.write(f"Found {company_employees.count()} employees for company {company.name}")
         employees = employees_to_core(company_employees)
@@ -325,7 +284,6 @@ class Command(BaseCommand):
         )
 
     def _save_entries(self, entries: List, algorithm_name: str = ''):
-        """Save schedule entries to database, tracking the algorithm used."""
         with transaction.atomic():
             for entry in entries:
                 employee = Employee.objects.get(id=entry.employee_id)
@@ -339,21 +297,16 @@ class Command(BaseCommand):
                 )
 
     def _calculate_comprehensive_kpis(self, company, algorithm_name) -> Dict[str, Any]:
-        """Calculate comprehensive KPIs including monthly breakdowns by contract type."""
         employees = list(Employee.objects.filter(company=company))
         shifts = list(Shift.objects.filter(company=company))
         start_date = date(2025, 1, 1)
         end_date = date(2025, 12, 31)
 
-        # Get working days for accurate KPI calculations
         from rostering_app.utils import get_working_days_in_range
         working_days = get_working_days_in_range(start_date, end_date, company)
         total_working_days = len(working_days)
 
-        # Initialize KPI calculator
         kpi_calculator = KPICalculator(company)
-
-        # Get all entries for this company and algorithm
         entries = ScheduleEntry.objects.filter(
             company=company,
             algorithm=algorithm_name,
@@ -361,10 +314,7 @@ class Command(BaseCommand):
             date__lte=end_date
         )
 
-        # Monthly breakdown by contract type (32h vs 40h)
-        monthly_hours_by_contract = defaultdict(lambda: defaultdict(list))
         monthly_stats = {}
-
         for month in range(1, 13):
             month_start = date(2025, month, 1)
             month_end = date(2025, month, 28)
@@ -372,12 +322,10 @@ class Command(BaseCommand):
                 month_end += timedelta(days=1)
             month_end -= timedelta(days=1)
 
-            # Calculate company analytics for this month
             company_analytics = kpi_calculator.calculate_company_analytics(
                 entries, 2025, month, algorithm_name
             )
 
-            # Group employees by contract type
             contract_32h = []
             contract_40h = []
 
@@ -401,10 +349,7 @@ class Command(BaseCommand):
                 'company_analytics': company_analytics
             }
 
-        # Calculate coverage statistics
         coverage_stats = kpi_calculator.calculate_coverage_stats(entries, start_date, end_date)
-
-        # Calculate constraint violations with detailed information
         weekly_violations_detailed = kpi_calculator.check_weekly_hours_violations_detailed(entries, start_date,
                                                                                            end_date)
         rest_violations_detailed = kpi_calculator.check_rest_period_violations_detailed(entries, start_date, end_date)
@@ -428,9 +373,6 @@ class Command(BaseCommand):
             gini = self._calculate_gini(employee_hours)
         else:
             hours_mean = hours_stdev = hours_cv = gini = 0
-
-        # Note: KPI storage has been removed - KPIs are now calculated in real-time
-        self.stdout.write(f"✓ KPI calculation moved to real-time processing for {algorithm_name} at {company.name}")
 
         return {
             'monthly_stats': monthly_stats,
@@ -456,7 +398,6 @@ class Command(BaseCommand):
         }
 
     def _calculate_gini(self, values: List[float]) -> float:
-        """Calculate Gini coefficient."""
         n = len(values)
         total = sum(values)
         if n == 0 or total == 0:
@@ -468,7 +409,6 @@ class Command(BaseCommand):
         return (2 * cumsum) / (n * total) - (n + 1) / n
 
     def _save_test_results(self, test_name: str, results: Dict, export_dir: str):
-        """Save results for a specific test case."""
         test_dir = os.path.join(export_dir, test_name)
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
@@ -478,18 +418,13 @@ class Command(BaseCommand):
             json.dump(results, f, indent=4, default=str)
 
     def _generate_enhanced_test_graphs_with_analytics(self, test_name: str, results: Dict, export_dir: str, company):
-        """Generate enhanced graphs for a specific test case using the analytics service."""
         self.stdout.write(f"Generating graphs for {test_name}...")
 
-        # Get all entries for this company (across all algorithms in results)
         all_entries = ScheduleEntry.objects.filter(company=company)
         employees = list(Employee.objects.filter(company=company))
         shifts = list(Shift.objects.filter(company=company))
 
-        # Create analytics instance
         analytics = EnhancedAnalytics(company, all_entries, employees, shifts)
-
-        # Generate algorithm comparison graphs
         analytics.generate_algorithm_comparison_graphs(results, export_dir, test_name)
 
-        self.stdout.write(self.style.SUCCESS(f"✓ Generated enhanced graphs for {test_name}"))
+        self.stdout.write(self.style.SUCCESS(f"Generated enhanced graphs for {test_name}"))

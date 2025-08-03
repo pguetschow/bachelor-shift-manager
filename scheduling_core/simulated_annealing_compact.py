@@ -1,16 +1,5 @@
 from __future__ import annotations
 
-"""Compact Simulated Annealing scheduler (v2.1 – August 2025)
-──────────────────────────────────────────────────────────────
-Changes in v2.1
-* **Fairness objective** – extra cost proportional to the gap between
-  the most- and least-utilised employees (`alpha_max − alpha_min`), where  
-      alpha_e = worked_hours[e] / possible_hours[e]
-  and `possible_hours[e]` is the total number of hours employee *e* could
-  have worked given availability.
-* New parameters: `fairness_weight`, `weekly_allowance` removed
-* Doc-header + version bump
-"""
 
 import math
 import random
@@ -28,7 +17,7 @@ from .utils import create_empty_solution, get_weeks
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
+class SimulatedAnnealingScheduler(SchedulingAlgorithm):
     """Space-efficient SA rostering algorithm with fairness."""
 
     # -------------------------------------------------------------------------
