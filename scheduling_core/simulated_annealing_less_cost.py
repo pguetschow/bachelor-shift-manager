@@ -2,24 +2,20 @@ from __future__ import annotations
 
 import calendar
 
-"""Simulated Annealing – less‑cost *v2* (fairness‑aware)
+"""Simulated Annealing – less‑cost *v2.1* (fairness‑aware + fixed overutilization)
 
-This is a **clean rewrite** of the original *simulated_annealing_less_cost.py* that
-adds a Fairness objective while keeping the public API (class name & behaviour)
-compatible.  The algorithm is a slimmed‑down variant (~320 LOC vs. >1 200) but
-all constraints & neighbourhood moves remain equivalent.
+This is a **fixed version** of the NewSimulatedAnnealingScheduler that addresses
+overutilization issues, particularly for 32h contracts.
 
-Key additions
--------------
-* `fairness_weight` parameter (default 75 000) – multiplies the difference
-  between the most‑ and least‑utilised employees `α_max − α_min`.
-* `_evaluate()` now returns:  `cost = hard_penalties + soft_penalties + fairness_penalty`.
-* Greedy seed & neighbourhood moves are borrowed from the compact SA
-  implementation but extended so they never exceed `shift.max_staff` and they
-  respect the 11‑hour rest‑rule via the KPI service.
+Key fixes in v2.1
+-----------------
+* **Removed weekly_allowance** - was causing systematic overutilization
+* **Improved utilization incentives** - better balanced soft-spot around target hours
+* **Enhanced capacity calculation** - more accurate scaling for planning horizon
+* **Stricter weekly constraints** - no longer allows systematic overtime
+* **Better fairness calculation** - uses actual contract hours as baseline
 
-Drop‑in replacement: simply store this file next to the other schedulers and
-re‑import – e.g. `from ….simulated_annealing_less_cost import NewSimulatedAnnealingScheduler`.
+The algorithm now respects contract hours more strictly while maintaining fairness.
 """
 
 import math
@@ -35,6 +31,7 @@ from rostering_app.utils import get_working_days_in_range
 from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Solution
 from .utils import create_empty_solution, get_weeks
 
+
 # ────────────────────────────── helpers ────────────────────────────────
 class CoolingSchedule(Enum):
     EXPONENTIAL = "exponential"
@@ -49,18 +46,18 @@ def _week_key(d: date) -> Tuple[int, int]:
 
 # ───────────────────────── main scheduler ──────────────────────────────
 class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
-    """Simulated Annealing variant prioritising coverage, utilisation – and *fairness*."""
+    """Simulated Annealing variant prioritising coverage, utilisation – and *fairness*."""
 
     # ------------------------------------------------------------------
     def __init__(
-        self,
-        *,
-        initial_temp: float = 800.0,
-        final_temp: float = 1.0,
-        iterations: int = 2_000,
-        cooling_schedule: CoolingSchedule = CoolingSchedule.EXPONENTIAL,
-        sundays_off: bool = False,
-        fairness_weight: int = 75_000,
+            self,
+            *,
+            initial_temp: float = 800.0,
+            final_temp: float = 1.0,
+            iterations: int = 2_000,
+            cooling_schedule: CoolingSchedule = CoolingSchedule.EXPONENTIAL,
+            sundays_off: bool = False,
+            fairness_weight: int = 75_000,
     ) -> None:
         self.initial_temp = initial_temp
         self.final_temp = final_temp
@@ -69,8 +66,8 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
         self.sundays_off = sundays_off
         self.fairness_weight = fairness_weight
 
-        # allowance – one extra 8‑h shift per week
-        self.weekly_allowance = 8
+        # REMOVED: weekly_allowance (was causing overutilization)
+        # self.weekly_allowance = 8
 
         # placeholders set in *solve*
         self.kpi: KPICalculator | None = None
@@ -82,7 +79,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
     # ------------------------------------------------------------------
     @property
     def name(self) -> str:  # noqa: D401 – short name wanted by UI
-        return "Simulated Annealing – less‑cost v2 (fair)"
+        return "Simulated Annealing – less‑cost v2.1 (fair, fixed)"
 
     # ────────── public entry point ──────────
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:  # noqa: C901
@@ -95,7 +92,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
         self.emp_index = {e.id: i for i, e in enumerate(problem.employees)}
         self.shift_by_id = problem.shift_by_id
 
-        # capacities – scaled to planning horizon
+        # capacities – scaled to planning horizon
         self._calc_capacities()
 
         # greedy seed
@@ -169,13 +166,13 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
 
     # ────────── candidate employees helper ──────────
     def _available(
-        self,
-        day: date,
-        shift,
-        sol: Solution,
-        weekly: Dict[int, Dict[Tuple[int, int], int]],
-        *,
-        need: int | None = None,
+            self,
+            day: date,
+            shift,
+            sol: Solution,
+            weekly: Dict[int, Dict[Tuple[int, int], int]],
+            *,
+            need: int | None = None,
     ) -> List[int]:
         wk = _week_key(day)
         res: List[int] = []
@@ -186,7 +183,8 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                 continue
             if any(emp.id in sol.assignments.get((day, s.id), []) for s in self.p.shifts):
                 continue
-            if weekly[emp.id][wk] + shift.duration > emp.max_hours_per_week + self.weekly_allowance:
+            # FIXED: Removed weekly_allowance - strict adherence to contract hours
+            if emp.max_hours_per_week and weekly[emp.id][wk] + shift.duration > emp.max_hours_per_week:
                 continue
             if self._rest_violation(emp.id, day, shift, sol):
                 continue
@@ -224,21 +222,27 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
         for emp in self.p.employees:
             hrs_year = 0
             for wk, hrs in weekly_hrs[emp.id].items():
-                limit = emp.max_hours_per_week + self.weekly_allowance
-                if hrs > limit:
-                    pen += (hrs - limit) * 2_000_000
+                # FIXED: Strict weekly limit - no allowance
+                if emp.max_hours_per_week and hrs > emp.max_hours_per_week:
+                    pen += (hrs - emp.max_hours_per_week) * 3_000_000  # Higher penalty
                 hrs_year += hrs
+
             cap = self.employee_capacity[emp.id]
             if cap > 0:
                 util = hrs_year / cap
                 util_vals.append(util)
-                # soft‑spot at 90 % ±5 %
-                if 0.85 <= util <= 0.95:
-                    bonus -= util * 25_000
-                elif util < 0.85:
-                    pen += (0.85 - util) * 25_000 * 2
-                else:  # >0.95
-                    pen += (util - 0.95) * 25_000 * 2
+                # FIXED: Better balanced utilization incentives
+                # Target range: 90% ± 10% (80%-100%)
+                if 0.80 <= util <= 1.00:
+                    # Reward being in target range, with peak reward at 90%
+                    reward_factor = 1.0 - abs(util - 0.90) / 0.20
+                    bonus -= reward_factor * 30_000
+                elif util < 0.80:
+                    # Penalize underutilization
+                    pen += (0.80 - util) * 40_000
+                else:  # util > 1.00
+                    # Strong penalty for overutilization
+                    pen += (util - 1.00) * 60_000
 
         # rest period violations ----------------------------------------
         pen += self._rest_violations(sol) * 50_000_000
@@ -285,6 +289,7 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
             dur = self.shift_by_id[sid].duration
             for eid in emps:
                 weekly[eid][_week_key(d)] += dur
+
         for d in self.days:
             wk = _week_key(d)
             for sh in self.p.shifts:
@@ -293,15 +298,36 @@ class NewSimulatedAnnealingScheduler(SchedulingAlgorithm):
                     cand = self._available(d, sh, sol, weekly)
                     if not cand:
                         break
-                    eid = random.choice(cand)
+                    # FIXED: Prefer employees with lower utilization to avoid overutilization
+                    eid = min(cand, key=lambda e: weekly[e][wk])
                     sol.assignments[key].append(eid)
                     weekly[eid][wk] += sh.duration
 
     # ────────── capacities helper ──────────
     def _calc_capacities(self) -> None:
+        """Calculate expected working hours for each employee in the planning period."""
         self.employee_capacity = {}
         for emp in self.p.employees:
-            yearly_cap = self.kpi.calculate_expected_yearly_hours(emp, self.p.start_date.year)
-            days_in_year = 365 + int(calendar.isleap(self.p.start_date.year))
-            factor = len(self.days) / days_in_year
-            self.employee_capacity[emp.id] = yearly_cap * factor
+            # Calculate working days available for this employee
+            available_days = 0
+            for day in self.days:
+                if day not in emp.absence_dates:
+                    available_days += 1
+
+            # Estimate hours based on contract and availability
+            if emp.max_hours_per_week and emp.max_hours_per_week > 0:
+                # Use contract hours as baseline
+                weeks_in_period = len(self.days) / 7.0
+                contract_hours = emp.max_hours_per_week * weeks_in_period
+
+                # Adjust for actual availability
+                total_possible_days = len(self.days)
+                availability_factor = available_days / total_possible_days if total_possible_days > 0 else 1.0
+
+                self.employee_capacity[emp.id] = contract_hours * availability_factor
+            else:
+                # Fallback to KPI calculator if no contract hours
+                yearly_cap = self.kpi.calculate_expected_yearly_hours(emp, self.p.start_date.year)
+                days_in_year = 365 + int(calendar.isleap(self.p.start_date.year))
+                factor = len(self.days) / days_in_year
+                self.employee_capacity[emp.id] = yearly_cap * factor

@@ -27,6 +27,7 @@ import numpy as np
 try:
     from numba import njit  # type: ignore
 
+
     def _njit(*args, **kwargs):  # noqa: WPS118
         return njit(*args, cache=True, fastmath=True, nopython=True, **kwargs)
 except ImportError:  # pragma: no cover –­ numba optional
@@ -36,12 +37,12 @@ except ImportError:  # pragma: no cover –­ numba optional
             return lambda f: f
         return fn
 
-
 from rostering_app.services.kpi_calculator import KPICalculator
 from rostering_app.utils import get_working_days_in_range
 
 from .base import ScheduleEntry, SchedulingAlgorithm, SchedulingProblem, Solution
 from .utils import create_empty_solution, get_weeks
+
 
 # ───────────────────────────── helpers ────────────────────────────────
 
@@ -87,17 +88,17 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         return "Genetic Algorithm (v2.3 fair)"
 
     def __init__(
-        self,
-        population_size: Optional[int] = None,
-        max_generations: Optional[int] = None,
-        time_limit: Optional[int] = None,
-        mutation_rate: float = 0.12,
-        crossover_rate: float = 0.85,
-        elite_frac: float = 0.10,
-        patience: int = 25,
-        sundays_off: bool = False,
-        fairness_weight: int = 75_000,  # weight for (alpha_max-alpha_min) penalty
-        **_legacy,
+            self,
+            population_size: Optional[int] = None,
+            max_generations: Optional[int] = None,
+            time_limit: Optional[int] = None,
+            mutation_rate: float = 0.12,
+            crossover_rate: float = 0.85,
+            elite_frac: float = 0.10,
+            patience: int = 25,
+            sundays_off: bool = False,
+            fairness_weight: int = 75_000,  # weight for (alpha_max-alpha_min) penalty
+            **_legacy,
     ) -> None:
         # user overrides
         self.user_population_size = population_size
@@ -163,9 +164,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         t0 = time.time()
 
         while (
-            gen < max_gens
-            and (time.time() - t0) < time_limit
-            and gens_no_improve < self.patience
+                gen < max_gens
+                and (time.time() - t0) < time_limit
+                and gens_no_improve < self.patience
         ):
             gen += 1
             children: List[Tuple[Solution, float]] = []
@@ -247,7 +248,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             wk = d.isocalendar()[:2]
             d_idx = self.day_index[d]
             for sh in sorted(
-                self.problem.shifts, key=lambda s: s.min_staff, reverse=True
+                    self.problem.shifts, key=lambda s: s.min_staff, reverse=True
             ):
                 key = (d, sh.id)
                 while len(sol.assignments.get(key, [])) < sh.min_staff:
@@ -255,9 +256,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                         emp.id
                         for emp in self.problem.employees
                         if not self.absent[self.emp_index[emp.id], d_idx]
-                        and emp.id not in sol.assignments.get(key, [])
-                        and week_hours[emp.id][wk] + sh.duration
-                        <= emp.max_hours_per_week
+                           and emp.id not in sol.assignments.get(key, [])
+                           and week_hours[emp.id][wk] + sh.duration
+                           <= emp.max_hours_per_week
                     ]
                     if not cand:
                         break
@@ -269,7 +270,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
     # ------------------------ GA operators ----------------------------
 
     def _tournament(
-        self, pop: List[Tuple[Solution, float]], k: int = 3
+            self, pop: List[Tuple[Solution, float]], k: int = 3
     ) -> Solution:
         return min(random.sample(pop, k), key=lambda t: t[1])[0]
 
@@ -334,10 +335,10 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         # rest, weekly, monthly penalties
         rest_pairs = self._rest_pairs()
         rest_pen = (
-            _rest_violations_numba(assign_mat, rest_pairs)
-            if 'numba' in globals() and callable(_njit)
-            else self._rest_py(assign_mat, rest_pairs)
-        ) * 50_000_000
+                       _rest_violations_numba(assign_mat, rest_pairs)
+                       if 'numba' in globals() and callable(_njit)
+                       else self._rest_py(assign_mat, rest_pairs)
+                   ) * 50_000_000
 
         week_pen = self._weekly_pen(assign_mat) * 2_000_000
         month_pen = self._monthly_pen(assign_mat, self.shift_hours)
@@ -409,7 +410,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                 continue
             daily_hours = assign_mat[:, :, idx] @ shift_hours
             for week_days in get_weeks(
-                self.problem.start_date, self.problem.end_date
+                    self.problem.start_date, self.problem.end_date
             ).values():
                 idxs = [self.day_index[d] for d in week_days if d in self.day_index]
                 if not idxs:
@@ -462,9 +463,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                         for cand in self.problem.employees:
                             cid = cand.id
                             if (
-                                cid in lst_curr
-                                or cid
-                                in sol.assignments.get((prev_day, sh_prev.id), [])
+                                    cid in lst_curr
+                                    or cid
+                                    in sol.assignments.get((prev_day, sh_prev.id), [])
                             ):
                                 continue
                             if self.absent[self.emp_index[cid], d_idx]:
@@ -475,7 +476,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                             for ps in self.problem.shifts:
                                 if cid in sol.assignments.get((prev_day, ps.id), []):
                                     if self.kpi.violates_rest_period(
-                                        ps, sh_curr, prev_day
+                                            ps, sh_curr, prev_day
                                     ):
                                         rest_ok = False
                                         break
@@ -489,10 +490,10 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                             if next_day:
                                 for ns in self.problem.shifts:
                                     if cid in sol.assignments.get(
-                                        (next_day, ns.id), []
+                                            (next_day, ns.id), []
                                     ):
                                         if self.kpi.violates_rest_period(
-                                            sh_curr, ns, curr_day
+                                                sh_curr, ns, curr_day
                                         ):
                                             rest_ok = False
                                             break
@@ -524,9 +525,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                         if eid in sol.assignments.get(key, []):
                             continue
                         if (
-                            emp.max_hours_per_week
-                            and week_hours[eid][wk] + sh.duration
-                            > emp.max_hours_per_week
+                                emp.max_hours_per_week
+                                and week_hours[eid][wk] + sh.duration
+                                > emp.max_hours_per_week
                         ):
                             continue
                         rest_ok = True

@@ -43,7 +43,7 @@ class SchedulingProblem:
     start_date: date
     end_date: date
     company: Optional[object] = None  # Add company as an optional attribute
-    
+
     def __post_init__(self):
         """Create helper structures."""
         self.emp_by_id = {e.id: e for e in self.employees}
@@ -52,12 +52,12 @@ class SchedulingProblem:
 
 class SchedulingAlgorithm(ABC):
     """Abstract base class for scheduling algorithms."""
-    
+
     @abstractmethod
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
         """Solve the scheduling problem and return list of schedule entries."""
         pass
-    
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -67,12 +67,12 @@ class SchedulingAlgorithm(ABC):
 
 class Solution:
     """Solution representation used by heuristic algorithms."""
-    
+
     def __init__(self):
         # (date, shift_id) -> [employee_ids]
         self.assignments: Dict[Tuple[date, int], List[int]] = {}
         self.cost: float = float('inf')
-    
+
     def to_entries(self) -> List[ScheduleEntry]:
         """Convert to list of schedule entries."""
         entries = []
@@ -80,7 +80,7 @@ class Solution:
             for emp_id in emp_ids:
                 entries.append(ScheduleEntry(emp_id, date, shift_id))
         return entries
-    
+
     def copy(self) -> 'Solution':
         """Create a deep copy of the solution."""
         new_sol = Solution()

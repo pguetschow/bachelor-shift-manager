@@ -7,16 +7,16 @@ from typing import Set, List, Optional, Tuple
 def get_german_holidays() -> Set[Tuple[int, int]]:
     """Get German national holidays as (month, day) tuples without year."""
     return {
-        (1, 1),   # Neujahr
-        (1, 6),   # Heilige Drei Könige
+        (1, 1),  # Neujahr
+        (1, 6),  # Heilige Drei Könige
         (3, 29),  # Karfreitag (varies by year)
-        (4, 1),   # Ostermontag (varies by year)
-        (5, 1),   # Tag der Arbeit
-        (5, 9),   # Christi Himmelfahrt (varies by year)
+        (4, 1),  # Ostermontag (varies by year)
+        (5, 1),  # Tag der Arbeit
+        (5, 9),  # Christi Himmelfahrt (varies by year)
         (5, 20),  # Pfingstmontag (varies by year)
         (10, 3),  # Tag der Deutschen Einheit
-        (12, 25), # Weihnachten
-        (12, 26), # Zweiter Weihnachtstag
+        (12, 25),  # Weihnachten
+        (12, 26),  # Zweiter Weihnachtstag
     }
 
 
@@ -122,20 +122,16 @@ def workdays_in_month(year: int, month: int, company, holidays: Optional[Set[dat
     """
     if holidays is None:
         holidays = set()
-    
+
     num_days = calendar.monthrange(year, month)[1]
     workdays = 0
-    
+
     for day in range(1, num_days + 1):
         check_date = date(year, month, day)
         if not is_non_working_day(check_date, company) and check_date not in holidays:
             workdays += 1
-    
+
     return workdays
-
-
-
-
 
 
 def get_shift_display_name(shift_name: str) -> str:
@@ -146,4 +142,4 @@ def get_shift_display_name(shift_name: str) -> str:
         'LateShift': 'Spätschicht',
         'NightShift': 'Nachtschicht',
     }
-    return shift_translations.get(shift_name, shift_name) 
+    return shift_translations.get(shift_name, shift_name)

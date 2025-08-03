@@ -347,7 +347,6 @@ const employeeData = ref(null)
 const employeeSchedule = ref([])
 const employeeStats = ref({})
 const weeklyWorkload = ref([])
-const yearlyData = ref(null)
 
 // Computed properties for real-time calculations
 const employee = computed(() => employeeData.value?.employee || {})

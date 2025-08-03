@@ -9,14 +9,11 @@ from django.conf import settings
 from django.core.management import call_command
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
-from django.views.decorators.cache import cache_page
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
-from rostering_app.services import kpi_calculator
 from rostering_app.services.kpi_calculator import KPICalculator
-
 from rostering_app.utils import is_holiday, is_sunday, is_non_working_day, get_working_days_in_range
 
 
@@ -26,23 +23,23 @@ def load_company_fixtures(company):
         # Determine which company size fixtures to load
         company_size = company.size.lower()
         fixtures_dir = os.path.join(settings.BASE_DIR, 'rostering_app', 'fixtures', company_size)
-        
+
         if os.path.exists(fixtures_dir):
             # Load employees for this company
             employees_fixture = os.path.join(fixtures_dir, 'employees.json')
             if os.path.exists(employees_fixture):
                 call_command('loaddata', employees_fixture, verbosity=0)
-            
+
             # Load shifts for this company
             shifts_fixture = os.path.join(fixtures_dir, 'shifts.json')
             if os.path.exists(shifts_fixture):
                 call_command('loaddata', shifts_fixture, verbosity=0)
-            
+
             return True
     except Exception as e:
         print(f"Error loading fixtures for company {company.name}: {e}")
         return False
-    
+
     return False
 
 
@@ -63,9 +60,9 @@ def build_employee_calendar(year, month, entries, absences):
     cal = calendar.monthcalendar(year, month)
     entries_by_date = {e.date: e for e in entries}
     absence_dates = [datetime.datetime.strptime(d, '%Y-%m-%d').date() for d in absences]
-    
+
     calendar_data = []
-    
+
     for week in cal:
         week_data = []
         for day in week:
@@ -74,7 +71,7 @@ def build_employee_calendar(year, month, entries, absences):
             else:
                 date = datetime.date(year, month, day)
                 entry = entries_by_date.get(date)
-                
+
                 cell_data = {
                     'day': day,
                     'date': date,
@@ -84,7 +81,7 @@ def build_employee_calendar(year, month, entries, absences):
                 }
                 week_data.append(cell_data)
         calendar_data.append(week_data)
-    
+
     return calendar_data
 
 
@@ -95,11 +92,11 @@ def api_companies(request):
     """API endpoint to get all companies."""
     companies = Company.objects.all()
     companies_data = []
-    
+
     for company in companies:
         employee_count = Employee.objects.filter(company=company).count()
         shift_count = Shift.objects.filter(company=company).count()
-        
+
         companies_data.append({
             'id': company.id,
             'name': company.name,
@@ -111,7 +108,7 @@ def api_companies(request):
             'employee_count': employee_count,
             'shift_count': shift_count
         })
-    
+
     return JsonResponse(companies_data, safe=False)
 
 
@@ -122,7 +119,7 @@ def api_company_detail(request, company_id):
     company = get_object_or_404(Company, pk=company_id)
     employee_count = Employee.objects.filter(company=company).count()
     shift_count = Shift.objects.filter(company=company).count()
-    
+
     company_data = {
         'id': company.id,
         'name': company.name,
@@ -134,7 +131,7 @@ def api_company_detail(request, company_id):
         'employee_count': employee_count,
         'shift_count': shift_count
     }
-    
+
     return JsonResponse(company_data)
 
 
@@ -145,7 +142,7 @@ def api_company_algorithms(request, company_id):
     company = get_object_or_404(Company, pk=company_id)
     available_algorithms = ScheduleEntry.objects.filter(company=company).values_list('algorithm', flat=True).distinct()
     available_algorithms = sorted([alg for alg in available_algorithms if alg])
-    
+
     return JsonResponse({
         'algorithms': available_algorithms
     })
@@ -265,7 +262,8 @@ def api_company_schedule(request, company_id):
             'total_employees': total_employees,
             'total_shifts': total_shifts,
             'working_days': len(get_working_days_in_range(first_day, last_day, company)),
-            'coverage_percentage': sum(stat['coverage_percentage'] for stat in coverage_stats) / len(coverage_stats) if coverage_stats else 0,
+            'coverage_percentage': sum(stat['coverage_percentage'] for stat in coverage_stats) / len(
+                coverage_stats) if coverage_stats else 0,
             'fully_staffed': sum(1 for stat in coverage_stats if stat['status'] == 'full'),
             'understaffed': sum(1 for stat in coverage_stats if stat['status'] == 'understaffed'),
             'shifts': coverage_stats
@@ -613,7 +611,7 @@ def api_company_employee_statistics(request, company_id: int):
     # Calculate KPIs directly using KPICalculator
     kpi_calculator = KPICalculator(company)
     employees = Employee.objects.filter(company=company)
-    
+
     employees_data = []
     for employee in employees:
         # Get monthly entries for this employee
@@ -625,12 +623,12 @@ def api_company_employee_statistics(request, company_id: int):
         )
         if algorithm:
             monthly_entries = monthly_entries.filter(algorithm=algorithm)
-        
+
         # Calculate monthly statistics
         monthly_stats = kpi_calculator.calculate_employee_statistics(
             employee, list(monthly_entries), year, month, algorithm
         )
-        
+
         # Calculate yearly statistics
         yearly_entries = ScheduleEntry.objects.filter(
             employee=employee,
@@ -640,7 +638,7 @@ def api_company_employee_statistics(request, company_id: int):
         )
         if algorithm:
             yearly_entries = yearly_entries.filter(algorithm=algorithm)
-        
+
         yearly_hours = sum(
             entry.shift.get_duration()
             for entry in yearly_entries
@@ -694,7 +692,6 @@ def get_company_holidays(year: int, company: Company) -> List[date]:
     return [date(year, month, day) for (month, day) in holidays]
 
 
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_load_fixtures(request):
@@ -731,6 +728,7 @@ def api_load_fixtures(request):
         return JsonResponse({'status': 'success', 'message': 'Fixtures loaded successfully'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
 
 @csrf_exempt
 @require_http_methods(["GET"])
@@ -796,6 +794,7 @@ def serve_vue_app(request):
             content_type='text/html'
         )
 
+
 @csrf_exempt
 @require_http_methods(["GET"])
 def api_company_analytics(request, company_id):
@@ -816,7 +815,7 @@ def api_company_analytics(request, company_id):
     results = {}
     for algorithm in available_algorithms:
         start_time = time.time()
-        
+
         # Get entries for this algorithm
         entries = ScheduleEntry.objects.filter(
             company=company,
@@ -824,25 +823,25 @@ def api_company_analytics(request, company_id):
             date__month=month,
             algorithm=algorithm
         )
-        
+
         # Calculate company analytics
         company_analytics = kpi_calculator.calculate_company_analytics(
             list(entries), year, month, algorithm
         )
-        
+
         # Calculate coverage stats
         first_day = datetime.date(year, month, 1)
         last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
         coverage_stats = kpi_calculator.calculate_coverage_stats(
             list(entries), first_day, last_day
         )
-        
+
         # Extract coverage rates from calculated data
         coverage_rates = {}
         for stat in coverage_stats:
             shift_name = stat['shift']['name']
             coverage_rates[shift_name] = stat['coverage_percentage']
-        
+
         runtime = time.time() - start_time
         results[algorithm] = {
             'total_hours_worked': company_analytics['total_hours_worked'],

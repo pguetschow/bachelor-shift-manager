@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('rostering_app', '0003_remove_scheduleentry_archived'),
     ]
@@ -13,11 +12,14 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='company',
             name='sunday_is_workday',
-            field=models.BooleanField(default=False, help_text='Indicates if Sunday is considered a workday for this company'),
+            field=models.BooleanField(default=False,
+                                      help_text='Indicates if Sunday is considered a workday for this company'),
         ),
         migrations.AlterField(
             model_name='shift',
             name='name',
-            field=models.CharField(choices=[('EarlyShift', 'Early Shift'), ('MorningShift', 'Morning Shift'), ('LateShift', 'Late Shift'), ('NightShift', 'Night Shift')], max_length=20),
+            field=models.CharField(
+                choices=[('EarlyShift', 'Early Shift'), ('MorningShift', 'Morning Shift'), ('LateShift', 'Late Shift'),
+                         ('NightShift', 'Night Shift')], max_length=20),
         ),
     ]

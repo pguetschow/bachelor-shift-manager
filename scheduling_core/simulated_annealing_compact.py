@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Compact Simulated Annealing scheduler (v2.1 – August 2025)
 ──────────────────────────────────────────────────────────────
 Changes in v2.1
@@ -23,6 +24,7 @@ from rostering_app.utils import get_working_days_in_range
 from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Solution
 from .utils import create_empty_solution, get_weeks
 
+
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -31,14 +33,14 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
 
     # -------------------------------------------------------------------------
     def __init__(
-        self,
-        *,
-        iterations: int = 2_000,
-        init_temp: float = 800.0,
-        final_temp: float = 1.0,
-        monthly_allowance: int = 0,  # allowance disabled in v2.1
-        sundays_off: bool = False,
-        fairness_weight: int = 75_000,
+            self,
+            *,
+            iterations: int = 2_000,
+            init_temp: float = 800.0,
+            final_temp: float = 1.0,
+            monthly_allowance: int = 0,  # allowance disabled in v2.1
+            sundays_off: bool = False,
+            fairness_weight: int = 75_000,
     ) -> None:
         self.iterations = iterations
         self.init_temp = init_temp
@@ -131,13 +133,13 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
 
     # candidate employees -----------------------------------------------------
     def _available_emps(
-        self,
-        day: date,
-        shift,
-        sol: Solution,
-        weekly: Dict[int, Dict[Tuple[int, int], int]],
-        *,
-        need: Optional[int] = None,
+            self,
+            day: date,
+            shift,
+            sol: Solution,
+            weekly: Dict[int, Dict[Tuple[int, int], int]],
+            *,
+            need: Optional[int] = None,
     ) -> List[int]:
         wk_key = day.isocalendar()[:2]
         res: List[int] = []
@@ -151,8 +153,8 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
                 continue
             # weekly hours limit
             if (
-                emp.max_hours_per_week
-                and weekly[emp.id][wk_key] + shift.duration > emp.max_hours_per_week
+                    emp.max_hours_per_week
+                    and weekly[emp.id][wk_key] + shift.duration > emp.max_hours_per_week
             ):
                 continue
             if self._rest_violation(emp.id, day, shift, sol):
@@ -165,11 +167,11 @@ class CompactSimulatedAnnealingScheduler(SchedulingAlgorithm):
         prev, nxt = day - timedelta(days=1), day + timedelta(days=1)
         for sh in self.p.shifts:
             if eid in sol.assignments.get((prev, sh.id), []) and self.kpi.violates_rest_period(
-                sh, shift, prev
+                    sh, shift, prev
             ):
                 return True
             if eid in sol.assignments.get((nxt, sh.id), []) and self.kpi.violates_rest_period(
-                shift, sh, day
+                    shift, sh, day
             ):
                 return True
         return False

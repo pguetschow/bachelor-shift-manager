@@ -1,9 +1,9 @@
+import mimetypes
 import os
 from pathlib import Path
-import mimetypes
-import dj_database_url
-from urllib.parse import urlparse
+
 import environ
+
 env = environ.Env()
 environ.Env.read_env()
 
@@ -15,9 +15,9 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production'
 DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
 ALLOWED_HOSTS = [
-    'localhost', 
-    '127.0.0.1', 
-    '0.0.0.0', 
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
     'backend',
     'bachelor-shift-manager-2c19b47af666.herokuapp.com',
     '.herokuapp.com',  # Allow all herokuapp.com subdomains
@@ -52,7 +52,7 @@ ROOT_URLCONF = 'rostering_project.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [ BASE_DIR / 'rostering_app' / 'templates' ],
+        'DIRS': [BASE_DIR / 'rostering_app' / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -70,19 +70,19 @@ WSGI_APPLICATION = 'rostering_project.wsgi.application'
 # Database (default is SQLite)
 if os.environ.get('DJANGO_PRODUCTION') or os.environ.get('HEROKU'):
     DATABASES = {
-      'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'HOST': env('STACKHERO_MYSQL_HOST'),
-        'PORT': '15088',
-        'OPTIONS': {
-          'ssl_mode': 'REQUIRED',
-           'charset': 'utf8mb4',
-           'init_command': "SET NAMES 'utf8mb4'",
-        },
-        'NAME': 'defaultdb',
-        'USER': 'avnadmin',
-        'PASSWORD': env('STACKHERO_MYSQL_ROOT_PASSWORD')
-      }
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'HOST': env('STACKHERO_MYSQL_HOST'),
+            'PORT': '15088',
+            'OPTIONS': {
+                'ssl_mode': 'REQUIRED',
+                'charset': 'utf8mb4',
+                'init_command': "SET NAMES 'utf8mb4'",
+            },
+            'NAME': 'defaultdb',
+            'USER': 'avnadmin',
+            'PASSWORD': env('STACKHERO_MYSQL_ROOT_PASSWORD')
+        }
     }
 else:
     DATABASES = {

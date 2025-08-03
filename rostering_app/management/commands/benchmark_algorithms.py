@@ -1,31 +1,24 @@
 """Benchmark different scheduling algorithms across multiple test cases."""
 import json
 import os
-import time
 import statistics
+import time
 import traceback
-import calendar
-from datetime import datetime, date, timedelta
-from typing import Dict, List, Any
 from collections import defaultdict
+from datetime import date, timedelta
+from typing import Dict, List, Any
 
-import matplotlib.pyplot as plt
-import numpy as np
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.utils import timezone
 
-from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.converters import employees_to_core, shifts_to_core
-
+from rostering_app.models import ScheduleEntry, Employee, Shift, Company
+from rostering_app.services.enhanced_analytics import EnhancedAnalytics
 from rostering_app.services.kpi_calculator import KPICalculator
-from scheduling_core import NSGA2Scheduler, ILPScheduler, NewSimulatedAnnealingScheduler
-from scheduling_core.Updated_new_linear_programming import UpdatedILPScheduler
-
+from scheduling_core import ILPScheduler, NewSimulatedAnnealingScheduler
 # Import scheduling algorithms
-from scheduling_core.base import SchedulingProblem, Employee as CoreEmployee, Shift as CoreShift
+from scheduling_core.base import SchedulingProblem
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
-from scheduling_core.simulated_annealing import SimulatedAnnealingScheduler, CoolingSchedule
 from scheduling_core.simulated_annealing_compact import CompactSimulatedAnnealingScheduler
 
 
@@ -55,12 +48,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # Check if already running (simplified check)
         load_fixtures = options.get('load_fixtures', False)
-        force = options.get('force', False)
         algorithm_filter = options.get('algorithm')
         company_filter = options.get('company')
-
 
         try:
             # Test configurations
@@ -94,24 +84,19 @@ class Command(BaseCommand):
 
             # Algorithm configurations - will be created per company
             algorithm_classes = [
-                # UpdatedILPScheduler,
                 ILPScheduler,
                 GeneticAlgorithmScheduler,
-                # # SimulatedAnnealingScheduler,
                 CompactSimulatedAnnealingScheduler,
                 NewSimulatedAnnealingScheduler,
-                # # NSGA2Scheduler
             ]
 
             # Filter algorithms if requested
             if algorithm_filter:
                 algorithm_map = {
                     'LinearProgramming': ILPScheduler,
-                    # 'GeneticAlgorithm': GeneticAlgorithmScheduler,
-                    # 'NewSimulatedAnnealingScheduler': NewSimulatedAnnealingScheduler,
-                    # 'SimulatedAnnealing': SimulatedAnnealingScheduler,
-                    # 'CompactSA': CompactSimulatedAnnealingScheduler,
-                    # 'NSGA2Scheduler': NSGA2Scheduler,
+                    'GeneticAlgorithm': GeneticAlgorithmScheduler,
+                    'NewSimulatedAnnealingScheduler': NewSimulatedAnnealingScheduler,
+                    'CompactSA': CompactSimulatedAnnealingScheduler,
                 }
                 if algorithm_filter in algorithm_map:
                     algorithm_classes = [algorithm_map[algorithm_filter]]
@@ -144,7 +129,8 @@ class Command(BaseCommand):
                 for test_case in test_cases:
                     self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
 
-                self.stdout.write(f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
+                self.stdout.write(
+                    f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
             else:
                 self.stdout.write("Using existing database data (no fixtures loaded)")
 
@@ -152,9 +138,9 @@ class Command(BaseCommand):
             all_results = {}
 
             for test_case in test_cases:
-                self.stdout.write(f"\n{'='*60}")
+                self.stdout.write(f"\n{'=' * 60}")
                 self.stdout.write(f"Benchmarking: {test_case['display_name']}")
-                self.stdout.write(f"{'='*60}\n")
+                self.stdout.write(f"{'=' * 60}\n")
 
                 # Get the company for this test case
                 company_name_mapping = {
@@ -181,7 +167,8 @@ class Command(BaseCommand):
 
                 # Create problem instance for this company
                 problem = self._create_problem(company)
-                self.stdout.write(f"Problem created with {len(problem.employees)} employees and {len(problem.shifts)} shifts")
+                self.stdout.write(
+                    f"Problem created with {len(problem.employees)} employees and {len(problem.shifts)} shifts")
 
                 # Create algorithms for this specific company
                 algorithms = []
@@ -252,16 +239,16 @@ class Command(BaseCommand):
                 # Save results for this test case
                 self._save_test_results(test_case['name'], results, export_dir)
 
-                # Generate enhanced graphs for this test case
-                self._generate_enhanced_test_graphs(test_case['name'], results, export_dir, company)
+                # Generate enhanced graphs for this test case using analytics service
+                self._generate_enhanced_test_graphs_with_analytics(test_case['name'], results, export_dir, company)
 
             # Save overall results
             overall_file = os.path.join(export_dir, 'benchmark_results.json')
             with open(overall_file, 'w', encoding='utf-8') as f:
                 json.dump(all_results, f, indent=4, default=str)
 
-            # Generate comparison graphs across all test cases
-            self._generate_comparison_graphs(all_results, export_dir)
+            # Generate comparison graphs across all test cases using analytics service
+            EnhancedAnalytics.generate_comparison_graphs_across_test_cases(all_results, export_dir)
 
             self.stdout.write(self.style.SUCCESS(
                 f"\nBenchmark complete! Results saved to {export_dir}/"
@@ -377,35 +364,35 @@ class Command(BaseCommand):
         # Monthly breakdown by contract type (32h vs 40h)
         monthly_hours_by_contract = defaultdict(lambda: defaultdict(list))
         monthly_stats = {}
-        
+
         for month in range(1, 13):
             month_start = date(2025, month, 1)
             month_end = date(2025, month, 28)
             while month_end.month == month:
                 month_end += timedelta(days=1)
             month_end -= timedelta(days=1)
-            
+
             # Calculate company analytics for this month
             company_analytics = kpi_calculator.calculate_company_analytics(
                 entries, 2025, month, algorithm_name
             )
-            
+
             # Group employees by contract type
             contract_32h = []
             contract_40h = []
-            
+
             for emp in employees:
                 emp_entries = [e for e in entries if e.employee.id == emp.id and month_start <= e.date <= month_end]
                 emp_hours = sum(
                     kpi_calculator.calculate_shift_hours_in_month(e.shift, e.date, month_start, month_end)
                     for e in emp_entries
                 )
-                
+
                 if emp.max_hours_per_week == 32:
                     contract_32h.append(emp_hours)
                 elif emp.max_hours_per_week == 40:
                     contract_40h.append(emp_hours)
-            
+
             monthly_stats[month] = {
                 'contract_32h_avg': statistics.mean(contract_32h) if contract_32h else 0,
                 'contract_40h_avg': statistics.mean(contract_40h) if contract_40h else 0,
@@ -416,9 +403,10 @@ class Command(BaseCommand):
 
         # Calculate coverage statistics
         coverage_stats = kpi_calculator.calculate_coverage_stats(entries, start_date, end_date)
-        
+
         # Calculate constraint violations with detailed information
-        weekly_violations_detailed = kpi_calculator.check_weekly_hours_violations_detailed(entries, start_date, end_date)
+        weekly_violations_detailed = kpi_calculator.check_weekly_hours_violations_detailed(entries, start_date,
+                                                                                           end_date)
         rest_violations_detailed = kpi_calculator.check_rest_period_violations_detailed(entries, start_date, end_date)
         total_weekly_violations = weekly_violations_detailed['total_violations']
         total_rest_violations = rest_violations_detailed['total_violations']
@@ -489,273 +477,19 @@ class Command(BaseCommand):
         with open(results_file, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=4, default=str)
 
-    def _generate_enhanced_test_graphs(self, test_name: str, results: Dict, export_dir: str, company):
-        """Generate enhanced graphs for a specific test case."""
-        test_dir = os.path.join(export_dir, test_name)
-        if not os.path.exists(test_dir):
-            os.makedirs(test_dir)
+    def _generate_enhanced_test_graphs_with_analytics(self, test_name: str, results: Dict, export_dir: str, company):
+        """Generate enhanced graphs for a specific test case using the analytics service."""
+        self.stdout.write(f"Generating graphs for {test_name}...")
 
-        # Filter successful results
-        successful = {k: v for k, v in results.items() if v['status'] == 'success'}
-        if not successful:
-            return
+        # Get all entries for this company (across all algorithms in results)
+        all_entries = ScheduleEntry.objects.filter(company=company)
+        employees = list(Employee.objects.filter(company=company))
+        shifts = list(Shift.objects.filter(company=company))
 
-        algorithms = list(successful.keys())
-        months = list(range(1, 13))
-        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'Mai', 'Jun', 
-                      'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+        # Create analytics instance
+        analytics = EnhancedAnalytics(company, all_entries, employees, shifts)
 
-        # 1. Average Working Hours per Month by Contract Type
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-        
-        for alg in algorithms:
-            kpis = successful[alg]['kpis']
-            monthly_stats = kpis['monthly_stats']
-            
-            # 32h contracts
-            hours_32h = [monthly_stats[month]['contract_32h_avg'] for month in months]
-            if any(h > 0 for h in hours_32h):
-                ax1.plot(month_names, hours_32h, marker='o', label=f'{alg} (32h)', linewidth=2)
-            
-            # 40h contracts
-            hours_40h = [monthly_stats[month]['contract_40h_avg'] for month in months]
-            if any(h > 0 for h in hours_40h):
-                ax2.plot(month_names, hours_40h, marker='s', label=f'{alg} (40h)', linewidth=2)
+        # Generate algorithm comparison graphs
+        analytics.generate_algorithm_comparison_graphs(results, export_dir, test_name)
 
-        ax1.set_title('Durchschnittliche Arbeitsstunden pro Monat - 32h Verträge')
-        ax1.set_ylabel('Stunden')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
-        
-        ax2.set_title('Durchschnittliche Arbeitsstunden pro Monat - 40h Verträge')
-        ax2.set_ylabel('Stunden')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'monthly_hours_by_contract.png'), dpi=300)
-        plt.close()
-
-        # 2. Fairness Comparison
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
-
-        # Gini coefficient
-        ginis = [successful[alg]['kpis']['fairness_metrics']['gini_coefficient'] for alg in algorithms]
-        bars1 = ax1.bar(algorithms, ginis, color='skyblue')
-        ax1.set_title('Gini-Koeffizient (niedriger = fairer)')
-        ax1.set_ylabel('Gini-Koeffizient')
-        ax1.set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, val in zip(bars1, ginis):
-            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{val:.3f}', ha='center', va='bottom')
-
-        # Standard deviation
-        stdevs = [successful[alg]['kpis']['fairness_metrics']['hours_std_dev'] for alg in algorithms]
-        bars2 = ax2.bar(algorithms, stdevs, color='lightgreen')
-        ax2.set_title('Standardabweichung Arbeitsstunden')
-        ax2.set_ylabel('Stunden')
-        ax2.set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, val in zip(bars2, stdevs):
-            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{val:.1f}', ha='center', va='bottom')
-
-        # Coefficient of variation
-        cvs = [successful[alg]['kpis']['fairness_metrics']['hours_cv'] for alg in algorithms]
-        bars3 = ax3.bar(algorithms, cvs, color='lightcoral')
-        ax3.set_title('Variationskoeffizient (%)')
-        ax3.set_ylabel('CV (%)')
-        ax3.set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, val in zip(bars3, cvs):
-            ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{val:.1f}%', ha='center', va='bottom')
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'fairness_comparison.png'), dpi=300)
-        plt.close()
-
-        # 3. Coverage Analysis
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        axes = axes.flatten()
-
-        for idx, alg in enumerate(algorithms):
-            if idx >= 4:  # Limit to 4 subplots
-                break
-                
-            coverage_stats = successful[alg]['kpis']['coverage_stats']
-            shift_names = [stat['shift']['name'] for stat in coverage_stats]
-            coverage_percentages = [stat['coverage_percentage'] for stat in coverage_stats]
-            avg_staff = [stat['avg_staff'] for stat in coverage_stats]
-            min_staff = [stat['shift']['min_staff'] for stat in coverage_stats]
-            max_staff = [stat['shift']['max_staff'] for stat in coverage_stats]
-
-            # Coverage percentage
-            bars = axes[idx].bar(shift_names, coverage_percentages, color='lightblue')
-            axes[idx].set_title(f'Abdeckung - {alg}')
-            axes[idx].set_ylabel('Abdeckung (%)')
-            axes[idx].set_xticklabels(shift_names, rotation=45, ha='right')
-            axes[idx].axhline(y=100, color='red', linestyle='--', alpha=0.7, label='100% Abdeckung')
-            axes[idx].legend()
-
-            # Add value labels
-            for bar, val in zip(bars, coverage_percentages):
-                axes[idx].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                             f'{val:.1f}%', ha='center', va='bottom')
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'coverage_analysis.png'), dpi=300)
-        plt.close()
-
-        # 4. Constraint Violations
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-
-        # Weekly violations
-        weekly_violations = [successful[alg]['kpis']['constraint_violations']['weekly_violations'] for alg in algorithms]
-        bars1 = ax1.bar(algorithms, weekly_violations, color=['green' if v == 0 else 'red' for v in weekly_violations])
-        ax1.set_title('Wöchentliche Stunden-Verletzungen')
-        ax1.set_ylabel('Anzahl Verletzungen')
-        ax1.set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, val in zip(bars1, weekly_violations):
-            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{val}', ha='center', va='bottom')
-
-        # Rest period violations
-        rest_violations = [successful[alg]['kpis']['constraint_violations']['rest_period_violations'] for alg in algorithms]
-        bars2 = ax2.bar(algorithms, rest_violations, color=['green' if v == 0 else 'orange' for v in rest_violations])
-        ax2.set_title('Ruhezeit-Verletzungen')
-        ax2.set_ylabel('Anzahl Verletzungen')
-        ax2.set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, val in zip(bars2, rest_violations):
-            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{val}', ha='center', va='bottom')
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'constraint_violations.png'), dpi=300)
-        plt.close()
-
-        # 5. Additional Interesting Metrics
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        axes = axes.flatten()
-
-        # Runtime comparison
-        runtimes = [successful[alg]['runtime'] for alg in algorithms]
-        bars1 = axes[0].bar(algorithms, runtimes, color='purple')
-        axes[0].set_title('Laufzeitvergleich')
-        axes[0].set_ylabel('Laufzeit (Sekunden)')
-        axes[0].set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, runtime in zip(bars1, runtimes):
-            axes[0].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                        f'{runtime:.1f}s', ha='center', va='bottom')
-
-        # Total hours worked
-        total_hours = [successful[alg]['kpis']['fairness_metrics']['avg_hours'] * successful[alg]['kpis']['total_employees'] for alg in algorithms]
-        bars2 = axes[1].bar(algorithms, total_hours, color='gold')
-        axes[1].set_title('Gesamtstunden (Durchschnitt × Mitarbeiter)')
-        axes[1].set_ylabel('Stunden')
-        axes[1].set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, hours in zip(bars2, total_hours):
-            axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                        f'{hours:.0f}h', ha='center', va='bottom')
-
-        # Min/Max hours spread
-        min_hours = [successful[alg]['kpis']['fairness_metrics']['min_hours'] for alg in algorithms]
-        max_hours = [successful[alg]['kpis']['fairness_metrics']['max_hours'] for alg in algorithms]
-        
-        x_pos = np.arange(len(algorithms))
-        bars3 = axes[2].bar(x_pos - 0.2, min_hours, 0.4, label='Min Stunden', color='lightblue')
-        bars4 = axes[2].bar(x_pos + 0.2, max_hours, 0.4, label='Max Stunden', color='darkblue')
-        axes[2].set_title('Min/Max Stundenverteilung')
-        axes[2].set_ylabel('Stunden')
-        axes[2].set_xticks(x_pos)
-        axes[2].set_xticklabels(algorithms, rotation=45, ha='right')
-        axes[2].legend()
-
-        # Total violations
-        total_violations = [successful[alg]['kpis']['constraint_violations']['total_violations'] for alg in algorithms]
-        bars5 = axes[3].bar(algorithms, total_violations, color=['green' if v == 0 else 'red' for v in total_violations])
-        axes[3].set_title('Gesamte Constraint-Verletzungen')
-        axes[3].set_ylabel('Anzahl Verletzungen')
-        axes[3].set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, val in zip(bars5, total_violations):
-            axes[3].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                        f'{val}', ha='center', va='bottom')
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'additional_metrics.png'), dpi=300)
-        plt.close()
-
-    def _generate_comparison_graphs(self, all_results: Dict, export_dir: str):
-        """Generate comparison graphs across all test cases."""
-        # Extract data for comparison
-        test_cases = list(all_results.keys())
-        algorithms = set()
-        for test_results in all_results.values():
-            algorithms.update(test_results['results'].keys())
-        algorithms = sorted(list(algorithms))
-
-        # Runtime comparison across test cases
-        fig, axes = plt.subplots(1, len(test_cases), figsize=(6*len(test_cases), 6))
-        if len(test_cases) == 1:
-            axes = [axes]
-
-        for idx, test_case in enumerate(test_cases):
-            ax = axes[idx]
-            results = all_results[test_case]['results']
-
-            alg_names = []
-            runtimes = []
-            for alg in algorithms:
-                if alg in results and results[alg]['status'] == 'success':
-                    alg_names.append(alg)
-                    runtimes.append(results[alg]['runtime'])
-
-            bars = ax.bar(alg_names, runtimes)
-            ax.set_title(f"{all_results[test_case]['display_name']}")
-            ax.set_xlabel('Algorithmus')
-            ax.set_ylabel('Laufzeit (s)')
-            ax.set_xticks(range(len(alg_names)))
-            ax.set_xticklabels(alg_names, rotation=45, ha='right')
-
-            # Add values
-            for bar, val in zip(bars, runtimes):
-                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                       f'{val:.1f}', ha='center', va='bottom', fontsize=8)
-
-        plt.suptitle('Laufzeitvergleich über alle Testfälle', fontsize=16)
-        plt.tight_layout()
-        plt.savefig(os.path.join(export_dir, 'runtime_comparison_all.png'), dpi=300)
-        plt.close()
-
-        # Scalability analysis
-        if len(test_cases) > 1:  # Only generate if we have multiple test cases
-            plt.figure(figsize=(12, 8))
-
-            for alg in algorithms:
-                problem_sizes = []
-                runtimes = []
-
-                for test_case in test_cases:
-                    results = all_results[test_case]['results']
-                    if alg in results and results[alg]['status'] == 'success':
-                        size = all_results[test_case]['problem_size']['employees']
-                        problem_sizes.append(size)
-                        runtimes.append(results[alg]['runtime'])
-
-                if problem_sizes:
-                    plt.plot(problem_sizes, runtimes, marker='o', label=alg, linewidth=2)
-
-            plt.xlabel('Anzahl Mitarbeiter')
-            plt.ylabel('Laufzeit (Sekunden)')
-            plt.title('Skalierbarkeitsanalyse')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            plt.savefig(os.path.join(export_dir, 'scalability_analysis.png'), dpi=300)
-            plt.close()
+        self.stdout.write(self.style.SUCCESS(f"✓ Generated enhanced graphs for {test_name}"))

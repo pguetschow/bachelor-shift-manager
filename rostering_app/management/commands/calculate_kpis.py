@@ -2,12 +2,11 @@
 Management command to pre-calculate and store KPIs for testing.
 """
 
-from django.core.management.base import BaseCommand
-from django.db import transaction
 from datetime import date
 
-from rostering_app.models import Company, Employee
+from django.core.management.base import BaseCommand
 
+from rostering_app.models import Company
 
 
 class Command(BaseCommand):
@@ -68,7 +67,7 @@ class Command(BaseCommand):
 
         for company in companies:
             self.stdout.write(f'Processing company: {company.name}')
-            
+
             try:
                 # Get available algorithms for this company
                 from rostering_app.models import ScheduleEntry
@@ -76,7 +75,7 @@ class Command(BaseCommand):
                     company=company
                 ).values_list('algorithm', flat=True).distinct()
                 available_algorithms = [alg for alg in available_algorithms if alg]
-                
+
                 if algorithm:
                     if algorithm in available_algorithms:
                         algorithms_to_process = [algorithm]
@@ -92,7 +91,7 @@ class Command(BaseCommand):
 
                 for alg in algorithms_to_process:
                     self.stdout.write(f'  Processing algorithm: {alg}')
-                    
+
                     try:
                         # Note: KPI calculation is now done in real-time by the frontend
                         # This command is no longer needed as KPIs are calculated on-demand
@@ -101,16 +100,16 @@ class Command(BaseCommand):
                                 f'    ✓ KPI calculation moved to real-time frontend processing'
                             )
                         )
-                        
+
                     except Exception as e:
                         self.stdout.write(
                             self.style.ERROR(
                                 f'    ✗ Error processing algorithm {alg}: {e}'
                             )
                         )
-                
+
                 processed_companies += 1
-                
+
             except Exception as e:
                 self.stdout.write(
                     self.style.ERROR(
@@ -122,4 +121,4 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f'KPI calculation completed. Processed {processed_companies}/{total_companies} companies.'
             )
-        ) 
+        )

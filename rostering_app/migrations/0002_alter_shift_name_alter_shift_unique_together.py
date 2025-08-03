@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('rostering_app', '0001_initial'),
     ]
@@ -13,7 +12,9 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='shift',
             name='name',
-            field=models.CharField(choices=[('EarlyShift', 'Early Shift'), ('LateShift', 'Late Shift'), ('NightShift', 'Night Shift')], max_length=20),
+            field=models.CharField(
+                choices=[('EarlyShift', 'Early Shift'), ('LateShift', 'Late Shift'), ('NightShift', 'Night Shift')],
+                max_length=20),
         ),
         migrations.AlterUniqueTogether(
             name='shift',

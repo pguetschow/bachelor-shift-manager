@@ -1,6 +1,6 @@
 import math
-from datetime import timedelta, date
 from collections import defaultdict
+from datetime import timedelta, date
 from typing import List, Set, Tuple
 
 from pulp import (
@@ -13,12 +13,10 @@ from pulp import (
     LpStatus,
 )
 
-from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Shift
-from rostering_app.utils import is_non_working_day
-from .utils import get_weeks
-
 # --- KPI Calculator ----------------------------------------------------------
 from rostering_app.services.kpi_calculator import KPICalculator
+from rostering_app.utils import is_non_working_day
+from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry
 
 
 class ILPScheduler(SchedulingAlgorithm):
@@ -26,12 +24,12 @@ class ILPScheduler(SchedulingAlgorithm):
     # Construction / meta
     # ------------------------------------------------------------------
     def __init__(
-        self,
-        *,
-        sundays_off: bool = False,
-        min_util_factor: float = 0.9,
-        monthly_ot_cap: float = 0.05,
-        yearly_ot_cap: float = 0.00,
+            self,
+            *,
+            sundays_off: bool = False,
+            min_util_factor: float = 0.9,
+            monthly_ot_cap: float = 0.05,
+            yearly_ot_cap: float = 0.00,
     ):
         self.sundays_off = sundays_off
         self.MIN_UTIL_FACTOR = min_util_factor
@@ -161,9 +159,9 @@ class ILPScheduler(SchedulingAlgorithm):
 
             for ym in months:
                 obj += (
-                    W_OT * ot[(emp.id, ym)]
-                    + W_UT * ut[(emp.id, ym)]
-                    + W_MU_FAIR * mu_def[(emp.id, ym)]
+                        W_OT * ot[(emp.id, ym)]
+                        + W_UT * ut[(emp.id, ym)]
+                        + W_MU_FAIR * mu_def[(emp.id, ym)]
                 )
 
         # Fairness‑Ziel: Unterschied zwischen höchster und niedrigster Auslastung minimieren
@@ -178,12 +176,12 @@ class ILPScheduler(SchedulingAlgorithm):
         for emp in problem.employees:
             for d in dates:
                 model += (
-                    lpSum(
-                        x[(emp.id, d, sh.id)]
-                        for sh in problem.shifts
-                        if (emp.id, d, sh.id) in x
-                    )
-                    <= 1
+                        lpSum(
+                            x[(emp.id, d, sh.id)]
+                            for sh in problem.shifts
+                            if (emp.id, d, sh.id) in x
+                        )
+                        <= 1
                 )
 
         # 2) 11‑h Ruhezeit

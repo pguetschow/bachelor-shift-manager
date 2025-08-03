@@ -1,5 +1,5 @@
-import random
 import multiprocessing as mp
+import random
 from collections import defaultdict
 from datetime import timedelta, date
 from typing import List, Tuple
@@ -62,19 +62,19 @@ class NSGA2Scheduler(SchedulingAlgorithm):
             # Use KPI Calculator to get expected yearly hours, then scale to the problem period
             kpi_calculator = KPICalculator(self.company)
             yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
-            
+
             # Calculate total working days in the year using the same logic as KPI Calculator
             year = self.problem.start_date.year
             start = date(year, 1, 1)
             end = date(year, 12, 31)
             day = start
             total_working_days_in_year = 0
-            
+
             while day <= end:
                 if not self._is_non_working_day(day) and day not in emp.absence_dates:
                     total_working_days_in_year += 1
                 day += timedelta(days=1)
-            
+
             # Scale to the problem period
             working_days_in_period = len(self.working_days)
             period_capacity = yearly_capacity * (working_days_in_period / total_working_days_in_year)
@@ -125,7 +125,8 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         self._check_and_scale_demand()
 
         # Setup DEAP - 3 objectives (coverage, utilization, fairness)
-        creator.create("FitnessMulti", base.Fitness, weights=(self.coverage_weight, self.utilization_weight, self.fairness_weight))
+        creator.create("FitnessMulti", base.Fitness,
+                       weights=(self.coverage_weight, self.utilization_weight, self.fairness_weight))
         creator.create("Individual", dict, fitness=creator.FitnessMulti)
 
         toolbox = base.Toolbox()
@@ -196,12 +197,12 @@ class NSGA2Scheduler(SchedulingAlgorithm):
     def _evaluate_population_parallel(self, population) -> List[Tuple[float, float, float]]:
         """Evaluate population in parallel using all CPU cores."""
         num_cores = mp.cpu_count()
-        
+
         # Create a pool of workers
         with mp.Pool(processes=num_cores) as pool:
             # Evaluate solutions in parallel
             fitnesses = pool.map(self._evaluate_fast, population)
-            
+
         return fitnesses
 
     def _calculate_availability(self):
@@ -215,7 +216,7 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                 for emp in self.problem.employees:
                     if date not in emp.absence_dates:
                         available.append(emp.id)
-                
+
                 # Only add date as working day if there are available employees
                 if available:
                     self.working_days.append(date)
@@ -363,7 +364,7 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         # Scale capacity limit based on problem size (more aggressive for larger problems)
         num_employees = len(self.problem.employees)
         capacity_scale = 0.95 if num_employees > 50 else 0.90  # More aggressive for large companies
-        
+
         for date in self.working_days:
             week_key = date.isocalendar()[:2]
 
@@ -380,18 +381,19 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                         if emp_id not in assigned:
                             emp = self.problem.emp_by_id[emp_id]
                             current_weekly = weekly_hours[emp_id][week_key]
-                            
+
                             # Calculate capacity using KPI Calculator
                             kpi_calculator = KPICalculator(self.company)
-                            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
+                            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp,
+                                                                                             self.problem.start_date.year)
                             weekly_capacity = yearly_capacity / 52
-                            
+
                             # Allow up to capacity_scale of weekly capacity
                             max_allowed = weekly_capacity * capacity_scale
                             if current_weekly + shift.duration <= max_allowed:
                                 # Calculate current utilization percentage
                                 current_util = current_weekly / weekly_capacity
-                                
+
                                 # Prefer employees with lower current utilization (more fair)
                                 # This ensures work is distributed more evenly
                                 fairness_score = 1.0 - current_util  # Lower util = higher score
@@ -400,7 +402,7 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                     if candidates:
                         # Sort by fairness score (lowest utilization first)
                         candidates.sort(key=lambda x: x[1], reverse=True)
-                        
+
                         # Fill as much as possible
                         fill_count = min(gap, len(candidates))
                         for i in range(fill_count):
@@ -446,16 +448,16 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         utilizations = []
         for emp in self.problem.employees:
             worked = emp_hours.get(emp.id, 0)
-            
+
             # Use pre-calculated capacity
             capacity = self.employee_capacity.get(emp.id, 0)
-            
+
             if capacity > 0:
                 util = min(worked / capacity, 1.0)
                 utilizations.append(util)
 
         avg_utilization = np.mean(utilizations) if utilizations else 0
-        
+
         # Boost utilization score if it's below target (85%)
         if avg_utilization < 0.85:
             avg_utilization = avg_utilization * 0.7  # Penalize low utilization more
@@ -542,7 +544,7 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         if understaffed:
             # Sort by gap size (largest gaps first)
             understaffed.sort(key=lambda x: x[1], reverse=True)
-            
+
             # Try to fill multiple understaffed shifts
             for (date, shift_id), gap in understaffed[:3]:  # Try top 3
                 shift = self.problem.shift_by_id[shift_id]
@@ -554,16 +556,17 @@ class NSGA2Scheduler(SchedulingAlgorithm):
                     if emp_id not in assigned:
                         emp = self.problem.emp_by_id[emp_id]
                         weekly_hours = self._get_weekly_hours_fast(emp_id, week_key, individual)
-                        
+
                         # Calculate capacity using KPI Calculator
                         kpi_calculator = KPICalculator(self.company)
-                        yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
+                        yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp,
+                                                                                         self.problem.start_date.year)
                         weekly_capacity = yearly_capacity / 52
-                        
+
                         # Scale capacity limit based on problem size
                         num_employees = len(self.problem.employees)
                         capacity_scale = 0.95 if num_employees > 50 else 0.90
-                        
+
                         # Allow up to capacity_scale of weekly capacity
                         if weekly_hours + shift.duration <= weekly_capacity * capacity_scale:
                             # Calculate current utilization
@@ -611,45 +614,46 @@ class NSGA2Scheduler(SchedulingAlgorithm):
         utilizations = []
         for emp in self.problem.employees:
             worked = emp_hours.get(emp.id, 0)
-            
+
             # Calculate capacity using KPI Calculator
             kpi_calculator = KPICalculator(self.company)
             yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
             working_days_in_period = len(self.working_days)
             total_working_days_in_year = 52 * (6 if self.sundays_off else 7)
             period_capacity = yearly_capacity * (working_days_in_period / total_working_days_in_year)
-            
+
             util = worked / period_capacity if period_capacity > 0 else 0
             utilizations.append((emp.id, util))
 
         utilizations.sort(key=lambda x: x[1], reverse=True)
-        
+
         if len(utilizations) >= 2:
             most_utilized = utilizations[0]  # Highest utilization
             least_utilized = utilizations[-1]  # Lowest utilization
-            
+
             # If there's a significant gap (>10%), try to redistribute
             if most_utilized[1] - least_utilized[1] > 0.1:
                 # Find a shift where most_utilized is assigned
                 for (date, shift_id), assigned in individual.items():
                     if most_utilized[0] in assigned:
                         shift = self.problem.shift_by_id[shift_id]
-                        
+
                         # Check if least_utilized can take this shift
                         if (least_utilized[0] in self.daily_availability.get(date, []) and
-                            least_utilized[0] not in assigned):
-                            
+                                least_utilized[0] not in assigned):
+
                             # Check if least_utilized has capacity
                             current_hours = emp_hours.get(least_utilized[0], 0)
                             emp = self.problem.emp_by_id[least_utilized[0]]
                             kpi_calculator = KPICalculator(self.company)
-                            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
+                            yearly_capacity = kpi_calculator.calculate_expected_yearly_hours(emp,
+                                                                                             self.problem.start_date.year)
                             weekly_capacity = yearly_capacity / 52
-                            
+
                             # Scale capacity limit based on problem size
                             num_employees = len(self.problem.employees)
                             capacity_scale = 0.95 if num_employees > 50 else 0.90
-                            
+
                             if current_hours + shift.duration <= weekly_capacity * capacity_scale:
                                 # Redistribute: remove from most_utilized, add to least_utilized
                                 assigned.remove(most_utilized[0])

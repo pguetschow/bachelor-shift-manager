@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -17,7 +16,8 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(max_length=100, unique=True)),
-                ('size', models.CharField(choices=[('small', 'Small'), ('medium', 'Medium'), ('large', 'Large')], max_length=20)),
+                ('size', models.CharField(choices=[('small', 'Small'), ('medium', 'Medium'), ('large', 'Large')],
+                                          max_length=20)),
                 ('description', models.TextField(blank=True)),
                 ('icon', models.CharField(blank=True, max_length=10)),
                 ('color', models.CharField(blank=True, max_length=20)),
@@ -31,19 +31,23 @@ class Migration(migrations.Migration):
                 ('max_hours_per_week', models.IntegerField()),
                 ('absences', models.JSONField(blank=True, default=list)),
                 ('preferred_shifts', models.JSONField(blank=True, default=list)),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='employees', to='rostering_app.company')),
+                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='employees',
+                                              to='rostering_app.company')),
             ],
         ),
         migrations.CreateModel(
             name='Shift',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(choices=[('EarlyShift', 'Early Shift'), ('LateShift', 'Late Shift'), ('NightShift', 'Night Shift')], max_length=20, unique=True)),
+                ('name', models.CharField(
+                    choices=[('EarlyShift', 'Early Shift'), ('LateShift', 'Late Shift'), ('NightShift', 'Night Shift')],
+                    max_length=20, unique=True)),
                 ('start', models.TimeField()),
                 ('end', models.TimeField()),
                 ('min_staff', models.IntegerField()),
                 ('max_staff', models.IntegerField()),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='shifts', to='rostering_app.company')),
+                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='shifts',
+                                              to='rostering_app.company')),
             ],
         ),
         migrations.CreateModel(
@@ -53,8 +57,10 @@ class Migration(migrations.Migration):
                 ('date', models.DateField()),
                 ('algorithm', models.CharField(blank=True, default='', max_length=64)),
                 ('archived', models.BooleanField(default=False)),
-                ('company', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='schedule_entries', to='rostering_app.company')),
-                ('employee', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='rostering_app.employee')),
+                ('company', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE,
+                                              related_name='schedule_entries', to='rostering_app.company')),
+                ('employee',
+                 models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='rostering_app.employee')),
                 ('shift', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='rostering_app.shift')),
             ],
         ),

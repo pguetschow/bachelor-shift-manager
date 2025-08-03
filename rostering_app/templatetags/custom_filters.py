@@ -4,6 +4,7 @@ from rostering_app.utils import get_shift_display_name
 
 register = template.Library()
 
+
 @register.filter
 def multiply(value, arg):
     """Multiply two values."""
@@ -12,15 +13,18 @@ def multiply(value, arg):
     except (ValueError, TypeError):
         return 0
 
+
 @register.filter
 def shift_display_name(shift_name):
     """Convert shift name to German display name."""
     return get_shift_display_name(shift_name)
 
+
 @register.filter
 def get_item(dictionary, key):
     """Get an item from a dictionary."""
     return dictionary.get(key)
+
 
 @register.filter
 def floatformat(value, decimals=1):
@@ -29,6 +33,7 @@ def floatformat(value, decimals=1):
         return f"{float(value):.{decimals}f}"
     except (ValueError, TypeError):
         return value
+
 
 @register.filter
 def add(value, arg):
@@ -40,6 +45,7 @@ def add(value, arg):
             return float(value) + float(arg)
         except (ValueError, TypeError):
             return value
+
 
 @register.filter
 def cut(value, arg):

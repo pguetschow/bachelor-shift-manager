@@ -25,4 +25,4 @@ def calculate_coverage_stats(entries, start_date, end_date, company) -> List[Dic
     """
     from rostering_app.services.kpi_calculator import KPICalculator
     kpi_calculator = KPICalculator(company)
-    return kpi_calculator.calculate_coverage_stats(entries, start_date, end_date) 
+    return kpi_calculator.calculate_coverage_stats(entries, start_date, end_date)

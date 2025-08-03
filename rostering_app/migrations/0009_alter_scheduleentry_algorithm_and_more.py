@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('rostering_app', '0008_delete_benchmarkstatus_delete_companybenchmarkstatus'),
     ]
@@ -22,6 +21,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterIndexTogether(
             name='scheduleentry',
-            index_together={('company', 'date'), ('company', 'employee'), ('company', 'algorithm'), ('employee', 'date'), ('company', 'shift')},
+            index_together={('company', 'date'), ('company', 'employee'), ('company', 'algorithm'),
+                            ('employee', 'date'), ('company', 'shift')},
         ),
     ]

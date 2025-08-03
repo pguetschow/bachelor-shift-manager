@@ -39,17 +39,17 @@ class Command(BaseCommand):
         ]
 
         mysqldump_cmd = [
-            'mysqldump',
-            f'-h{db_host}',
-            f'-P{db_port}',
-            f'-u{db_user}',
-            f'-p{db_password}',
-            '--skip-lock-tables',
-            '--single-transaction',
-            '--add-drop-table',
-            '--no-tablespaces',
-            db_name,
-        ] + tables
+                            'mysqldump',
+                            f'-h{db_host}',
+                            f'-P{db_port}',
+                            f'-u{db_user}',
+                            f'-p{db_password}',
+                            '--skip-lock-tables',
+                            '--single-transaction',
+                            '--add-drop-table',
+                            '--no-tablespaces',
+                            db_name,
+                        ] + tables
 
         self.stdout.write(f"Exporting tables to {dump_file}...")
         try:
@@ -63,4 +63,4 @@ class Command(BaseCommand):
         # Zip the SQL file
         with zipfile.ZipFile(zip_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(dump_file, 'benchmark_dump.sql')
-        self.stdout.write(f"ZIP file created: {zip_file}") 
+        self.stdout.write(f"ZIP file created: {zip_file}")

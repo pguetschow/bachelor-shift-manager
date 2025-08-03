@@ -8,10 +8,12 @@ class Company(models.Model):
     description = models.TextField(blank=True)
     icon = models.CharField(max_length=10, blank=True)
     color = models.CharField(max_length=20, blank=True)
-    sunday_is_workday = models.BooleanField(default=False, help_text="Indicates if Sunday is considered a workday for this company")
+    sunday_is_workday = models.BooleanField(default=False,
+                                            help_text="Indicates if Sunday is considered a workday for this company")
 
     def __str__(self):
         return self.name
+
 
 class Employee(models.Model):
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='employees')
@@ -24,6 +26,7 @@ class Employee(models.Model):
 
     def __str__(self):
         return self.name
+
 
 class Shift(models.Model):
     SHIFT_CHOICES = [
@@ -53,11 +56,13 @@ class Shift(models.Model):
     class Meta:
         unique_together = ('company', 'name')
 
+
 class ScheduleEntry(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, db_index=True)
     date = models.DateField(db_index=True)
     shift = models.ForeignKey(Shift, on_delete=models.CASCADE, db_index=True)
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='schedule_entries', null=True, blank=True, db_index=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='schedule_entries', null=True,
+                                blank=True, db_index=True)
     algorithm = models.CharField(max_length=64, blank=True, default='', db_index=True)
 
     def __str__(self):
@@ -71,6 +76,3 @@ class ScheduleEntry(models.Model):
             ('company', 'algorithm'),
             ('employee', 'date'),
         ]
-
-
-
