@@ -50,6 +50,16 @@ class ILPScheduler(SchedulingAlgorithm):
         self.company = problem.company
         self.problem = problem
         kpi_calc = KPICalculator(self.company)
+        # ------------------------------------------------------------------
+        # 0) Schichtpaare vorkalkulieren, die die 11-h-Regel verletzen
+        # ------------------------------------------------------------------
+        from itertools import product
+
+        forbidden_pairs = {
+            (s1.id, s2.id)
+            for s1, s2 in product(problem.shifts, repeat=2)
+            if kpi_calc.violates_rest_period(s1, s2, problem.start_date)
+        }
 
         # 1) Plan‑Zeitraster (nur echte Arbeitstage)
         dates: List[date] = []
@@ -109,15 +119,15 @@ class ILPScheduler(SchedulingAlgorithm):
         # ------------------------------------------------------------------
         # Zielfunktion
         # ------------------------------------------------------------------
-        W_OVER = 10_000_000
-        W_UNDER = 1_000_000
-        W_OPTDEV = 100_000
-        W_OT = 50_000
-        W_UT = 25_000
-        W_MU_FAIR = 50_000
-        W_FAIR_RATIO = 75_000  # NEU: Gewicht für Fairness (möglich vs. geplant)
+        W_OVER = 5_000_000
+        W_UNDER = 500_000
+        W_OPTDEV = 50_000
+        W_OT = 25_000
+        W_UT = 15_500
+        W_MU_FAIR = 25_000
+        W_FAIR_RATIO = 35_000
         W_PREF = -5
-        W_UTIL = -50
+        W_UTIL = -25
 
         model = LpProblem("EmployeeScheduling", LpMinimize)
         obj = 0
@@ -189,11 +199,17 @@ class ILPScheduler(SchedulingAlgorithm):
         for emp in problem.employees:
             for i in range(len(dates) - 1):
                 d1, d2 = dates[i], dates[i + 1]
-                for s1 in problem.shifts:
-                    for s2 in problem.shifts:
-                        if (emp.id, d1, s1.id) in x and (emp.id, d2, s2.id) in x:
-                            if kpi_calc.violates_rest_period(s1, s2, d1):
-                                model += x[(emp.id, d1, s1.id)] + x[(emp.id, d2, s2.id)] <= 1
+                for sid1, sid2 in forbidden_pairs:
+                    if (emp.id, d1, sid1) in x and (emp.id, d2, sid2) in x:
+                        model += x[(emp.id, d1, sid1)] + x[(emp.id, d2, sid2)] <= 1
+        # for emp in problem.employees:
+        #     for i in range(len(dates) - 1):
+        #         d1, d2 = dates[i], dates[i + 1]
+        #         for s1 in problem.shifts:
+        #             for s2 in problem.shifts:
+        #                 if (emp.id, d1, s1.id) in x and (emp.id, d2, s2.id) in x:
+        #                     if kpi_calc.violates_rest_period(s1, s2, d1):
+        #                         model += x[(emp.id, d1, s1.id)] + x[(emp.id, d2, s2.id)] <= 1
 
         # 3) Monats‑Gleichung / OT‑Cap / Unterdeckung
         for emp in problem.employees:
@@ -234,8 +250,9 @@ class ILPScheduler(SchedulingAlgorithm):
         # Lösen & Ergebnis extrahieren
         # ------------------------------------------------------------------
         num_threads = max(1, os.cpu_count() - 2)
-        status = model.solve(PULP_CBC_CMD(msg=False, timeLimit=6000, threads=num_threads))
-        print(f"[OptILP DEBUG] Status: {LpStatus[status]}")
+        status = model.solve(PULP_CBC_CMD(msg=False, timeLimit=6000, threads=num_threads, presolve=True))
+        if LpStatus[status] != 'Optimal':
+            print(f"[OptILP DEBUG] Status: {LpStatus[status]}")
 
         schedule = [
             ScheduleEntry(eid, d, sid)
