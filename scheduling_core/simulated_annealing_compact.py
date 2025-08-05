@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 import math
 import random
 from collections import defaultdict
@@ -11,60 +10,59 @@ from rostering_app.services.kpi_calculator import KPICalculator
 from rostering_app.utils import get_working_days_in_range
 
 from .base import SchedulingAlgorithm, SchedulingProblem, ScheduleEntry, Solution
-from .utils import create_empty_solution, get_weeks
-
-
-# ──────────────────────────────────────────────────────────────────────────────
+from .utils import create_empty_solution, get_weeks  # `get_weeks` kept for potential debugging use
 
 
 class SimulatedAnnealingScheduler(SchedulingAlgorithm):
-    """Space-efficient SA rostering algorithm with fairness."""
 
-    # -------------------------------------------------------------------------
+    # ---------------------------------------------------------------------
     def __init__(
-            self,
-            *,
-            iterations: int = 2_000,
-            init_temp: float = 800.0,
-            final_temp: float = 1.0,
-            monthly_allowance: int = 0,  # allowance disabled in v2.1
-            sundays_off: bool = False,
-            fairness_weight: int = 75_000,
+        self,
+        *,
+        iterations: int = 2_000,
+        init_temp: float = 800.0,
+        final_temp: float = 1.0,
+        fairness_weight: int = 75_000,
+        sundays_off: bool = False,
     ) -> None:
         self.iterations = iterations
         self.init_temp = init_temp
         self.final_temp = final_temp
-        self.monthly_allowance = monthly_allowance
-        self.sundays_off = sundays_off
         self.fairness_weight = fairness_weight
 
-    # public ------------------------------------------------------------------
+    # public ----------------------------------------------------------------
     @property
     def name(self) -> str:
         return "Simulated Annealing"
 
+    # ---------------------------------------------------------------------
+    #                               SOLVE
+    # ---------------------------------------------------------------------
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:  # noqa: C901
         self.p = problem
         self.kpi = KPICalculator(problem.company)
 
-        # days & helpers -------------------------------------------------------
+        # 1) Day list (working days only) -----------------------------------
         self.days: List[date] = list(
             get_working_days_in_range(problem.start_date, problem.end_date, problem.company)
         )
-        self.weeks = get_weeks(problem.start_date, problem.end_date)
         self.day_idx = {d: i for i, d in enumerate(self.days)}
         self.emp_index = {e.id: idx for idx, e in enumerate(problem.employees)}
         self.shift_index = {s.id: idx for idx, s in enumerate(problem.shifts)}
         self.shift_by_id = problem.shift_by_id
 
-        # pre-compute possible hours for fairness -----------------------------
+        # 2) Pre‑compute expected monthly / yearly hours --------------------
+        self._compute_expected_hours()
+
+        # 3) Pre‑compute "possible" hours (for fairness term) --------------
         self._compute_possible_hours()
 
-        # greedy seed ----------------------------------------------------------
+        # 4) Greedy seed ----------------------------------------------------
         sol = self._initial_solution()
         best = sol.copy()
         best.cost = self._evaluate(best)
 
+        # 5) Main SA loop ---------------------------------------------------
         temp = self.init_temp
         for it in range(self.iterations):
             neigh = self._neighbor(sol)
@@ -77,13 +75,40 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
             if temp < self.final_temp:
                 break
 
+        # 6) Final greedy fill to max_staff --------------------------------
         self._greedy_fill(best)
         return best.to_entries()
 
-    # ───────────────────────── helpers ──────────────────────────────────────
-    # availability ------------------------------------------------------------
+    # ───────────────────────── internal helpers ───────────────────────────
+
+    # ---------------------------------------------------------------------
+    # Expectation helpers (monthly / yearly)
+    # ---------------------------------------------------------------------
+    def _compute_expected_hours(self) -> None:
+        """Store expected hours per employee per (year, month) and per year."""
+        # Months & years in planning horizon
+        months_seen: Dict[Tuple[int, int], None] = {}
+        years_seen: Dict[int, None] = {}
+        for d in self.days:
+            months_seen[(d.year, d.month)] = None
+            years_seen[d.year] = None
+
+        self.exp_month_hrs: Dict[int, Dict[Tuple[int, int], int]] = defaultdict(dict)
+        self.exp_year_hrs: Dict[int, Dict[int, int]] = defaultdict(dict)
+        for emp in self.p.employees:
+            # monthly expectations
+            for (y, m) in months_seen.keys():
+                self.exp_month_hrs[emp.id][(y, m)] = self.kpi.calculate_expected_month_hours(
+                    emp, y, m, self.p.company
+                )
+            # yearly expectations (could cover >1 year for multi‑year horizons)
+            for y in years_seen.keys():
+                self.exp_year_hrs[emp.id][y] = self.kpi.calculate_expected_yearly_hours(emp, y)
+
+    # ---------------------------------------------------------------------
+    # Possible hours (unchanged from v2.1) – for fairness evaluation only
+    # ---------------------------------------------------------------------
     def _compute_possible_hours(self) -> None:
-        """Store `possible_hours[eid]` = hours employee *could* work."""
         self.possible_hours: Dict[int, int] = {e.id: 0 for e in self.p.employees}
         for d in self.days:
             for sh in self.p.shifts:
@@ -91,114 +116,143 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                     if d not in emp.absence_dates:
                         self.possible_hours[emp.id] += sh.duration
 
-    # initial greedy fill -----------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Greedy seed construction
+    # ---------------------------------------------------------------------
     def _initial_solution(self) -> Solution:
         sol = create_empty_solution(self.p)
-        weekly = defaultdict(lambda: defaultdict(int))  # emp_id -> week_key -> hrs
+        # Track currently assigned hours per employee per month & per year
+        monthly = defaultdict(lambda: defaultdict(int))  # eid -> (y,m) -> hrs
+        yearly = defaultdict(int)  # eid -> hrs
 
         for d in self.days:
-            wk = d.isocalendar()[:2]
+            ym, yr = (d.year, d.month), d.year
             for sh in self.p.shifts:
                 key = (d, sh.id)
-                # first fill to min_staff
-                cand = self._available_emps(d, sh, sol, weekly, need=sh.min_staff)
+                # First fill to *min_staff*
+                cand = self._available_emps(d, sh, sol, monthly, yearly, need=sh.min_staff)
                 sol.assignments[key] = cand
                 for eid in cand:
-                    weekly[eid][wk] += sh.duration
+                    monthly[eid][ym] += sh.duration
+                    yearly[eid] += sh.duration
 
-        # second pass – fill up to max_staff
+        # Second pass – fill up to *max_staff*
         for d in self.days:
-            wk = d.isocalendar()[:2]
+            ym, yr = (d.year, d.month), d.year
             for sh in self.p.shifts:
                 key = (d, sh.id)
                 while len(sol.assignments[key]) < sh.max_staff:
-                    cand = self._available_emps(d, sh, sol, weekly)
+                    cand = self._available_emps(d, sh, sol, monthly, yearly)
                     if not cand:
                         break
                     chosen = random.choice(cand)
                     sol.assignments[key].append(chosen)
-                    weekly[chosen][wk] += sh.duration
+                    monthly[chosen][ym] += sh.duration
+                    yearly[chosen] += sh.duration
         return sol
 
-    # candidate employees -----------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Candidate employee filter (ABSENCE + REST + MONTH/YEAR caps)
+    # ---------------------------------------------------------------------
     def _available_emps(
-            self,
-            day: date,
-            shift,
-            sol: Solution,
-            weekly: Dict[int, Dict[Tuple[int, int], int]],
-            *,
-            need: Optional[int] = None,
+        self,
+        day: date,
+        shift,
+        sol: Solution,
+        monthly: Dict[int, Dict[Tuple[int, int], int]],
+        yearly: Dict[int, int],
+        *,
+        need: Optional[int] = None,
     ) -> List[int]:
-        wk_key = day.isocalendar()[:2]
+        ym = (day.year, day.month)
         res: List[int] = []
         for emp in self.p.employees:
             if need is not None and len(res) >= need:
                 break
+
             if day in emp.absence_dates:
                 continue
-            # already working a shift today?
+
+            # Already working some shift that day?
             if any(emp.id in sol.assignments.get((day, s.id), []) for s in self.p.shifts):
                 continue
-            # weekly hours limit
-            if (
-                    emp.max_hours_per_week
-                    and weekly[emp.id][wk_key] + shift.duration > emp.max_hours_per_week
-            ):
+
+            # Monthly cap (hard)
+            exp_m = self.exp_month_hrs[emp.id][ym]
+            if monthly[emp.id][ym] + shift.duration > exp_m:
                 continue
+
+            # Yearly cap (hard – sum over all relevant years)
+            exp_y = self.exp_year_hrs[emp.id][day.year]
+            if yearly[emp.id] + shift.duration > exp_y:
+                continue
+
+            # Rest‑period check (11h) – unchanged
             if self._rest_violation(emp.id, day, shift, sol):
                 continue
+
             res.append(emp.id)
         return res
 
-    # rest check --------------------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Rest‑period helper (unchanged)
+    # ---------------------------------------------------------------------
     def _rest_violation(self, eid: int, day: date, shift, sol: Solution) -> bool:
         prev, nxt = day - timedelta(days=1), day + timedelta(days=1)
         for sh in self.p.shifts:
             if eid in sol.assignments.get((prev, sh.id), []) and self.kpi.violates_rest_period(
-                    sh, shift, prev
+                sh, shift, prev
             ):
                 return True
             if eid in sol.assignments.get((nxt, sh.id), []) and self.kpi.violates_rest_period(
-                    shift, sh, day
+                shift, sh, day
             ):
                 return True
         return False
 
-    # evaluation --------------------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Evaluation (monthly/yearly penalties instead of weekly)
+    # ---------------------------------------------------------------------
     def _evaluate(self, sol: Solution) -> float:  # lower is better
         pen, bonus = 0, 0
-        weekly_hrs = defaultdict(lambda: defaultdict(int))
-        worked_hrs = defaultdict(int)  # for fairness
+        monthly_hrs = defaultdict(lambda: defaultdict(int))
+        yearly_hrs = defaultdict(int)
+        worked_hrs = defaultdict(int)  # used for fairness metric
 
         for (d, sid), emps in sol.assignments.items():
             sh = self.shift_by_id[sid]
             staff = len(emps)
+
+            # Coverage penalties & bonus
             if staff < sh.min_staff:
                 pen += (sh.min_staff - staff) * 5_000_000
             elif staff > sh.max_staff:
                 pen += (staff - sh.max_staff) * 500_000
             else:
-                bonus -= staff * 10_000  # encourage fully staffed shifts
+                bonus -= staff * 10_000  # Encourage fully staffed shifts
+
             for eid in emps:
-                weekly_hrs[eid][d.isocalendar()[:2]] += sh.duration
+                ym = (d.year, d.month)
+                monthly_hrs[eid][ym] += sh.duration
+                yearly_hrs[eid] += sh.duration
                 worked_hrs[eid] += sh.duration
 
-        # weekly hours penalty -------------------------------------------------
+        # Monthly & yearly caps -------------------------------------------
         for emp in self.p.employees:
-            for wk, hrs in weekly_hrs[emp.id].items():
-                if emp.max_hours_per_week and hrs > emp.max_hours_per_week:
-                    pen += (hrs - emp.max_hours_per_week) * 2_000_000
+            for ym, hrs in monthly_hrs[emp.id].items():
+                exp_m = self.exp_month_hrs[emp.id][ym]
+                if hrs > exp_m:
+                    pen += (hrs - exp_m) * 2_000_000
+            for y, exp_y in self.exp_year_hrs[emp.id].items():
+                hrs_y = yearly_hrs[emp.id] if y == list(self.exp_year_hrs[emp.id].keys())[0] else 0
+                if hrs_y > exp_y:
+                    pen += (hrs_y - exp_y) * 5_000_000
 
-        # rest period penalty --------------------------------------------------
+        # Rest‑period penalty (unchanged) -----------------------------------
         pen += self._rest_violations(sol) * 50_000_000
 
-        # ─── fairness penalty (NEW) ──────────────────────────────────────────
-        ratios = [
-            worked_hrs[eid] / ph
-            for eid, ph in self.possible_hours.items()
-            if ph > 0
-        ]
+        # Fairness penalty (unchanged) --------------------------------------
+        ratios = [worked_hrs[eid] / ph for eid, ph in self.possible_hours.items() if ph > 0]
         fair_pen = 0
         if ratios:
             fair_pen = (max(ratios) - min(ratios)) * self.fairness_weight
@@ -220,57 +274,79 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                     v += 1
         return v
 
-    # neighbour generation -----------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Neighbour generation --------------------------------------------------
+    # ---------------------------------------------------------------------
     def _neighbor(self, sol: Solution) -> Solution:
         nb = sol.copy()
         day = random.choice(self.days)
         shift = random.choice(self.p.shifts)
         key = (day, shift.id)
         assigned = nb.assignments.get(key, [])
+
+        # Build hour‑maps for current solution --------------------------------
+        monthly = defaultdict(lambda: defaultdict(int))
+        yearly = defaultdict(int)
+        for (d, sid), emps in nb.assignments.items():
+            s = self.shift_by_id[sid]
+            for eid in emps:
+                monthly[eid][(d.year, d.month)] += s.duration
+                yearly[eid] += s.duration
+
         if assigned and (random.random() < 0.5):  # remove one
-            assigned.pop(random.randrange(len(assigned)))
+            eid = assigned.pop(random.randrange(len(assigned)))
+            ym = (day.year, day.month)
+            monthly[eid][ym] -= shift.duration
+            yearly[eid] -= shift.duration
         else:  # try to add
-            wk_map = defaultdict(lambda: defaultdict(int))
-            for (d, sid), emps in nb.assignments.items():
-                s = self.shift_by_id[sid]
-                for eid in emps:
-                    wk_map[eid][d.isocalendar()[:2]] += s.duration
-            cand = self._available_emps(day, shift, nb, wk_map)
+            cand = self._available_emps(day, shift, nb, monthly, yearly)
             if cand:
-                assigned.append(random.choice(cand))
+                chosen = random.choice(cand)
+                assigned.append(chosen)
+                ym = (day.year, day.month)
+                monthly[chosen][ym] += shift.duration
+                yearly[chosen] += shift.duration
+
         nb.assignments[key] = assigned
         return nb
 
-    # SA helpers ---------------------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Final greedy fill (mirrors _initial_solution logic)
+    # ---------------------------------------------------------------------
+    def _greedy_fill(self, sol: Solution) -> None:
+        monthly = defaultdict(lambda: defaultdict(int))
+        yearly = defaultdict(int)
+        for (d, sid), emps in sol.assignments.items():
+            hrs = self.shift_by_id[sid].duration
+            for eid in emps:
+                monthly[eid][(d.year, d.month)] += hrs
+                yearly[eid] += hrs
+
+        for d in self.days:
+            ym = (d.year, d.month)
+            for sh in self.p.shifts:
+                key = (d, sh.id)
+                while len(sol.assignments[key]) < sh.max_staff:
+                    cand = self._available_emps(d, sh, sol, monthly, yearly)
+                    if not cand:
+                        break
+                    eid = random.choice(cand)
+                    sol.assignments[key].append(eid)
+                    monthly[eid][ym] += sh.duration
+                    yearly[eid] += sh.duration
+
+    # ---------------------------------------------------------------------
+    # SA helpers (unchanged apart from docstring)
+    # ---------------------------------------------------------------------
     def _accept(self, curr: float, nxt: float, temp: float) -> bool:
         return nxt < curr or random.random() < math.exp((curr - nxt) / max(temp, 1e-9))
 
     def _cool(self, it: int) -> float:
         ratio = it / max(self.iterations - 1, 1)
         base = self.init_temp * (self.final_temp / self.init_temp) ** ratio
-        # aggressive cooling mid-run
+        # aggressive cooling mid‑run
         if ratio < 0.3:
             return base
         elif ratio < 0.7:
             return base * 0.7
         return base * 0.3
-
-    # final greedy fill to max_staff ------------------------------------------
-    def _greedy_fill(self, sol: Solution) -> None:
-        weekly = defaultdict(lambda: defaultdict(int))
-        for (d, sid), emps in sol.assignments.items():
-            hrs = self.shift_by_id[sid].duration
-            for eid in emps:
-                weekly[eid][d.isocalendar()[:2]] += hrs
-
-        for d in self.days:
-            wk = d.isocalendar()[:2]
-            for sh in self.p.shifts:
-                key = (d, sh.id)
-                while len(sol.assignments[key]) < sh.max_staff:
-                    cand = self._available_emps(d, sh, sol, weekly)
-                    if not cand:
-                        break
-                    eid = random.choice(cand)
-                    sol.assignments[key].append(eid)
-                    weekly[eid][wk] += sh.duration
