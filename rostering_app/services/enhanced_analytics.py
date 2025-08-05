@@ -687,16 +687,6 @@ class EnhancedAnalytics:
         # 3. Constraint Violations across algorithms
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
-        # Weekly violations
-        weekly_violations = [successful[alg]['kpis']['constraint_violations']['weekly_violations'] for alg in algorithms]
-        bars1 = ax1.bar(algorithms, weekly_violations, color=['green' if v == 0 else 'red' for v in weekly_violations])
-        ax1.set_title('Wöchentliche Stunden-Verletzungen')
-        ax1.set_ylabel('Anzahl Verletzungen')
-        ax1.set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, val in zip(bars1, weekly_violations):
-            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{val}', ha='center', va='bottom')
 
         # Rest period violations
         rest_violations = [successful[alg]['kpis']['constraint_violations']['rest_period_violations'] for alg in algorithms]

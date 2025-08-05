@@ -502,7 +502,6 @@ class KPICalculator:
             'total_weekly_violations': total_weekly_violations,
             'rest_period_violations': rest_period_violations,
             'employee_hours': employee_hours,
-            'weekly_violations': weekly_violations,
         }
 
     def _calculate_gini_coefficient(self, values: List[float]) -> float:

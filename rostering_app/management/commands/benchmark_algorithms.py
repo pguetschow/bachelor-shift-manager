@@ -354,10 +354,7 @@ class Command(BaseCommand):
             }
 
         coverage_stats = kpi_calculator.calculate_coverage_stats(entries, start_date, end_date)
-        weekly_violations_detailed = kpi_calculator.check_weekly_hours_violations_detailed(entries, start_date,
-                                                                                           end_date)
         rest_violations_detailed = kpi_calculator.check_rest_period_violations_detailed(entries, start_date, end_date)
-        total_weekly_violations = weekly_violations_detailed['total_violations']
         total_rest_violations = rest_violations_detailed['total_violations']
 
         # ------------------------------------------------------------------
@@ -433,47 +430,25 @@ class Command(BaseCommand):
             hours_mean = hours_stdev = hours_cv = gini = jain_index = variance_hours = gini_overtime = 0.0
 
         # Preference satisfaction calculation
-        total_pref = 0
-        pref_granted = 0
-        # Precompute days worked per employee
-        days_worked_by_emp: Dict[int, Set[date]] = defaultdict(set)
+        total_assigned = 0
+        pref_matches = 0
+
+        entries_by_emp: Dict[int, List[ScheduleEntry]] = defaultdict(list)
         for e in entries:
-            days_worked_by_emp[e.employee.id].add(e.date)
+            entries_by_emp[e.employee.id].append(e)
+
         for emp in employees:
-            pref_dates_raw = None
-            # Attempt to find preference attributes
-            for attr in ['absences']:
-                if hasattr(emp, attr):
-                    pref_dates_raw = getattr(emp, attr)
-                    break
-            if not pref_dates_raw:
+            preferred = set(getattr(emp, "preferred_shifts", []))
+            if not preferred:
                 continue
-            # Convert raw preferences to date set
-            pref_set: Set[date] = set()
-            # Accept list or set of strings or date objects
-            try:
-                for d in pref_dates_raw:
-                    if isinstance(d, str):
-                        try:
-                            pref_set.add(date.fromisoformat(d))
-                        except Exception:
-                            pass
-                    elif isinstance(d, date):
-                        pref_set.add(d)
-            except TypeError:
-                # If stored as comma separated string or single value
-                if isinstance(pref_dates_raw, str):
-                    for part in pref_dates_raw.split(','):
-                        part = part.strip()
-                        try:
-                            pref_set.add(date.fromisoformat(part))
-                        except Exception:
-                            pass
-            total_pref += len(pref_set)
-            # granted preferences = intersection of preferences with assigned days
-            granted = len(pref_set & days_worked_by_emp.get(emp.id, set()))
-            pref_granted += granted
-        preference_satisfaction = (pref_granted / total_pref) if total_pref > 0 else 0.0
+
+            emp_entries = entries_by_emp.get(emp.id, [])
+            total_assigned += len(emp_entries)
+            pref_matches += sum(
+                1 for e in emp_entries if e.shift.name in preferred
+            )
+
+        preference_satisfaction = (pref_matches / total_assigned) if total_assigned else 0.0
 
         # Average shift utilisation across all shifts and days
         if coverage_stats:
@@ -493,10 +468,8 @@ class Command(BaseCommand):
             'monthly_stats': monthly_stats,
             'coverage_stats': coverage_stats,
             'constraint_violations': {
-                'weekly_violations': total_weekly_violations,
                 'rest_period_violations': total_rest_violations,
-                'total_violations': total_weekly_violations + total_rest_violations,
-                'weekly_violations_detailed': weekly_violations_detailed,
+                'total_violations':  total_rest_violations,
                 'rest_period_violations_detailed': rest_violations_detailed
             },
             'fairness_metrics': {
