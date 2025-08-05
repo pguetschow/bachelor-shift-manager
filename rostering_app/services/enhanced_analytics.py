@@ -404,8 +404,8 @@ class EnhancedAnalytics:
 
         metrics = {
             'jain_fairness_index': ('Jain-Fairness-Index', jain, 'Index'),
-            'gini_overtime': ('Gini-Koeffizient (Überstunden)', gini_ot, 'Index'),
-            'variance_hours': ('Varianz Arbeitsstunden', var_hours, 'Stunden²'),
+            # 'gini_overtime': ('Gini-Koeffizient (Überstunden)', gini_ot, 'Index'),
+            # 'variance_hours': ('Varianz Arbeitsstunden', var_hours, 'Stunden²'),
         }
 
         for metric_key, (label, val, ylabel) in metrics.items():
@@ -564,10 +564,10 @@ class EnhancedAnalytics:
         # Define fairness metrics to compare
         fairness_metrics = [
             ('jain_index', 'Jain-Fairness-Index', 'Index'),
-            ('gini_overtime', 'Gini-Koeffizient (Überstunden)', 'Index'),
-            ('variance_hours', 'Varianz Arbeitsstunden', 'Stunden²'),
-            ('gini_coefficient', 'Gini-Koeffizient (Arbeitsstunden)', 'Index'),
-            ('hours_std_dev', 'Standardabweichung', 'Stunden'),
+            # ('gini_overtime', 'Gini-Koeffizient (Überstunden)', 'Index'),
+            # ('variance_hours', 'Varianz Arbeitsstunden', 'Stunden²'),
+            # ('gini_coefficient', 'Gini-Koeffizient (Arbeitsstunden)', 'Index'),
+            # ('hours_std_dev', 'Standardabweichung', 'Stunden'),
             ('hours_cv', 'Variationskoeffizient', 'CV (%)'),
         ]
 
