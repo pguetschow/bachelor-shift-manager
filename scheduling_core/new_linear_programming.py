@@ -95,7 +95,8 @@ class ILPScheduler(SchedulingAlgorithm):
         for emp in problem.employees:
             for ym in months:
                 exp = kpi_calc.calculate_expected_month_hours(emp, *ym, self.company)
-                max_ot = 8 * math.floor(exp * self.MONTHLY_OT_CAP / 8)
+                max_ot = 8 # max one shift pro monat
+                # max_ot = 8 * math.floor(exp * self.MONTHLY_OT_CAP / 8)
                 ot[(emp.id, ym)] = LpVariable(f"ot_{emp.id}_{ym}", 0, max_ot)
                 ut[(emp.id, ym)] = LpVariable(f"ut_{emp.id}_{ym}", 0)
                 mu_def[(emp.id, ym)] = LpVariable(f"mu_{emp.id}_{ym}", 0)
@@ -119,13 +120,13 @@ class ILPScheduler(SchedulingAlgorithm):
         # ------------------------------------------------------------------
         # Zielfunktion
         # ------------------------------------------------------------------
-        W_OVER = 5_000_000
-        W_UNDER = 500_000
-        W_OPTDEV = 50_000
-        W_OT = 25_000
-        W_UT = 15_500
-        W_MU_FAIR = 25_000
-        W_FAIR_RATIO = 35_000
+        W_OVER = 5_000
+        W_UNDER = 500
+        W_OPTDEV = 75
+        W_OT = 1000
+        W_UT = 10
+        W_MU_FAIR = 25
+        W_FAIR_RATIO = 35
         W_PREF = -5
         W_UTIL = -25
 
@@ -223,7 +224,8 @@ class ILPScheduler(SchedulingAlgorithm):
                 )
                 model += worked == exp - ut[(emp.id, ym)] + ot[(emp.id, ym)]
                 model += worked + mu_def[(emp.id, ym)] >= exp * self.MIN_UTIL_FACTOR
-                model += worked <= exp * (1 + self.MONTHLY_OT_CAP)  # hartes Obere‑Cap
+                # model += worked <= exp * (1 + self.MONTHLY_OT_CAP)  # hartes Obere‑Cap
+                model += worked <= exp + 8  # max 1 shift pro monat extra
 
         # 4) Jahres‑Cap
         for emp in problem.employees:

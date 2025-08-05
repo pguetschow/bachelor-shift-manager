@@ -3,7 +3,7 @@
     "model": "rostering_app.shift",
     "pk": 3001,
     "fields": {
-      "company": 3,
+      "company": 4,
       "name": "EarlyShift",
       "start": "06:00:00",
       "end": "14:00:00",
@@ -15,7 +15,7 @@
     "model": "rostering_app.shift",
     "pk": 3004,
     "fields": {
-      "company": 3,
+      "company": 4,
       "name": "MorningShift",
       "start": "10:00:00",
       "end": "18:00:00",
@@ -27,7 +27,7 @@
     "model": "rostering_app.shift",
     "pk": 3005,
     "fields": {
-      "company": 3,
+      "company": 4,
       "name": "SupportShift",
       "start": "12:00:00",
       "end": "20:00:00",
@@ -39,7 +39,7 @@
     "model": "rostering_app.shift",
     "pk": 3002,
     "fields": {
-      "company": 3,
+      "company": 4,
       "name": "LateShift",
       "start": "14:00:00",
       "end": "22:00:00",
@@ -51,7 +51,7 @@
     "model": "rostering_app.shift",
     "pk": 3003,
     "fields": {
-      "company": 3,
+      "company": 4,
       "name": "NightShift",
       "start": "22:00:00",
       "end": "06:00:00",

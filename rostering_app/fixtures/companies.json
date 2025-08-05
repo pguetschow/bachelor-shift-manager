@@ -27,11 +27,11 @@
     "model": "rostering_app.company",
     "pk": 3,
     "fields": {
-      "name": "Großes Unternehmen",
-      "size": "large",
-      "description": "100 Mitarbeiter, 4 Schichten",
-      "icon": "🏭",
-      "color": "warning",
+      "name": "Größeres Unternehmen",
+      "size": "bigger",
+      "description": "70 Mitarbeiter, 4 Schichten",
+      "icon": "🏢",
+      "color": "info",
       "sunday_is_workday": true
     }
   },
@@ -39,11 +39,11 @@
     "model": "rostering_app.company",
     "pk": 4,
     "fields": {
-      "name": "Größeres Unternehmen",
-      "size": "medium",
-      "description": "60 Mitarbeiter, 4 Schichten",
-      "icon": "🏢",
-      "color": "info",
+      "name": "Großes Unternehmen",
+      "size": "large",
+      "description": "100 Mitarbeiter, 4 Schichten",
+      "icon": "🏭",
+      "color": "warning",
       "sunday_is_workday": true
     }
   }

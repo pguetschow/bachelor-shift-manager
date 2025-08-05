@@ -1,17 +1,17 @@
-# Shift Manager - Employee Scheduling System
+# Shift Manager: Employee Scheduling System
 
 Ein modernes Mitarbeiterplanungssystem mit Django-Backend und Vue.js-Frontend, das fortschrittliche Planungsalgorithmen, umfassende Analysen und eine responsive Benutzeroberfläche bietet.
 
 ## 🚀 Features
-- **Multi-Unternehmen Support** - Verwaltung mehrerer Unternehmen mit verschiedenen Größen
-- **Fortschrittliche Planungsalgorithmen** - Lineare Programmierung, Genetischer Algorithmus, Simulated Annealing
-- **Umfassende Analysen** - KPI-Berechnungen, Abdeckungsraten, Stundenverteilung, Constraint-Verletzungen
-- **Mitarbeiter- und Schichtverwaltung** - Flexible Konfiguration von Arbeitszeiten und Abwesenheiten
-- **Echtzeit-Algorithmusvergleich** - Performance-Metriken und Benchmarking
-- **Mehrere Ansichten** - Dashboard, Monatsansicht, Tagesansicht, Mitarbeiteransicht
-- **Mobile-responsive Design** - Optimiert für alle Geräte
-- **Docker-Containerisierung** - Einfache Bereitstellung und Skalierung
-- **Deutsche Lokalisierung** - Vollständig auf Deutsch verfügbar
+- **Multi-Unternehmen Support**: Verwaltung mehrerer Unternehmen mit verschiedenen Größen
+- **Fortschrittliche Planungsalgorithmen**: Lineare Programmierung, Genetischer Algorithmus, Simulated Annealing
+- **Umfassende Analysen**: KPI-Berechnungen, Abdeckungsraten, Stundenverteilung, Constraint-Verletzungen
+- **Mitarbeiter- und Schichtverwaltung**: Flexible Konfiguration von Arbeitszeiten und Abwesenheiten
+- **Echtzeit-Algorithmusvergleich**: Performance-Metriken und Benchmarking
+- **Mehrere Ansichten**: Dashboard, Monatsansicht, Tagesansicht, Mitarbeiteransicht
+- **Mobile-responsive Design**: Optimiert für alle Geräte
+- **Docker-Containerisierung**: Einfache Bereitstellung und Skalierung
+- **Deutsche Lokalisierung**: Vollständig auf Deutsch verfügbar
 
 ## 📝 Voraussetzungen
 - Python 3.8+
@@ -85,31 +85,31 @@ shift-manager/
 - **Django Admin**: http://localhost:8000/admin
 
 ### Hauptworkflow:
-1. **Unternehmen auswählen** - Wählen Sie aus 4 vorkonfigurierten Unternehmen (klein, mittel, groß, größer)
-2. **Dashboard erkunden** - Übersicht über Mitarbeiter, Schichten und Abdeckung
-3. **Analysen anzeigen** - Detaillierte KPI-Berechnungen und Statistiken
-4. **Algorithmusvergleich** - Performance-Vergleich verschiedener Planungsalgorithmen
-5. **Monats-/Tagesansicht** - Detaillierte Zeitplanübersichten
-6. **Mitarbeiteransicht** - Individuelle Mitarbeiterstatistiken und Zeitpläne
+1. **Unternehmen auswählen**: Wählen Sie aus 4 vorkonfigurierten Unternehmen (klein, mittel, groß, größer)
+2. **Dashboard erkunden**: Übersicht über Mitarbeiter, Schichten und Abdeckung
+3. **Analysen anzeigen**: Detaillierte KPI-Berechnungen und Statistiken
+4. **Algorithmusvergleich**: Performance-Vergleich verschiedener Planungsalgorithmen
+5. **Monats-/Tagesansicht**: Detaillierte Zeitplanübersichten
+6. **Mitarbeiteransicht**: Individuelle Mitarbeiterstatistiken und Zeitpläne
 
 ## 🔑 Wichtige API-Endpunkte
-- `GET /api/companies/` - Unternehmen auflisten
-- `GET /api/companies/{id}/` - Unternehmensdetails
-- `GET /api/companies/{id}/algorithms/` - Verfügbare Algorithmen
-- `GET /api/companies/{id}/schedule/` - Zeitplandaten
-- `GET /api/companies/{id}/employees/` - Mitarbeiter
-- `GET /api/companies/{id}/shifts/` - Schichten
-- `GET /api/companies/{id}/analytics/` - Algorithmus-KPIs
-- `GET /api/companies/{id}/day/{date}/` - Tagesplan
-- `GET /api/companies/{id}/employee/{employeeId}/` - Mitarbeiterdetails
+- `GET /api/companies/`: Unternehmen auflisten
+- `GET /api/companies/{id}/`: Unternehmensdetails
+- `GET /api/companies/{id}/algorithms/`: Verfügbare Algorithmen
+- `GET /api/companies/{id}/schedule/`: Zeitplandaten
+- `GET /api/companies/{id}/employees/`: Mitarbeiter
+- `GET /api/companies/{id}/shifts/`: Schichten
+- `GET /api/companies/{id}/analytics/`: Algorithmus-KPIs
+- `GET /api/companies/{id}/day/{date}/`: Tagesplan
+- `GET /api/companies/{id}/employee/{employeeId}/`: Mitarbeiterdetails
 
 ## 📊 Analytics & KPIs
 Das System berechnet umfassende Kennzahlen:
-- **Abdeckungsraten** - Durchschnittliche und tägliche Schichtabdeckung
-- **Stundenverteilung** - Durchschnitt, Standardabweichung, Min/Max Stunden pro Mitarbeiter
-- **Constraint-Verletzungen** - Wochenstunden- und Ruhezeitverletzungen
-- **Gini-Koeffizient** - Messung der Stundenverteilungsgleichheit
-- **Algorithmus-Performance** - Laufzeiten und Qualitätsmetriken
+- **Abdeckungsraten**: Durchschnittliche und tägliche Schichtabdeckung
+- **Stundenverteilung**: Durchschnitt, Standardabweichung, Min/Max Stunden pro Mitarbeiter
+- **Constraint-Verletzungen**: Wochenstunden- und Ruhezeitverletzungen
+- **Gini-Koeffizient**: Messung der Stundenverteilungsgleichheit
+- **Algorithmus-Performance**: Laufzeiten und Qualitätsmetriken
 
 ## 🛠️ Fehlerbehebung & Bereitstellung
 
@@ -179,8 +179,8 @@ MYSQL_PASSWORD=shift_manager_password
 Das System enthält vorkonfigurierte Beispieldaten für verschiedene Unternehmensgrößen:
 - **Kleines Unternehmen**: 10 Mitarbeiter, 2 Schichten
 - **Mittleres Unternehmen**: 30 Mitarbeiter, 3 Schichten  
-- **Großes Unternehmen**: 100 Mitarbeiter, 4 Schichten
-- **Größeres Unternehmen**: 60 Mitarbeiter, 4 Schichten
+- **Größeres Unternehmen**: 70 Mitarbeiter, 4 Schichten
+- **Großes Unternehmen**: 100 Mitarbeiter, 5 Schichten
 
 ## 🔧 Technologie-Stack
 - **Frontend**: Vue.js 3, Pinia, Vue Router, Chart.js, Bootstrap Icons
@@ -188,6 +188,3 @@ Das System enthält vorkonfigurierte Beispieldaten für verschiedene Unternehmen
 - **Algorithmen**: PuLP (Linear Programming), DEAP (Genetic Algorithm), SciPy
 - **Deployment**: Docker, Nginx, Gunicorn
 - **Analytics**: Pandas, NumPy, Matplotlib
-
-## 📝 Lizenz
-Dieses Projekt ist für Bildungs- und Demonstrationszwecke entwickelt.

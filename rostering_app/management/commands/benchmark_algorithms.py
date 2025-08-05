@@ -14,7 +14,7 @@ from rostering_app.converters import employees_to_core, shifts_to_core
 from rostering_app.models import ScheduleEntry, Employee, Shift, Company
 from rostering_app.services.enhanced_analytics import EnhancedAnalytics
 from rostering_app.services.kpi_calculator import KPICalculator
-from scheduling_core import ILPScheduler
+from scheduling_core import ILPScheduler, CPScheduler
 from scheduling_core.base import SchedulingProblem
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
 from scheduling_core.simulated_annealing_compact import SimulatedAnnealingScheduler
@@ -70,12 +70,12 @@ class Command(BaseCommand):
                     'employee_fixture': 'rostering_app/fixtures/bigger_company/employees.json',
                     'shift_fixture': 'rostering_app/fixtures/bigger_company/shifts.json'
                 },
-                {
-                    'name': 'large_company',
-                    'display_name': 'Großes Unternehmen (100 MA, 5 Schichten)',
-                    'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
-                    'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
-                }
+                # {
+                #     'name': 'large_company',
+                #     'display_name': 'Großes Unternehmen (100 MA, 5 Schichten)',
+                #     'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
+                #     'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
+                # }
             ]
 
             if company_filter:
@@ -85,6 +85,7 @@ class Command(BaseCommand):
                     return
 
             algorithm_classes = [
+                CPScheduler,
                 ILPScheduler,
                 GeneticAlgorithmScheduler,
                 SimulatedAnnealingScheduler,
@@ -92,6 +93,7 @@ class Command(BaseCommand):
 
             if algorithm_filter:
                 algorithm_map = {
+                    'CPScheduler': CPScheduler,
                     'LinearProgramming': ILPScheduler,
                     'GeneticAlgorithm': GeneticAlgorithmScheduler,
                     'CompactSA': SimulatedAnnealingScheduler,
