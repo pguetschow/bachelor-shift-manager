@@ -40,8 +40,8 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
 
     # public ------------------------------------------------------------------
     @property
-    def name(self) -> str:  # noqa: D401 – short description
-        return "Simulated Annealing (compact v2.1 fair)"
+    def name(self) -> str:
+        return "Simulated Annealing"
 
     def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:  # noqa: C901
         self.p = problem

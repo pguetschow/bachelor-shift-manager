@@ -1,20 +1,5 @@
 from __future__ import annotations
 
-"""Fast genetic algorithm for employee rostering (v2.3 – August 2025)
-----------------------------------------------------------------------
-**New in v2.3**
-
-*   *Fairness objective* — we now minimise the gap between the most- and
-    least-utilised employees in the planning horizon.  For every employee
-    *e* we pre-compute **possible_hours[e]** (all hours they *could* have
-    worked, given availability).  
-    In the fitness function we add a penalty proportional to  
-    `alpha_max − alpha_min`, where  
-    `alpha_e = assigned_hours[e] / possible_hours[e]`.
-*   Minor refactor: helper `_compute_possible_hours`.
-*   Bumped version string and doc-header.
-"""
-
 import math
 import random
 import time
@@ -25,14 +10,14 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 try:
-    from numba import njit  # type: ignore
+    from numba import njit
 
 
-    def _njit(*args, **kwargs):  # noqa: WPS118
+    def _njit(*args, **kwargs):
         return njit(*args, cache=True, fastmath=True, nopython=True, **kwargs)
 except ImportError:  # pragma: no cover –­ numba optional
 
-    def _njit(fn=None, **_kwargs):  # type: ignore
+    def _njit(fn=None, **_kwargs):
         if fn is None:
             return lambda f: f
         return fn
@@ -85,7 +70,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
 
     @property
     def name(self) -> str:
-        return "Genetic Algorithm (v2.3 fair)"
+        return "Genetic Algorithm"
 
     def __init__(
             self,
@@ -97,7 +82,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             elite_frac: float = 0.10,
             patience: int = 25,
             sundays_off: bool = False,
-            fairness_weight: int = 75_000,  # weight for (alpha_max-alpha_min) penalty
+            min_util_factor: float = 0.90,
+            monthly_ot_cap: float = 0.05,
+            fairness_weight: int = 5_000_000,  # weight for (alpha_max-alpha_min) penalty
             **_legacy,
     ) -> None:
         # user overrides
@@ -112,6 +99,8 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         self.patience = patience
         self.sunday_policy = sundays_off
 
+        self.min_util_factor = min_util_factor
+        self.monthly_ot_cap = monthly_ot_cap
         # fairness
         self.fairness_weight = fairness_weight
 
@@ -120,7 +109,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
 
     # --------------------------- solve --------------------------------
 
-    def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:  # noqa: C901
+    def solve(self, problem: SchedulingProblem) -> List[ScheduleEntry]:
         self.problem = problem
         self.kpi = KPICalculator(problem.company)
 
@@ -143,7 +132,13 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         self._build_absence_bitset()
         self._compute_possible_hours()
 
-        # adaptive params
+        # yearly limits
+        self.yearly_caps = {
+            emp.id: self.kpi.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
+            for emp in self.problem.employees
+        }
+
+        # adaptive parameters
         size_metric = len(problem.employees) * self.total_days
         pop_size = self.user_population_size or max(10, int(math.sqrt(size_metric)))
         max_gens = self.user_max_generations or max(60, int(size_metric ** 0.33) * 4)
@@ -164,9 +159,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         t0 = time.time()
 
         while (
-                gen < max_gens
-                and (time.time() - t0) < time_limit
-                and gens_no_improve < self.patience
+            gen < max_gens
+            and (time.time() - t0) < time_limit
+            and gens_no_improve < self.patience
         ):
             gen += 1
             children: List[Tuple[Solution, float]] = []
@@ -258,7 +253,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                         if not self.absent[self.emp_index[emp.id], d_idx]
                            and emp.id not in sol.assignments.get(key, [])
                            and week_hours[emp.id][wk] + sh.duration
-                           <= emp.max_hours_per_week
+                           <= emp.max_hours_per_week * 0.975 #expect some days off
                     ]
                     if not cand:
                         break
@@ -310,7 +305,6 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         D, S = self.min_staff.shape
         coverage = np.zeros((D, S), dtype=np.int16)
 
-        # build coverage matrix
         for (day, sh_id), emp_ids in sol.assignments.items():
             if day not in self.day_index:
                 continue
@@ -322,7 +316,6 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         if cov_pen > getattr(self, "_best", float("inf")) * 1.25:
             return cov_pen
 
-        # build assignment tensor
         E = len(self.problem.employees)
         assign_mat = np.zeros((D, S, E), dtype=np.bool_)
         for (day, sh_id), emp_ids in sol.assignments.items():
@@ -332,7 +325,6 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             for eid in emp_ids:
                 assign_mat[di, si, self.emp_index[eid]] = True
 
-        # rest, weekly, monthly penalties
         rest_pairs = self._rest_pairs()
         rest_pen = (
                        _rest_violations_numba(assign_mat, rest_pairs)
@@ -341,24 +333,38 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                    ) * 50_000_000
 
         week_pen = self._weekly_pen(assign_mat) * 2_000_000
-        month_pen = self._monthly_pen(assign_mat, self.shift_hours)
+        month_pen = self._monthly_pen(assign_mat, self.shift_hours) * 2_000_000
 
-        # ───── fairness penalty  ────────────────────────────────
+        # ───── Vectorized: employee workloads ─────────────────────────────
+        # (D, S, E) × (S,) → (D, E)
+        emp_daily_hours = np.tensordot(assign_mat, self.shift_hours, axes=(1, 0))
+        emp_total_hours = emp_daily_hours.sum(axis=0)  # shape: (E,)
+
         ratios = []
+        fair_pen = 0
+        overtime_pen = 0
+        undertime_pen = 0
         for idx, emp in enumerate(self.problem.employees):
             ph = self.possible_hours.get(emp.id, 0)
             if ph == 0:
                 continue
-            daily_hours = assign_mat[:, :, idx] @ self.shift_hours
-            worked = int(daily_hours.sum())
+            worked = int(emp_total_hours[idx])
             ratios.append(worked / ph)
-        fair_pen = 0
+
+            yearly_cap = self.yearly_caps[emp.id]
+            if worked > yearly_cap:
+                overtime_pen += (worked - yearly_cap) * 100_000_000
+            elif worked < yearly_cap * 0.85:
+                undertime_pen += int((0.85 * yearly_cap - worked) * 500_000)
+
         if ratios:
             alpha_min, alpha_max = min(ratios), max(ratios)
-            fair_pen = int((alpha_max - alpha_min) * self.fairness_weight)
+            # fair_pen = int((alpha_max - alpha_min) * self.fairness_weight)
+            delta = alpha_max - alpha_min  # e.g. 0.51 in your plot
+            # Quadratically punish imbalance so extremes explode in cost
+            fair_pen = int((delta ** 2) * self.fairness_weight)
 
-        # aggregate
-        cost = cov_pen + rest_pen + week_pen + month_pen + fair_pen
+        cost = cov_pen + rest_pen + week_pen + month_pen + fair_pen + overtime_pen + undertime_pen
         self._best = min(getattr(self, "_best", float("inf")), cost)
         return cost
 
@@ -387,19 +393,22 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
 
     def _monthly_pen(self, assign_mat: np.ndarray, shift_hours: np.ndarray) -> int:
         month_pen = 0
+        MIN_F = self.min_util_factor
+        MAX_F = 1 + self.monthly_ot_cap
         for idx, emp in enumerate(self.problem.employees):
             month_hours = defaultdict(int)
             for di, day in enumerate(self.working_days):
                 hrs = int(assign_mat[di, :, idx] @ shift_hours)
-                ym = (day.year, day.month)
-                month_hours[ym] += hrs
-            for (_, _), tot in month_hours.items():
-                expected = self.kpi.calculate_expected_month_hours(
-                    emp, day.year, day.month, self.problem.company
-                )
-                limit = expected
-                if tot > limit:
-                    month_pen += int(tot - limit)
+                month_hours[(day.year, day.month)] += hrs
+
+            for (y, m), worked in month_hours.items():
+                exp = self.kpi.calculate_expected_month_hours(emp, y, m, self.problem.company)
+                lower = exp * MIN_F
+                upper = exp * MAX_F
+                if worked < lower:  # under-allocation
+                    month_pen += int(lower - worked)
+                elif worked > upper:  # over-allocation
+                    month_pen += int(worked - upper)
         return month_pen
 
     def _weekly_pen(self, assign_mat: np.ndarray) -> int:

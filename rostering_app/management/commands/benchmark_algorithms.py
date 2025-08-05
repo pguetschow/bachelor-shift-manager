@@ -72,12 +72,12 @@ class Command(BaseCommand):
                     'employee_fixture': 'rostering_app/fixtures/bigger_company/employees.json',
                     'shift_fixture': 'rostering_app/fixtures/bigger_company/shifts.json'
                 },
-                # {
-                #     'name': 'large_company',
-                #     'display_name': 'Großes Unternehmen (100 MA, 5 Schichten)',
-                #     'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
-                #     'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
-                # }
+                {
+                    'name': 'large_company',
+                    'display_name': 'Großes Unternehmen (100 MA, 5 Schichten)',
+                    'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
+                    'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
+                }
             ]
 
             if company_filter:
