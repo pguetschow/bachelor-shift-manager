@@ -120,15 +120,15 @@ class ILPScheduler(SchedulingAlgorithm):
         # ------------------------------------------------------------------
         # Zielfunktion
         # ------------------------------------------------------------------
-        W_OVER = 5_000
-        W_UNDER = 500
-        W_OPTDEV = 75
-        W_OT = 1000
-        W_UT = 10
-        W_MU_FAIR = 25
-        W_FAIR_RATIO = 35
-        W_PREF = -5
-        W_UTIL = -25
+        W_OVER = 50_000
+        W_UNDER = 5000
+        W_OPTDEV = 750
+        W_OT = 10_000
+        W_UT = 100
+        W_MU_FAIR = 250
+        W_FAIR_RATIO = 350
+        W_PREF = -50
+        W_UTIL = -250
 
         model = LpProblem("EmployeeScheduling", LpMinimize)
         obj = 0

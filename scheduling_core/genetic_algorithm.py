@@ -1,20 +1,5 @@
 from __future__ import annotations
 
-"""Fast genetic algorithm for employee rostering (v2.3 – August 2025)
-----------------------------------------------------------------------
-**New in v2.3**
-
-*   *Fairness objective* — we now minimise the gap between the most- and
-    least-utilised employees in the planning horizon.  For every employee
-    *e* we pre-compute **possible_hours[e]** (all hours they *could* have
-    worked, given availability).  
-    In the fitness function we add a penalty proportional to  
-    `alpha_max − alpha_min`, where  
-    `alpha_e = assigned_hours[e] / possible_hours[e]`.
-*   Minor refactor: helper `_compute_possible_hours`.
-*   Bumped version string and doc-header.
-"""
-
 import math
 import random
 import time
@@ -25,14 +10,14 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 try:
-    from numba import njit  # type: ignore
+    from numba import njit 
 
 
-    def _njit(*args, **kwargs):  # noqa: WPS118
+    def _njit(*args, **kwargs):
         return njit(*args, cache=True, fastmath=True, nopython=True, **kwargs)
 except ImportError:  # pragma: no cover –­ numba optional
 
-    def _njit(fn=None, **_kwargs):  # type: ignore
+    def _njit(fn=None, **_kwargs): 
         if fn is None:
             return lambda f: f
         return fn
@@ -85,7 +70,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
 
     @property
     def name(self) -> str:
-        return "Genetic Algorithm (v2.3 fair)"
+        return "Genetic Algorithm"
 
     def __init__(
             self,
@@ -343,7 +328,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                        else self._rest_py(assign_mat, rest_pairs)
                    ) * 50_000_000
 
-        # week_pen = self._weekly_pen(assign_mat) * 2_000_000
+        week_pen = self._weekly_pen(assign_mat) * 2_000_000
         month_pen = self._monthly_pen(assign_mat, self.shift_hours) * 2_000_000
 
         # ───── Vectorized: employee workloads ─────────────────────────────
@@ -372,8 +357,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             alpha_min, alpha_max = min(ratios), max(ratios)
             fair_pen = int((alpha_max - alpha_min) * self.fairness_weight)
 
-        #week_pen
-        cost = cov_pen + rest_pen  + month_pen + fair_pen + overtime_pen + undertime_pen
+        cost = cov_pen + rest_pen + week_pen + month_pen + fair_pen + overtime_pen + undertime_pen
         self._best = min(getattr(self, "_best", float("inf")), cost)
         return cost
 

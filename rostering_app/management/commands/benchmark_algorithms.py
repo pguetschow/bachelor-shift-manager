@@ -2,6 +2,8 @@
 import json
 import os
 import statistics
+from collections import defaultdict
+from typing import Set
 import time
 import traceback
 from datetime import date, timedelta
@@ -85,7 +87,7 @@ class Command(BaseCommand):
                     return
 
             algorithm_classes = [
-                CPScheduler,
+                # CPScheduler,
                 ILPScheduler,
                 GeneticAlgorithmScheduler,
                 SimulatedAnnealingScheduler,
@@ -358,23 +360,134 @@ class Command(BaseCommand):
         total_weekly_violations = weekly_violations_detailed['total_violations']
         total_rest_violations = rest_violations_detailed['total_violations']
 
-        # Calculate fairness metrics
-        employee_hours = []
+        # ------------------------------------------------------------------
+        # Calculate extended per-employee statistics
+        # ------------------------------------------------------------------
+        employee_hours: List[float] = []  # actual hours per employee over the year
+        expected_hours_list: List[float] = []  # expected contractual hours per employee
+        utilizations: List[float] = []  # utilisation ratio (actual/expected)
+        utilizations_32: List[float] = []
+        utilizations_40: List[float] = []
+        overtime_list: List[float] = []  # positive difference between actual and expected
+        # Build a lookup for entries per employee to avoid repeated filtering
+        entries_by_emp: Dict[int, List[Any]] = defaultdict(list)
+        for e in entries:
+            entries_by_emp[e.employee.id].append(e)
         for emp in employees:
-            emp_entries = [e for e in entries if e.employee.id == emp.id]
-            emp_hours = sum(
+            emp_entries = entries_by_emp.get(emp.id, [])
+            # total actual hours for the employee
+            actual = sum(
                 kpi_calculator.calculate_shift_hours_in_range(e.shift, e.date, start_date, end_date)
                 for e in emp_entries
             )
-            employee_hours.append(emp_hours)
+            employee_hours.append(actual)
+            # expected contractual hours (deducting absences if available)
+            try:
+                expected = kpi_calculator.calculate_expected_yearly_hours(emp, 2025)
+            except Exception:
+                expected = getattr(emp, 'max_hours_per_week', 0) * 52
+            expected_hours_list.append(expected)
+            # utilisation ratio
+            util = (actual / expected) if expected > 0 else 0.0
+            utilizations.append(util)
+            # group by contract type
+            if getattr(emp, 'max_hours_per_week', 0) == 32:
+                utilizations_32.append(util)
+            elif getattr(emp, 'max_hours_per_week', 0) == 40:
+                utilizations_40.append(util)
+            # overtime
+            overtime_list.append(max(actual - expected, 0.0))
 
+        # Utilisation statistics
+        util_min = min(utilizations) if utilizations else 0.0
+        util_max = max(utilizations) if utilizations else 0.0
+        util_avg = statistics.mean(utilizations) if utilizations else 0.0
+        util_stats_by_contract = {
+            '32h': {
+                'min': min(utilizations_32) if utilizations_32 else 0.0,
+                'max': max(utilizations_32) if utilizations_32 else 0.0,
+                'avg': statistics.mean(utilizations_32) if utilizations_32 else 0.0,
+            },
+            '40h': {
+                'min': min(utilizations_40) if utilizations_40 else 0.0,
+                'max': max(utilizations_40) if utilizations_40 else 0.0,
+                'avg': statistics.mean(utilizations_40) if utilizations_40 else 0.0,
+            },
+        }
+
+        # Fairness metrics based on actual hours
         if employee_hours:
             hours_mean = statistics.mean(employee_hours)
-            hours_stdev = statistics.stdev(employee_hours) if len(employee_hours) > 1 else 0
-            hours_cv = (hours_stdev / hours_mean * 100) if hours_mean > 0 else 0
+            hours_stdev = statistics.stdev(employee_hours) if len(employee_hours) > 1 else 0.0
+            hours_cv = (hours_stdev / hours_mean * 100) if hours_mean > 0 else 0.0
             gini = self._calculate_gini(employee_hours)
+            # Jain fairness index
+            sum_hours = sum(employee_hours)
+            sum_sq_hours = sum(h * h for h in employee_hours)
+            jain_index = (sum_hours * sum_hours) / (len(employee_hours) * sum_sq_hours) if sum_sq_hours > 0 else 0.0
+            # Variance (population)
+            variance_hours = statistics.pvariance(employee_hours) if len(employee_hours) > 1 else 0.0
+            # Gini coefficient on overtime
+            gini_overtime = self._calculate_gini(overtime_list) if overtime_list else 0.0
         else:
-            hours_mean = hours_stdev = hours_cv = gini = 0
+            hours_mean = hours_stdev = hours_cv = gini = jain_index = variance_hours = gini_overtime = 0.0
+
+        # Preference satisfaction calculation
+        total_pref = 0
+        pref_granted = 0
+        # Precompute days worked per employee
+        days_worked_by_emp: Dict[int, Set[date]] = defaultdict(set)
+        for e in entries:
+            days_worked_by_emp[e.employee.id].add(e.date)
+        for emp in employees:
+            pref_dates_raw = None
+            # Attempt to find preference attributes
+            for attr in ['absences']:
+                if hasattr(emp, attr):
+                    pref_dates_raw = getattr(emp, attr)
+                    break
+            if not pref_dates_raw:
+                continue
+            # Convert raw preferences to date set
+            pref_set: Set[date] = set()
+            # Accept list or set of strings or date objects
+            try:
+                for d in pref_dates_raw:
+                    if isinstance(d, str):
+                        try:
+                            pref_set.add(date.fromisoformat(d))
+                        except Exception:
+                            pass
+                    elif isinstance(d, date):
+                        pref_set.add(d)
+            except TypeError:
+                # If stored as comma separated string or single value
+                if isinstance(pref_dates_raw, str):
+                    for part in pref_dates_raw.split(','):
+                        part = part.strip()
+                        try:
+                            pref_set.add(date.fromisoformat(part))
+                        except Exception:
+                            pass
+            total_pref += len(pref_set)
+            # granted preferences = intersection of preferences with assigned days
+            granted = len(pref_set & days_worked_by_emp.get(emp.id, set()))
+            pref_granted += granted
+        preference_satisfaction = (pref_granted / total_pref) if total_pref > 0 else 0.0
+
+        # Average shift utilisation across all shifts and days
+        if coverage_stats:
+            coverage_percentages = [stat['coverage_percentage'] for stat in coverage_stats if stat.get('coverage_percentage') is not None]
+            avg_shift_utilisation = (sum(coverage_percentages) / len(coverage_percentages) / 100) if coverage_percentages else 0.0
+        else:
+            avg_shift_utilisation = 0.0
+
+        # Robustness: expected extra understaff percentage from Monte Carlo absence simulation
+        try:
+            ea = EnhancedAnalytics(company, entries, employees, shifts)
+            robustness = ea.absence_impact()
+        except Exception:
+            robustness = 0.0
 
         return {
             'monthly_stats': monthly_stats,
@@ -390,10 +503,22 @@ class Command(BaseCommand):
                 'gini_coefficient': gini,
                 'hours_std_dev': hours_stdev,
                 'hours_cv': hours_cv,
-                'min_hours': min(employee_hours) if employee_hours else 0,
-                'max_hours': max(employee_hours) if employee_hours else 0,
-                'avg_hours': hours_mean
+                'min_hours': min(employee_hours) if employee_hours else 0.0,
+                'max_hours': max(employee_hours) if employee_hours else 0.0,
+                'avg_hours': hours_mean,
+                'jain_index': jain_index,
+                'gini_overtime': gini_overtime,
+                'variance_hours': variance_hours
             },
+            'utilization': {
+                'min': util_min,
+                'max': util_max,
+                'avg': util_avg,
+                'by_contract': util_stats_by_contract
+            },
+            'average_shift_utilization': avg_shift_utilisation,
+            'preference_satisfaction': preference_satisfaction,
+            'robustness_extra_under_pct': robustness,
             'total_working_days': total_working_days,
             'total_employees': len(employees),
             'total_shifts': len(shifts)
