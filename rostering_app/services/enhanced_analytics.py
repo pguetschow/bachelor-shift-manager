@@ -347,7 +347,7 @@ class EnhancedAnalytics:
         return monthly_stats
 
     # ------------------------------------------------------------------
-    # Graph generation methods ––––––––––––––––––––––––––––––––––––––––
+    # Individual graph generation methods ––––––––––––––––––––––––––––
     # ------------------------------------------------------------------
     def generate_monthly_hours_by_contract_graph(self, export_dir: str, test_name: str):
         """Generate monthly hours by contract type graph."""
@@ -391,12 +391,8 @@ class EnhancedAnalytics:
         plt.savefig(os.path.join(test_dir, 'monthly_hours_by_contract.png'), dpi=300)
         plt.close()
 
-    def generate_fairness_comparison_graph(self, export_dir: str, test_name: str, algorithm_name: str):
-        """Generate fairness comparison graph for a single algorithm.
-
-        This graph visualises the extended fairness metrics: Jain index,
-        Gini coefficient for overtime and the variance of working hours.
-        """
+    def generate_individual_fairness_graphs(self, export_dir: str, test_name: str, algorithm_name: str):
+        """Generate individual fairness metric graphs for a single algorithm."""
         test_dir = os.path.join(export_dir, test_name)
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
@@ -407,26 +403,18 @@ class EnhancedAnalytics:
         var_hours = self.variance_hours()
 
         metrics = {
-            'Jain-Fairness-Index': jain,
-            'Gini-Koeffizient (Überstunden)': gini_ot,
-            'Varianz Arbeitsstunden': var_hours,
+            'jain_fairness_index': ('Jain-Fairness-Index', jain, 'Index'),
+            'gini_overtime': ('Gini-Koeffizient (Überstunden)', gini_ot, 'Index'),
+            'variance_hours': ('Varianz Arbeitsstunden', var_hours, 'Stunden²'),
         }
 
-        fig, axes = plt.subplots(1, len(metrics), figsize=(6 * len(metrics), 6))
-        if len(metrics) == 1:
-            axes = [axes]
-        for idx, (label, val) in enumerate(metrics.items()):
-            ax = axes[idx]
+        for metric_key, (label, val, ylabel) in metrics.items():
+            fig, ax = plt.subplots(figsize=(8, 6))
             bars = ax.bar([algorithm_name], [val], color='skyblue')
             ax.set_title(label)
-            # Determine ylabel based on metric
-            if 'Gini' in label or 'Jain' in label:
-                ax.set_ylabel('Index')
-            elif 'Varianz' in label:
-                ax.set_ylabel('Stunden²')
-            else:
-                ax.set_ylabel('')
+            ax.set_ylabel(ylabel)
             ax.set_xticklabels([algorithm_name], rotation=45, ha='right')
+
             # Annotate value
             if 'Gini' in label or 'Jain' in label:
                 annot = f'{val:.3f}'
@@ -434,9 +422,9 @@ class EnhancedAnalytics:
                 annot = f'{val:.1f}'
             ax.text(0, val, annot, ha='center', va='bottom')
 
-        plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, f'fairness_comparison_{algorithm_name}.png'), dpi=300)
-        plt.close()
+            plt.tight_layout()
+            plt.savefig(os.path.join(test_dir, f'{metric_key}_{algorithm_name}.png'), dpi=300)
+            plt.close()
 
     def generate_coverage_analysis_graph(self, export_dir: str, test_name: str, algorithm_name: str):
         """Generate coverage analysis graph for a single algorithm."""
@@ -482,115 +470,86 @@ class EnhancedAnalytics:
         plt.savefig(os.path.join(test_dir, f'coverage_analysis_{algorithm_name}.png'), dpi=300)
         plt.close()
 
-    def generate_constraint_violations_graph(self, export_dir: str, test_name: str, algorithm_name: str,
-                                           weekly_violations: int, rest_violations: int):
-        """Generate constraint violations graph for a single algorithm."""
+    def generate_individual_constraint_violation_graphs(self, export_dir: str, test_name: str, algorithm_name: str, rest_violations: int):
+        """Generate individual constraint violation graphs for a single algorithm."""
         test_dir = os.path.join(export_dir, test_name)
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
-
-        # Create the graph
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-
-        # Weekly violations
-        bars1 = ax1.bar([algorithm_name], [weekly_violations],
-                       color=['green' if weekly_violations == 0 else 'red'])
-        ax1.set_title('Wöchentliche Stunden-Verletzungen')
-        ax1.set_ylabel('Anzahl Verletzungen')
-        ax1.set_xticklabels([algorithm_name], rotation=45, ha='right')
-
-        ax1.text(0, weekly_violations, f'{weekly_violations}', ha='center', va='bottom')
-
-        # Rest period violations
-        bars2 = ax2.bar([algorithm_name], [rest_violations],
-                       color=['green' if rest_violations == 0 else 'orange'])
-        ax2.set_title('Ruhezeit-Verletzungen')
-        ax2.set_ylabel('Anzahl Verletzungen')
-        ax2.set_xticklabels([algorithm_name], rotation=45, ha='right')
-
-        ax2.text(0, rest_violations, f'{rest_violations}', ha='center', va='bottom')
+        # Rest period violations graph
+        fig, ax = plt.subplots(figsize=(8, 6))
+        bars = ax.bar([algorithm_name], [rest_violations],
+                     color=['green' if rest_violations == 0 else 'orange'])
+        ax.set_title('Ruhezeit-Verletzungen')
+        ax.set_ylabel('Anzahl Verletzungen')
+        ax.set_xticklabels([algorithm_name], rotation=45, ha='right')
+        ax.text(0, rest_violations, f'{rest_violations}', ha='center', va='bottom')
 
         plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, f'constraint_violations_{algorithm_name}.png'), dpi=300)
+        plt.savefig(os.path.join(test_dir, f'rest_violations_{algorithm_name}.png'), dpi=300)
         plt.close()
 
-    def generate_additional_metrics_graph(self, export_dir: str, test_name: str, algorithm_name: str,
-                                        runtime: float, total_employees: int, min_hours: float,
-                                        max_hours: float, avg_hours: float, total_violations: int):
-        """Generate additional metrics graph for a single algorithm."""
+    def generate_individual_additional_metrics_graphs(self, export_dir: str, test_name: str, algorithm_name: str,
+                                                    runtime: float, total_employees: int, min_hours: float,
+                                                    max_hours: float, avg_hours: float, total_violations: int):
+        """Generate individual additional metrics graphs for a single algorithm."""
         test_dir = os.path.join(export_dir, test_name)
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
 
-        # Create the graph
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        axes = axes.flatten()
+        # Runtime graph
+        fig, ax = plt.subplots(figsize=(8, 6))
+        bars = ax.bar([algorithm_name], [runtime], color='purple')
+        ax.set_title('Laufzeitvergleich')
+        ax.set_ylabel('Laufzeit (Sekunden)')
+        ax.set_xticklabels([algorithm_name], rotation=45, ha='right')
+        ax.text(0, runtime, f'{runtime:.1f}s', ha='center', va='bottom')
 
-        # Runtime comparison
-        bars1 = axes[0].bar([algorithm_name], [runtime], color='purple')
-        axes[0].set_title('Laufzeitvergleich')
-        axes[0].set_ylabel('Laufzeit (Sekunden)')
-        axes[0].set_xticklabels([algorithm_name], rotation=45, ha='right')
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, f'runtime_{algorithm_name}.png'), dpi=300)
+        plt.close()
 
-        axes[0].text(0, runtime, f'{runtime:.1f}s', ha='center', va='bottom')
-
-        # Total hours worked
+        # Total hours graph
         total_hours = avg_hours * total_employees
-        bars2 = axes[1].bar([algorithm_name], [total_hours], color='gold')
-        axes[1].set_title('Gesamtstunden (Durchschnitt × Mitarbeiter)')
-        axes[1].set_ylabel('Stunden')
-        axes[1].set_xticklabels([algorithm_name], rotation=45, ha='right')
-
-        axes[1].text(0, total_hours, f'{total_hours:.0f}h', ha='center', va='bottom')
-
-        # Min/Max hours spread
-        bars3 = axes[2].bar([algorithm_name + ' (Min)', algorithm_name + ' (Max)'],
-                           [min_hours, max_hours], color=['lightblue', 'darkblue'])
-        axes[2].set_title('Min/Max Stundenverteilung')
-        axes[2].set_ylabel('Stunden')
-        axes[2].set_xticklabels([algorithm_name + ' (Min)', algorithm_name + ' (Max)'], rotation=45, ha='right')
-
-        axes[2].text(0, min_hours, f'{min_hours:.1f}', ha='center', va='bottom')
-        axes[2].text(1, max_hours, f'{max_hours:.1f}', ha='center', va='bottom')
-
-        # Total violations
-        bars5 = axes[3].bar([algorithm_name], [total_violations],
-                           color=['green' if total_violations == 0 else 'red'])
-        axes[3].set_title('Gesamte Constraint-Verletzungen')
-        axes[3].set_ylabel('Anzahl Verletzungen')
-        axes[3].set_xticklabels([algorithm_name], rotation=45, ha='right')
-
-        axes[3].text(0, total_violations, f'{total_violations}', ha='center', va='bottom')
+        fig, ax = plt.subplots(figsize=(8, 6))
+        bars = ax.bar([algorithm_name], [total_hours], color='gold')
+        ax.set_title('Gesamtstunden (Durchschnitt × Mitarbeiter)')
+        ax.set_ylabel('Stunden')
+        ax.set_xticklabels([algorithm_name], rotation=45, ha='right')
+        ax.text(0, total_hours, f'{total_hours:.0f}h', ha='center', va='bottom')
 
         plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, f'additional_metrics_{algorithm_name}.png'), dpi=300)
+        plt.savefig(os.path.join(test_dir, f'total_hours_{algorithm_name}.png'), dpi=300)
         plt.close()
 
-    def generate_all_graphs_for_algorithm(self, export_dir: str, test_name: str, algorithm_name: str,
-                                        runtime: float, weekly_violations: int, rest_violations: int,
-                                        min_hours: float, max_hours: float, avg_hours: float):
-        """Generate all graphs for a single algorithm."""
-        # Generate monthly hours by contract graph
-        self.generate_monthly_hours_by_contract_graph(export_dir, test_name)
+        # Min/Max hours spread graph
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars = ax.bar([algorithm_name + ' (Min)', algorithm_name + ' (Max)'],
+                     [min_hours, max_hours], color=['lightblue', 'darkblue'])
+        ax.set_title('Min/Max Stundenverteilung')
+        ax.set_ylabel('Stunden')
+        ax.set_xticklabels([algorithm_name + ' (Min)', algorithm_name + ' (Max)'], rotation=45, ha='right')
+        ax.text(0, min_hours, f'{min_hours:.1f}', ha='center', va='bottom')
+        ax.text(1, max_hours, f'{max_hours:.1f}', ha='center', va='bottom')
 
-        # Generate fairness comparison graph
-        self.generate_fairness_comparison_graph(export_dir, test_name, algorithm_name)
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, f'hours_spread_{algorithm_name}.png'), dpi=300)
+        plt.close()
 
-        # Generate coverage analysis graph
-        self.generate_coverage_analysis_graph(export_dir, test_name, algorithm_name)
+        # Total violations graph
+        fig, ax = plt.subplots(figsize=(8, 6))
+        bars = ax.bar([algorithm_name], [total_violations],
+                     color=['green' if total_violations == 0 else 'red'])
+        ax.set_title('Gesamte Constraint-Verletzungen')
+        ax.set_ylabel('Anzahl Verletzungen')
+        ax.set_xticklabels([algorithm_name], rotation=45, ha='right')
+        ax.text(0, total_violations, f'{total_violations}', ha='center', va='bottom')
 
-        # Generate constraint violations graph
-        self.generate_constraint_violations_graph(export_dir, test_name, algorithm_name,
-                                                weekly_violations, rest_violations)
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, f'total_violations_{algorithm_name}.png'), dpi=300)
+        plt.close()
 
-        # Generate additional metrics graph
-        total_violations = weekly_violations + rest_violations
-        self.generate_additional_metrics_graph(export_dir, test_name, algorithm_name, runtime,
-                                             len(self.employees), min_hours, max_hours, avg_hours,
-                                             total_violations)
-
-    def generate_algorithm_comparison_graphs(self, results: Dict, export_dir: str, test_name: str):
-        """Generate comparison graphs across multiple algorithms for a test case."""
+    def generate_individual_comparison_fairness_graphs(self, results: Dict, export_dir: str, test_name: str):
+        """Generate individual fairness comparison graphs across algorithms."""
         test_dir = os.path.join(export_dir, test_name)
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
@@ -602,43 +561,31 @@ class EnhancedAnalytics:
 
         algorithms = list(successful.keys())
 
-        # 1. Fairness Comparison across algorithms
-        # We compare an extended set of fairness metrics: Jain index, Gini on overtime,
-        # variance of hours, Gini coefficient, standard deviation and coefficient of variation.
-        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-        axes = axes.flatten()
-        # Define metric keys and labels
-        fairness_keys = [
-            ('jain_index', 'Jain-Fairness-Index'),
-            ('gini_overtime', 'Gini-Koeffizient (Überstunden)'),
-            ('variance_hours', 'Varianz Arbeitsstunden'),
-            ('gini_coefficient', 'Gini-Koeffizient (Arbeitsstunden)'),
-            ('hours_std_dev', 'Standardabweichung (Std.)'),
-            ('hours_cv', 'Variationskoeffizient (%)'),
+        # Define fairness metrics to compare
+        fairness_metrics = [
+            ('jain_index', 'Jain-Fairness-Index', 'Index'),
+            ('gini_overtime', 'Gini-Koeffizient (Überstunden)', 'Index'),
+            ('variance_hours', 'Varianz Arbeitsstunden', 'Stunden²'),
+            ('gini_coefficient', 'Gini-Koeffizient (Arbeitsstunden)', 'Index'),
+            ('hours_std_dev', 'Standardabweichung', 'Stunden'),
+            ('hours_cv', 'Variationskoeffizient', 'CV (%)'),
         ]
-        for idx, (key, title) in enumerate(fairness_keys):
+
+        for key, title, ylabel in fairness_metrics:
+            fig, ax = plt.subplots(figsize=(10, 6))
+
             values = []
             for alg in algorithms:
                 val = successful[alg]['kpis']['fairness_metrics'].get(key, 0)
                 values.append(val)
-            ax = axes[idx]
+
             bars = ax.bar(algorithms, values, color='skyblue')
-            ax.set_title(title)
-            # Determine ylabel
-            if 'Gini' in title:
-                ax.set_ylabel('Index')
-            elif 'Jain' in title:
-                ax.set_ylabel('Index')
-            elif 'Varianz' in title or 'Standard' in title:
-                ax.set_ylabel('Stunden²' if 'Varianz' in title else 'Stunden')
-            elif 'Variationskoeffizient' in title:
-                ax.set_ylabel('CV (%)')
-            else:
-                ax.set_ylabel('')
+            ax.set_title(f'{title} - Algorithmenvergleich')
+            ax.set_ylabel(ylabel)
             ax.set_xticklabels(algorithms, rotation=45, ha='right')
+
             # Annotate values
             for bar, val in zip(bars, values):
-                # Format numbers: percentages with one decimal where appropriate
                 if 'CV' in title:
                     label = f'{val:.1f}%'
                 elif 'Gini' in title or 'Jain' in title:
@@ -651,136 +598,256 @@ class EnhancedAnalytics:
                     label = f'{val:.1f}'
                 ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), label,
                         ha='center', va='bottom')
-        plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'fairness_comparison.png'), dpi=300)
-        plt.close()
 
-        # 2. Coverage Analysis across algorithms
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        axes = axes.flatten()
+            plt.tight_layout()
+            plt.savefig(os.path.join(test_dir, f'fairness_comparison_{key}.png'), dpi=300)
+            plt.close()
 
-        for idx, alg in enumerate(algorithms):
-            if idx >= 4:  # Limit to 4 subplots
-                break
+    def generate_individual_comparison_additional_metrics_graphs(self, results: Dict, export_dir: str, test_name: str):
+        """Generate individual additional metrics comparison graphs across algorithms."""
+        test_dir = os.path.join(export_dir, test_name)
+        if not os.path.exists(test_dir):
+            os.makedirs(test_dir)
 
-            coverage_stats = successful[alg]['kpis']['coverage_stats']
-            shift_names = [stat['shift']['name'] for stat in coverage_stats]
-            coverage_percentages = [stat['coverage_percentage'] for stat in coverage_stats]
+        # Filter successful results
+        successful = {k: v for k, v in results.items() if v['status'] == 'success'}
+        if not successful:
+            return
 
-            # Coverage percentage
-            bars = axes[idx].bar(shift_names, coverage_percentages, color='lightblue')
-            axes[idx].set_title(f'Abdeckung - {alg}')
-            axes[idx].set_ylabel('Abdeckung (%)')
-            axes[idx].set_xticklabels(shift_names, rotation=45, ha='right')
-            axes[idx].axhline(y=100, color='red', linestyle='--', alpha=0.7, label='100% Abdeckung')
-            axes[idx].legend()
+        algorithms = list(successful.keys())
 
-            # Add value labels
-            for bar, val in zip(bars, coverage_percentages):
-                axes[idx].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                             f'{val:.1f}%', ha='center', va='bottom')
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'coverage_analysis.png'), dpi=300)
-        plt.close()
-
-        # 3. Constraint Violations across algorithms
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-
-
-        # Rest period violations
-        rest_violations = [successful[alg]['kpis']['constraint_violations']['rest_period_violations'] for alg in algorithms]
-        bars2 = ax2.bar(algorithms, rest_violations, color=['green' if v == 0 else 'orange' for v in rest_violations])
-        ax2.set_title('Ruhezeit-Verletzungen')
-        ax2.set_ylabel('Anzahl Verletzungen')
-        ax2.set_xticklabels(algorithms, rotation=45, ha='right')
-
-        for bar, val in zip(bars2, rest_violations):
-            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                    f'{val}', ha='center', va='bottom')
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'constraint_violations.png'), dpi=300)
-        plt.close()
-
-        # 4. Additional metrics across algorithms
-        # We visualise runtime, utilisation statistics, shift utilisation,
-        # preference satisfaction, robustness and total constraint violations.
-        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-        axes = axes.flatten()
         # Runtime comparison
         runtimes = [successful[alg]['runtime'] for alg in algorithms]
-        bars0 = axes[0].bar(algorithms, runtimes, color='purple')
-        axes[0].set_title('Laufzeitvergleich')
-        axes[0].set_ylabel('Laufzeit (s)')
-        axes[0].set_xticklabels(algorithms, rotation=45, ha='right')
-        for bar, runtime in zip(bars0, runtimes):
-            axes[0].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                        f'{runtime:.1f}', ha='center', va='bottom')
-        # Utilisation statistics (min/avg/max utilisation)
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars = ax.bar(algorithms, runtimes, color='purple')
+        ax.set_title('Laufzeitvergleich - Alle Algorithmen')
+        ax.set_ylabel('Laufzeit (s)')
+        ax.set_xticklabels(algorithms, rotation=45, ha='right')
+        for bar, runtime in zip(bars, runtimes):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{runtime:.1f}', ha='center', va='bottom')
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, 'runtime_comparison_all.png'), dpi=300)
+        plt.close()
+
+        # Utilization statistics
         min_utils = [successful[alg]['kpis']['utilization']['min'] * 100 for alg in algorithms]
         avg_utils = [successful[alg]['kpis']['utilization']['avg'] * 100 for alg in algorithms]
         max_utils = [successful[alg]['kpis']['utilization']['max'] * 100 for alg in algorithms]
+
+        fig, ax = plt.subplots(figsize=(12, 6))
         x_pos = np.arange(len(algorithms))
         width = 0.25
-        bars_min = axes[1].bar(x_pos - width, min_utils, width, label='Min', color='lightblue')
-        bars_avg = axes[1].bar(x_pos, avg_utils, width, label='Durchschnitt', color='cornflowerblue')
-        bars_max = axes[1].bar(x_pos + width, max_utils, width, label='Max', color='navy')
-        axes[1].set_title('Mitarbeiter-Auslastung')
-        axes[1].set_ylabel('Auslastung (%)')
-        axes[1].set_xticks(x_pos)
-        axes[1].set_xticklabels(algorithms, rotation=45, ha='right')
-        axes[1].legend()
+        bars_min = ax.bar(x_pos - width, min_utils, width, label='Min', color='lightblue')
+        bars_avg = ax.bar(x_pos, avg_utils, width, label='Durchschnitt', color='cornflowerblue')
+        bars_max = ax.bar(x_pos + width, max_utils, width, label='Max', color='navy')
+        ax.set_title('Mitarbeiter-Auslastung - Algorithmenvergleich')
+        ax.set_ylabel('Auslastung (%)')
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(algorithms, rotation=45, ha='right')
+        ax.legend()
+
         # Annotate utilisation bars
         for i, val in enumerate(min_utils):
-            axes[1].text(x_pos[i] - width, val, f'{val:.1f}', ha='center', va='bottom', fontsize=8)
+            ax.text(x_pos[i] - width, val, f'{val:.1f}', ha='center', va='bottom', fontsize=8)
         for i, val in enumerate(avg_utils):
-            axes[1].text(x_pos[i], val, f'{val:.1f}', ha='center', va='bottom', fontsize=8)
+            ax.text(x_pos[i], val, f'{val:.1f}', ha='center', va='bottom', fontsize=8)
         for i, val in enumerate(max_utils):
-            axes[1].text(x_pos[i] + width, val, f'{val:.1f}', ha='center', va='bottom', fontsize=8)
+            ax.text(x_pos[i] + width, val, f'{val:.1f}', ha='center', va='bottom', fontsize=8)
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, 'utilization_comparison_all.png'), dpi=300)
+        plt.close()
+
         # Average shift utilisation
         shift_utils = [successful[alg]['kpis']['average_shift_utilization'] * 100 for alg in algorithms]
-        bars2 = axes[2].bar(algorithms, shift_utils, color='teal')
-        axes[2].set_title('Durchschnittliche Schichtauslastung')
-        axes[2].set_ylabel('Auslastung (%)')
-        axes[2].set_xticklabels(algorithms, rotation=45, ha='right')
-        for bar, val in zip(bars2, shift_utils):
-            axes[2].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                        f'{val:.1f}', ha='center', va='bottom')
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars = ax.bar(algorithms, shift_utils, color='teal')
+        ax.set_title('Durchschnittliche Schichtauslastung - Algorithmenvergleich')
+        ax.set_ylabel('Auslastung (%)')
+        ax.set_xticklabels(algorithms, rotation=45, ha='right')
+        for bar, val in zip(bars, shift_utils):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{val:.1f}', ha='center', va='bottom')
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, 'shift_utilization_comparison_all.png'), dpi=300)
+        plt.close()
+
         # Preference satisfaction
         pref_rates = []
         for alg in algorithms:
             rate = successful[alg]['kpis'].get('preference_satisfaction', 0)
-            # If stored as None default to 0
             pref_rates.append(rate * 100)
-        bars3 = axes[3].bar(algorithms, pref_rates, color='orange')
-        axes[3].set_title('Präferenzerfüllung')
-        axes[3].set_ylabel('Erfüllung (%)')
-        axes[3].set_xticklabels(algorithms, rotation=45, ha='right')
-        for bar, val in zip(bars3, pref_rates):
-            axes[3].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                        f'{val:.1f}', ha='center', va='bottom')
-        # Robustness (extra understaff percentage)
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars = ax.bar(algorithms, pref_rates, color='orange')
+        ax.set_title('Präferenzerfüllung - Algorithmenvergleich')
+        ax.set_ylabel('Erfüllung (%)')
+        ax.set_xticklabels(algorithms, rotation=45, ha='right')
+        for bar, val in zip(bars, pref_rates):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{val:.1f}', ha='center', va='bottom')
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, 'preference_satisfaction_comparison_all.png'), dpi=300)
+        plt.close()
+
+        # Robustness
         robustness_vals = [successful[alg]['kpis'].get('robustness_extra_under_pct', 0) for alg in algorithms]
-        bars4 = axes[4].bar(algorithms, robustness_vals, color='seagreen')
-        axes[4].set_title('Robustheit (Extra Unterbesetzung %)')
-        axes[4].set_ylabel('Extra Unterbesetzung (%)')
-        axes[4].set_xticklabels(algorithms, rotation=45, ha='right')
-        for bar, val in zip(bars4, robustness_vals):
-            axes[4].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                        f'{val:.1f}', ha='center', va='bottom')
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars = ax.bar(algorithms, robustness_vals, color='seagreen')
+        ax.set_title('Robustheit (Extra Unterbesetzung %) - Algorithmenvergleich')
+        ax.set_ylabel('Extra Unterbesetzung (%)')
+        ax.set_xticklabels(algorithms, rotation=45, ha='right')
+        for bar, val in zip(bars, robustness_vals):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{val:.1f}', ha='center', va='bottom')
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, 'robustness_comparison_all.png'), dpi=300)
+        plt.close()
+
         # Total constraint violations
         total_violations = [successful[alg]['kpis']['constraint_violations']['total_violations'] for alg in algorithms]
-        bars5 = axes[5].bar(algorithms, total_violations, color=['green' if v == 0 else 'red' for v in total_violations])
-        axes[5].set_title('Gesamte Constraint-Verletzungen')
-        axes[5].set_ylabel('Anzahl Verletzungen')
-        axes[5].set_xticklabels(algorithms, rotation=45, ha='right')
-        for bar, val in zip(bars5, total_violations):
-            axes[5].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
-                        f'{val}', ha='center', va='bottom')
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars = ax.bar(algorithms, total_violations, color=['green' if v == 0 else 'red' for v in total_violations])
+        ax.set_title('Gesamte Constraint-Verletzungen - Algorithmenvergleich')
+        ax.set_ylabel('Anzahl Verletzungen')
+        ax.set_xticklabels(algorithms, rotation=45, ha='right')
+        for bar, val in zip(bars, total_violations):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{val}', ha='center', va='bottom')
         plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, 'additional_metrics.png'), dpi=300)
+        plt.savefig(os.path.join(test_dir, 'total_violations_comparison_all.png'), dpi=300)
         plt.close()
+
+    def generate_individual_coverage_analysis_graphs(self, results: Dict, export_dir: str, test_name: str):
+        """Generate individual coverage analysis graphs for each algorithm."""
+        test_dir = os.path.join(export_dir, test_name)
+        if not os.path.exists(test_dir):
+            os.makedirs(test_dir)
+
+        # Filter successful results
+        successful = {k: v for k, v in results.items() if v['status'] == 'success'}
+        if not successful:
+            return
+
+        # Generate individual coverage graphs for each algorithm
+        for alg in successful.keys():
+            coverage_stats = successful[alg]['kpis']['coverage_stats']
+            shift_names = [stat['shift']['name'] for stat in coverage_stats]
+            coverage_percentages = [stat['coverage_percentage'] for stat in coverage_stats]
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            bars = ax.bar(shift_names, coverage_percentages, color='lightblue')
+            ax.set_title(f'Abdeckungsanalyse - {alg}')
+            ax.set_ylabel('Abdeckung (%)')
+            ax.set_xticklabels(shift_names, rotation=45, ha='right')
+            ax.axhline(y=100, color='red', linestyle='--', alpha=0.7, label='100% Abdeckung')
+            ax.legend()
+
+            # Add value labels
+            for bar, val in zip(bars, coverage_percentages):
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                       f'{val:.1f}%', ha='center', va='bottom')
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(test_dir, f'coverage_analysis_{alg}.png'), dpi=300)
+            plt.close()
+
+    def generate_individual_constraint_violations_comparison_graphs(self, results: Dict, export_dir: str, test_name: str):
+        """Generate individual constraint violations comparison graphs across algorithms."""
+        test_dir = os.path.join(export_dir, test_name)
+        if not os.path.exists(test_dir):
+            os.makedirs(test_dir)
+
+        # Filter successful results
+        successful = {k: v for k, v in results.items() if v['status'] == 'success'}
+        if not successful:
+            return
+
+        algorithms = list(successful.keys())
+
+        # Rest period violations comparison
+        rest_violations = [successful[alg]['kpis']['constraint_violations']['rest_period_violations'] for alg in algorithms]
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars = ax.bar(algorithms, rest_violations, color=['green' if v == 0 else 'orange' for v in rest_violations])
+        ax.set_title('Ruhezeit-Verletzungen - Algorithmenvergleich')
+        ax.set_ylabel('Anzahl Verletzungen')
+        ax.set_xticklabels(algorithms, rotation=45, ha='right')
+        for bar, val in zip(bars, rest_violations):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{val}', ha='center', va='bottom')
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, 'rest_violations_comparison_all.png'), dpi=300)
+        plt.close()
+
+    def generate_all_individual_graphs_for_algorithm(self, export_dir: str, test_name: str, algorithm_name: str,
+                                                   runtime: float, rest_violations: int,
+                                                   min_hours: float, max_hours: float, avg_hours: float):
+        """Generate all individual graphs for a single algorithm."""
+        # Generate monthly hours by contract graph (already individual)
+        self.generate_monthly_hours_by_contract_graph(export_dir, test_name)
+
+        # Generate individual fairness graphs
+        self.generate_individual_fairness_graphs(export_dir, test_name, algorithm_name)
+
+        # Generate individual coverage analysis graph (already individual)
+        self.generate_coverage_analysis_graph(export_dir, test_name, algorithm_name)
+
+        # Generate individual constraint violation graphs
+        self.generate_individual_constraint_violation_graphs(export_dir, test_name, algorithm_name,
+                                                             rest_violations)
+
+        # Generate individual additional metrics graphs
+        self.generate_individual_additional_metrics_graphs(export_dir, test_name, algorithm_name, runtime,
+                                                          len(self.employees), min_hours, max_hours, avg_hours,
+                                                           rest_violations)
+
+    def generate_all_individual_comparison_graphs(self, results: Dict, export_dir: str, test_name: str):
+        """Generate all individual comparison graphs across algorithms for a test case."""
+        # Generate individual fairness comparison graphs
+        self.generate_individual_comparison_fairness_graphs(results, export_dir, test_name)
+
+        # Generate individual coverage analysis graphs
+        self.generate_individual_coverage_analysis_graphs(results, export_dir, test_name)
+
+        # Generate individual constraint violations comparison graphs
+        self.generate_individual_constraint_violations_comparison_graphs(results, export_dir, test_name)
+
+        # Generate individual additional metrics comparison graphs
+        self.generate_individual_comparison_additional_metrics_graphs(results, export_dir, test_name)
+
+    # ------------------------------------------------------------------
+    # Original interface methods (now call individual graph methods) ––
+    # ------------------------------------------------------------------
+    def generate_fairness_comparison_graph(self, export_dir: str, test_name: str, algorithm_name: str):
+        """Generate fairness comparison graph for a single algorithm - now creates individual graphs."""
+        self.generate_individual_fairness_graphs(export_dir, test_name, algorithm_name)
+
+    def generate_constraint_violations_graph(self, export_dir: str, test_name: str, algorithm_name: str,
+                                           weekly_violations: int, rest_violations: int):
+        """Generate constraint violations graph for a single algorithm - now creates individual graphs."""
+        self.generate_individual_constraint_violation_graphs(export_dir, test_name, algorithm_name,
+                                                            weekly_violations, rest_violations)
+
+    def generate_additional_metrics_graph(self, export_dir: str, test_name: str, algorithm_name: str,
+                                        runtime: float, total_employees: int, min_hours: float,
+                                        max_hours: float, avg_hours: float, total_violations: int):
+        """Generate additional metrics graph for a single algorithm - now creates individual graphs."""
+        self.generate_individual_additional_metrics_graphs(export_dir, test_name, algorithm_name, runtime,
+                                                          total_employees, min_hours, max_hours, avg_hours,
+                                                          total_violations)
+
+    def generate_all_graphs_for_algorithm(self, export_dir: str, test_name: str, algorithm_name: str,
+                                        runtime: float, rest_violations: int,
+                                        min_hours: float, max_hours: float, avg_hours: float):
+        """Generate all graphs for a single algorithm - now creates individual graphs."""
+        self.generate_all_individual_graphs_for_algorithm(export_dir, test_name, algorithm_name,
+                                                         runtime, rest_violations,
+                                                         min_hours, max_hours, avg_hours)
+
+    def generate_algorithm_comparison_graphs(self, results: Dict, export_dir: str, test_name: str):
+        """Generate comparison graphs across multiple algorithms for a test case - now creates individual graphs."""
+        self.generate_all_individual_comparison_graphs(results, export_dir, test_name)
 
     @staticmethod
     def generate_comparison_graphs_across_test_cases(all_results: Dict, export_dir: str):
