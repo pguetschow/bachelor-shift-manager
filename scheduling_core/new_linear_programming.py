@@ -120,12 +120,12 @@ class ILPScheduler(SchedulingAlgorithm):
         # ------------------------------------------------------------------
         # Zielfunktion
         # ------------------------------------------------------------------
-        W_OVER = 50_0000
-        W_UNDER = 50000
+        W_OVER = 50_000
+        W_UNDER = 500_000
         W_OPTDEV = 7500
-        W_OT = 10_0000
-        W_UT = 1000
-        W_MU_FAIR = 2500
+        W_OT = 500_000
+        W_UT = 15_000
+        W_MU_FAIR = 2_500
         W_FAIR_RATIO = 3500
         W_PREF = -500
         W_UTIL = -2500
@@ -251,15 +251,18 @@ class ILPScheduler(SchedulingAlgorithm):
         # ------------------------------------------------------------------
         # Lösen & Ergebnis extrahieren
         # ------------------------------------------------------------------
+        threadCount = max(1, os.cpu_count() - 2)
         solver_args = {
-            "msg": False,
+            # "msg": False,
             "timeLimit": 3600,
+            "presolve": False
         }
 
         if problem.company.name == 'Großes Unternehmen':
             print("Use relative Gap of 0.5% for Großes Unternehmen")
             solver_args["gapRel"] = 0.005
-            solver_args["threads"] = max(1, os.cpu_count() - 2)
+            solver_args["threads"] = threadCount
+            solver_args["presolve"] = True
         else:
             print(f"Use no relative Gap for {problem.company.name}")
 
