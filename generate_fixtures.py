@@ -34,35 +34,54 @@ LAST_NAMES = [
     "Heinrich", "Brandt", "Haas", "Schreiber", "Graf", "Dietrich", "Ziegler"
 ]
 
-def generate_absences(year=2025):
-    """Generate realistic absence patterns."""
+def generate_absences_32h(year=2025):
+    """Generate absence patterns for 32h contracts (20 absences total)."""
     absences = []
     
-    # Christmas holidays
-    christmas_start = date(year, 12, 22)
-    for i in range(random.randint(5, 10)):
+    # Christmas holidays (5 days)
+    christmas_start = date(year, 12, 24)
+    for i in range(5):
         absences.append((christmas_start + timedelta(days=i)).strftime('%Y-%m-%d'))
     
-    # Summer vacation (2-3 weeks)
+    # Summer vacation (10 days)
     summer_month = random.choice([6, 7, 8])
-    summer_start = date(year, summer_month, random.randint(1, 15))
-    vacation_length = random.randint(10, 21)
-    for i in range(vacation_length):
+    summer_start = date(year, summer_month, random.randint(1, 20))
+    for i in range(10):
         vacation_date = summer_start + timedelta(days=i)
         if vacation_date.year == year:
             absences.append(vacation_date.strftime('%Y-%m-%d'))
     
-    # Easter vacation (1 week)
-    easter_start = date(year, 4, random.randint(1, 20))
-    for i in range(random.randint(5, 7)):
+    # Easter vacation (3 days)
+    easter_start = date(year, 4, random.randint(1, 25))
+    for i in range(3):
         absences.append((easter_start + timedelta(days=i)).strftime('%Y-%m-%d'))
+
+    # Remove duplicates and sort
+    absences = sorted(list(set(absences)))
+    return absences
+
+def generate_absences_40h(year=2025):
+    """Generate absence patterns for 40h contracts (27 absences total)."""
+    absences = []
     
-    # Random sick days (5-10 per year)
-    for _ in range(random.randint(5, 10)):
-        month = random.randint(1, 12)
-        day = random.randint(1, 28)
-        absences.append(date(year, month, day).strftime('%Y-%m-%d'))
+    # Christmas holidays (7 days)
+    christmas_start = date(year, 12, 22)
+    for i in range(7):
+        absences.append((christmas_start + timedelta(days=i)).strftime('%Y-%m-%d'))
     
+    # Summer vacation (15 days)
+    summer_month = random.choice([6, 7, 8])
+    summer_start = date(year, summer_month, random.randint(1, 15))
+    for i in range(15):
+        vacation_date = summer_start + timedelta(days=i)
+        if vacation_date.year == year:
+            absences.append(vacation_date.strftime('%Y-%m-%d'))
+    
+    # Easter vacation (3 days)
+    easter_start = date(year, 4, random.randint(1, 25))
+    for i in range(3):
+        absences.append((easter_start + timedelta(days=i)).strftime('%Y-%m-%d'))
+
     # Remove duplicates and sort
     absences = sorted(list(set(absences)))
     return absences
@@ -82,8 +101,14 @@ def generate_employees(count, start_id=1):
                 used_names.add(full_name)
                 break
         
-        # Working hours: 70% full-time (40h), 30% part-time (32h)
-        max_hours = 40 if random.random() < 0.7 else 32
+        # Working hours: 80% full-time (40h), 20% part-time (32h)
+        max_hours = 40 if random.random() < 0.8 else 32
+        
+        # Generate appropriate absences based on contract type
+        if max_hours == 32:
+            absences = generate_absences_32h()
+        else:
+            absences = generate_absences_40h()
         
         # Shift preferences
         all_shifts = ["EarlyShift", "LateShift", "NightShift"]
@@ -103,8 +128,70 @@ def generate_employees(count, start_id=1):
             "fields": {
                 "name": full_name,
                 "max_hours_per_week": max_hours,
-                "absences": generate_absences(),
+                "absences": absences,
                 "preferred_shifts": preferred_shifts
+            }
+        }
+        employees.append(employee)
+    
+    return employees
+
+def generate_optimized_employees(count, start_id=1):
+    """Generate optimized employee data with expanded solution space."""
+    employees = []
+    used_names = set()
+    
+    # Create a more balanced workforce distribution
+    shift_preferences = {
+        "EarlyShift": [],
+        "LateShift": [], 
+        "NightShift": [],
+        "flexible": []  # No preferences
+    }
+    
+    for i in range(count):
+        # Generate unique name
+        while True:
+            first_name = random.choice(FIRST_NAMES)
+            last_name = random.choice(LAST_NAMES)
+            full_name = f"{first_name} {last_name}"
+            if full_name not in used_names:
+                used_names.add(full_name)
+                break
+        
+        # Working hours: 80% full-time (40h), 20% part-time (32h)
+        if random.random() < 0.8:  # 80% full-time
+            max_hours = 40
+            absences = generate_absences_40h()
+        else:
+            max_hours = 32
+            absences = generate_absences_32h()
+        
+        # More flexible shift preferences to expand solution space
+        all_shifts = ["EarlyShift", "LateShift", "NightShift"]
+        preference_choice = random.random()
+        
+        if preference_choice < 0.4:  # 40% have no preference (increased from 30%)
+            preferred_shifts = []
+            shift_preferences["flexible"].append(i)
+        elif preference_choice < 0.7:  # 30% prefer one shift
+            shift = random.choice(all_shifts)
+            preferred_shifts = [shift]
+            shift_preferences[shift].append(i)
+        else:  # 30% prefer two shifts
+            preferred_shifts = random.sample(all_shifts, 2)
+            for shift in preferred_shifts:
+                shift_preferences[shift].append(i)
+        
+        employee = {
+            "model": "rostering_app.employee",
+            "pk": start_id + i,
+            "fields": {
+                "name": full_name,
+                "max_hours_per_week": max_hours,
+                "absences": absences,
+                "preferred_shifts": preferred_shifts,
+                "company": 4  # bigger_company
             }
         }
         employees.append(employee)
@@ -121,6 +208,12 @@ large_employees = generate_employees(100, start_id=1)
 with open('rostering_app/fixtures/large_company/employees.json', 'w', encoding='utf-8') as f:
     json.dump(large_employees, f, indent=2, ensure_ascii=False)
 
+# Generate optimized bigger_company employees (70 employees)
+bigger_company_employees = generate_optimized_employees(70, start_id=4001)
+with open('rostering_app/fixtures/bigger_company/employees.json', 'w', encoding='utf-8') as f:
+    json.dump(bigger_company_employees, f, indent=2, ensure_ascii=False)
+
 print("Fixtures generated successfully!")
 print(f"Medium company: {len(medium_employees)} employees")
 print(f"Large company: {len(large_employees)} employees")
+print(f"Bigger company (optimized): {len(bigger_company_employees)} employees")

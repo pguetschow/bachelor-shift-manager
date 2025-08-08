@@ -5,19 +5,15 @@ from .base import (
     ScheduleEntry,
     SchedulingProblem,
 )
-
-from .linear_programming import LinearProgrammingScheduler
 from .genetic_algorithm import GeneticAlgorithmScheduler
-from .simulated_annealing import SimulatedAnnealingScheduler, CoolingSchedule
+from .new_linear_programming import ILPScheduler
+from .simulated_annealing_compact import SimulatedAnnealingScheduler
 
 __all__ = [
     'Employee',
     'ScheduleEntry',
     'SchedulingProblem',
-    
-    # Algorithms
-    'LinearProgrammingScheduler',
     'GeneticAlgorithmScheduler',
     'SimulatedAnnealingScheduler',
-    'CoolingSchedule'
+    'ILPScheduler',
 ]

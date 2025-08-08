@@ -4,7 +4,6 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('rostering_app', '0002_alter_shift_name_alter_shift_unique_together'),
     ]

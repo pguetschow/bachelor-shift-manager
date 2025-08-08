@@ -34,5 +34,17 @@
       "color": "warning",
       "sunday_is_workday": true
     }
+  },
+  {
+    "model": "rostering_app.company",
+    "pk": 4,
+    "fields": {
+      "name": "Größeres Unternehmen",
+      "size": "medium",
+      "description": "60 Mitarbeiter, 4 Schichten",
+      "icon": "🏢",
+      "color": "info",
+      "sunday_is_workday": true
+    }
   }
 ]

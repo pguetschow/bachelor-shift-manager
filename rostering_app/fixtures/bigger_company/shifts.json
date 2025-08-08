@@ -1,62 +1,50 @@
 [
   {
     "model": "rostering_app.shift",
-    "pk": 3001,
+    "pk": 4001,
     "fields": {
-      "company": 3,
+      "company": 4,
       "name": "EarlyShift",
       "start": "06:00:00",
       "end": "14:00:00",
-      "min_staff": 7,
-      "max_staff": 11
+      "min_staff": 6,
+      "max_staff": 9
     }
   },
   {
     "model": "rostering_app.shift",
-    "pk": 3004,
+    "pk": 4002,
     "fields": {
-      "company": 3,
+      "company": 4,
       "name": "MorningShift",
       "start": "10:00:00",
       "end": "18:00:00",
-      "min_staff": 12,
-      "max_staff": 17
+      "min_staff": 7,
+      "max_staff": 14
     }
   },
   {
     "model": "rostering_app.shift",
-    "pk": 3005,
+    "pk": 4003,
     "fields": {
-      "company": 3,
-      "name": "SupportShift",
-      "start": "12:00:00",
-      "end": "20:00:00",
-      "min_staff": 4,
-      "max_staff": 7
-    }
-  },
-  {
-    "model": "rostering_app.shift",
-    "pk": 3002,
-    "fields": {
-      "company": 3,
+      "company": 4,
       "name": "LateShift",
       "start": "14:00:00",
       "end": "22:00:00",
-      "min_staff": 12,
-      "max_staff": 16
+      "min_staff": 7,
+      "max_staff": 14
     }
   },
   {
     "model": "rostering_app.shift",
-    "pk": 3003,
+    "pk": 4004,
     "fields": {
-      "company": 3,
+      "company": 4,
       "name": "NightShift",
       "start": "22:00:00",
       "end": "06:00:00",
-      "min_staff": 12,
-      "max_staff": 15
+      "min_staff": 7,
+      "max_staff": 11
     }
   }
 ]

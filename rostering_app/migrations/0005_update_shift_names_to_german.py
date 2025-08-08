@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('rostering_app', '0004_company_sunday_is_workday_alter_shift_name'),
     ]
@@ -13,6 +12,8 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='shift',
             name='name',
-            field=models.CharField(choices=[('EarlyShift', 'Frühschicht'), ('MorningShift', 'Morgenschicht'), ('LateShift', 'Spätschicht'), ('NightShift', 'Nachtschicht')], max_length=20),
+            field=models.CharField(
+                choices=[('EarlyShift', 'Frühschicht'), ('MorningShift', 'Morgenschicht'), ('LateShift', 'Spätschicht'),
+                         ('NightShift', 'Nachtschicht')], max_length=20),
         ),
     ]

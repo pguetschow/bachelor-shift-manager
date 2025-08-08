@@ -26,7 +26,7 @@
             <div 
               v-for="company in companies" 
               :key="company.id"
-              class="col-md-4"
+              class="col-md-6"
             >
               <div 
                 class="card h-100 text-center company-card" 

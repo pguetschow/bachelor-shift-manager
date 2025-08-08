@@ -1,7 +1,8 @@
-from rostering_app.models import Employee as DjangoEmployee, Shift as DjangoShift, ScheduleEntry as DjangoScheduleEntry, Company
-from scheduling_core.base import Employee as CoreEmployee, Shift as CoreShift, ScheduleEntry as CoreScheduleEntry
-from datetime import date, time
+from datetime import date
 from typing import Set, List
+
+from rostering_app.models import Employee as DjangoEmployee, Shift as DjangoShift, ScheduleEntry as DjangoScheduleEntry
+from scheduling_core.base import Employee as CoreEmployee, Shift as CoreShift, ScheduleEntry as CoreScheduleEntry
 
 
 def employee_to_core(employee: DjangoEmployee) -> CoreEmployee:
@@ -25,6 +26,7 @@ def employee_to_core(employee: DjangoEmployee) -> CoreEmployee:
         preferred_shifts=preferred_shifts,
     )
 
+
 def shift_to_core(shift: DjangoShift) -> CoreShift:
     """
     Convert a Django Shift model instance to a core Shift dataclass.
@@ -40,6 +42,7 @@ def shift_to_core(shift: DjangoShift) -> CoreShift:
         duration=float(shift.get_duration()) if hasattr(shift, 'get_duration') else 0.0,
     )
 
+
 def scheduleentry_to_core(entry: DjangoScheduleEntry) -> CoreScheduleEntry:
     """
     Convert a Django ScheduleEntry model instance to a core ScheduleEntry dataclass.
@@ -50,11 +53,14 @@ def scheduleentry_to_core(entry: DjangoScheduleEntry) -> CoreScheduleEntry:
         shift_id=int(getattr(entry.shift, 'id')),
     )
 
+
 def employees_to_core(employees: List[DjangoEmployee]) -> List[CoreEmployee]:
     return [employee_to_core(e) for e in employees]
+
 
 def shifts_to_core(shifts: List[DjangoShift]) -> List[CoreShift]:
     return [shift_to_core(s) for s in shifts]
 
+
 def scheduleentries_to_core(entries: List[DjangoScheduleEntry]) -> List[CoreScheduleEntry]:
-    return [scheduleentry_to_core(e) for e in entries] 
+    return [scheduleentry_to_core(e) for e in entries]

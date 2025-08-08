@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('rostering_app', '0005_update_shift_names_to_german'),
     ]
@@ -14,7 +13,9 @@ class Migration(migrations.Migration):
             name='BenchmarkStatus',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('status', models.CharField(choices=[('idle', 'Idle'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed')], default='idle', max_length=20)),
+                ('status', models.CharField(
+                    choices=[('idle', 'Idle'), ('running', 'Running'), ('completed', 'Completed'),
+                             ('failed', 'Failed')], default='idle', max_length=20)),
                 ('started_at', models.DateTimeField(blank=True, null=True)),
                 ('completed_at', models.DateTimeField(blank=True, null=True)),
                 ('load_fixtures', models.BooleanField(default=False)),

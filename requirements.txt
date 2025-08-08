@@ -8,3 +8,7 @@ pulp>=2.0.0
 mysqlclient>=2.2.0
 dj-database-url>=1.0.0
 django-environ>=0.10.0 
+deap~=1.4.3
+environ~=1.0
+pandas~=2.1.1
+scipy~=1.11.3

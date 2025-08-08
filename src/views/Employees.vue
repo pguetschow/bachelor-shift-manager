@@ -101,7 +101,7 @@
                       class="sortable-header"
                       :class="{ 'sorted': sortKey === 'monthly_stats.absences' }"
                     >
-                      Fehltage (Monat)
+                      Geplante Abwesenheiten (Monat)
                       <i class="bi" :class="getSortIcon('monthly_stats.absences')"></i>
                     </th>
                     <th 
@@ -346,13 +346,13 @@ const getUtilizationClass = (percentage) => {
 const previousMonth = () => {
   const newDate = new Date(currentYear.value, currentMonth.value - 2)
   scheduleStore.setCurrentDate(newDate)
-  loadEmployeeData()
+  loadEmployeesData()
 }
 
 const nextMonth = () => {
   const newDate = new Date(currentYear.value, currentMonth.value)
   scheduleStore.setCurrentDate(newDate)
-  loadEmployeeData()
+  loadEmployeesData()
 }
 
 const loadEmployeeData = async () => {
