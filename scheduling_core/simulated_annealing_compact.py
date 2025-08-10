@@ -17,18 +17,20 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
 
     # ---------------------------------------------------------------------
     def __init__(
-        self,
-        *,
-        iterations: int = 2_000,
-        init_temp: float = 800.0,
-        final_temp: float = 1.0,
-        fairness_weight: int = 75_000,
-        sundays_off: bool = False,
+            self,
+            *,
+            iterations: int = 2_000,
+            init_temp: float = 800.0,
+            final_temp: float = 1.0,
+            fairness_weight: int = 75_000,
+            preference_weight: int = 50,  # bonus points for preferred shifts
+            sundays_off: bool = False,
     ) -> None:
         self.iterations = iterations
         self.init_temp = init_temp
         self.final_temp = final_temp
         self.fairness_weight = fairness_weight
+        self.preference_weight = preference_weight
 
     # public ----------------------------------------------------------------
     @property
@@ -57,12 +59,15 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         # 3) Pre‑compute "possible" hours (for fairness term) --------------
         self._compute_possible_hours()
 
-        # 4) Greedy seed ----------------------------------------------------
+        # 4) Build preference mapping ---------------------------------------
+        self._build_preference_mapping()
+
+        # 5) Greedy seed ----------------------------------------------------
         sol = self._initial_solution()
         best = sol.copy()
         best.cost = self._evaluate(best)
 
-        # 5) Main SA loop ---------------------------------------------------
+        # 6) Main SA loop ---------------------------------------------------
         temp = self.init_temp
         for it in range(self.iterations):
             neigh = self._neighbor(sol)
@@ -75,7 +80,7 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
             if temp < self.final_temp:
                 break
 
-        # 6) Final greedy fill to max_staff --------------------------------
+        # 7) Final greedy fill to max_staff --------------------------------
         self._greedy_fill(best)
         return best.to_entries()
 
@@ -117,6 +122,21 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                         self.possible_hours[emp.id] += sh.duration
 
     # ---------------------------------------------------------------------
+    # Build preference mapping
+    # ---------------------------------------------------------------------
+    def _build_preference_mapping(self) -> None:
+        """Build mapping of employee preferences for shifts."""
+        self.employee_preferences: Dict[int, set] = {}
+        for emp in self.p.employees:
+            # Get preferred shifts - check for various possible attribute names
+            prefs = set()
+            if hasattr(emp, 'preferred_shifts') and emp.preferred_shifts:
+                prefs = set(emp.preferred_shifts)
+            elif hasattr(emp, 'preferences') and emp.preferences:
+                prefs = set(emp.preferences)
+            self.employee_preferences[emp.id] = prefs
+
+    # ---------------------------------------------------------------------
     # Greedy seed construction
     # ---------------------------------------------------------------------
     def _initial_solution(self) -> Solution:
@@ -145,7 +165,11 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                     cand = self._available_emps(d, sh, sol, monthly, yearly)
                     if not cand:
                         break
-                    chosen = random.choice(cand)
+
+                    # Prefer employees who like this shift
+                    preferred = [eid for eid in cand if sh.name in self.employee_preferences.get(eid, set())]
+                    chosen = random.choice(preferred) if preferred else random.choice(cand)
+
                     sol.assignments[key].append(chosen)
                     monthly[chosen][ym] += sh.duration
                     yearly[chosen] += sh.duration
@@ -155,21 +179,18 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
     # Candidate employee filter (ABSENCE + REST + MONTH/YEAR caps)
     # ---------------------------------------------------------------------
     def _available_emps(
-        self,
-        day: date,
-        shift,
-        sol: Solution,
-        monthly: Dict[int, Dict[Tuple[int, int], int]],
-        yearly: Dict[int, int],
-        *,
-        need: Optional[int] = None,
+            self,
+            day: date,
+            shift,
+            sol: Solution,
+            monthly: Dict[int, Dict[Tuple[int, int], int]],
+            yearly: Dict[int, int],
+            *,
+            need: Optional[int] = None,
     ) -> List[int]:
         ym = (day.year, day.month)
-        res: List[int] = []
+        candidates: List[int] = []
         for emp in self.p.employees:
-            if need is not None and len(res) >= need:
-                break
-
             if day in emp.absence_dates:
                 continue
 
@@ -191,8 +212,20 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
             if self._rest_violation(emp.id, day, shift, sol):
                 continue
 
-            res.append(emp.id)
-        return res
+            candidates.append(emp.id)
+
+        # If we need a specific number, prioritize preferred employees
+        if need is not None:
+            preferred = [eid for eid in candidates if shift.name in self.employee_preferences.get(eid, set())]
+            non_preferred = [eid for eid in candidates if shift.name not in self.employee_preferences.get(eid, set())]
+
+            # Take preferred first, then non-preferred
+            result = preferred[:need]
+            if len(result) < need:
+                result.extend(non_preferred[:need - len(result)])
+            return result[:need]
+
+        return candidates
 
     # ---------------------------------------------------------------------
     # Rest‑period helper (unchanged)
@@ -201,11 +234,11 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         prev, nxt = day - timedelta(days=1), day + timedelta(days=1)
         for sh in self.p.shifts:
             if eid in sol.assignments.get((prev, sh.id), []) and self.kpi.violates_rest_period(
-                sh, shift, prev
+                    sh, shift, prev
             ):
                 return True
             if eid in sol.assignments.get((nxt, sh.id), []) and self.kpi.violates_rest_period(
-                shift, sh, day
+                    shift, sh, day
             ):
                 return True
         return False
@@ -237,6 +270,10 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                 yearly_hrs[eid] += sh.duration
                 worked_hrs[eid] += sh.duration
 
+        # Calculate preference bonus
+        pref_bonus = self._calculate_preference_bonus(sol)
+        bonus += pref_bonus
+
         # Monthly & yearly caps -------------------------------------------
         for emp in self.p.employees:
             for ym, hrs in monthly_hrs[emp.id].items():
@@ -258,6 +295,16 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
             fair_pen = (max(ratios) - min(ratios)) * self.fairness_weight
 
         return pen + bonus + fair_pen
+
+    def _calculate_preference_bonus(self, sol: Solution) -> int:
+        """Calculate bonus points for assigning employees to preferred shifts."""
+        bonus = 0
+        for (day, sh_id), emp_ids in sol.assignments.items():
+            shift = self.shift_by_id[sh_id]
+            for emp_id in emp_ids:
+                if shift.name in self.employee_preferences.get(emp_id, set()):
+                    bonus += self.preference_weight
+        return bonus
 
     def _rest_violations(self, sol: Solution) -> int:
         v = 0
@@ -301,7 +348,13 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
         else:  # try to add
             cand = self._available_emps(day, shift, nb, monthly, yearly)
             if cand:
-                chosen = random.choice(cand)
+                # Bias towards preferred employees
+                preferred = [eid for eid in cand if shift.name in self.employee_preferences.get(eid, set())]
+                if preferred and random.random() < 0.7:  # 70% chance to pick preferred
+                    chosen = random.choice(preferred)
+                else:
+                    chosen = random.choice(cand)
+
                 assigned.append(chosen)
                 ym = (day.year, day.month)
                 monthly[chosen][ym] += shift.duration
@@ -330,7 +383,11 @@ class SimulatedAnnealingScheduler(SchedulingAlgorithm):
                     cand = self._available_emps(d, sh, sol, monthly, yearly)
                     if not cand:
                         break
-                    eid = random.choice(cand)
+
+                    # Prefer employees who like this shift
+                    preferred = [eid for eid in cand if sh.name in self.employee_preferences.get(eid, set())]
+                    eid = random.choice(preferred) if preferred else random.choice(cand)
+
                     sol.assignments[key].append(eid)
                     monthly[eid][ym] += sh.duration
                     yearly[eid] += sh.duration

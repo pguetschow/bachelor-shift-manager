@@ -29,7 +29,7 @@ from .base import ScheduleEntry, SchedulingAlgorithm, SchedulingProblem, Solutio
 from .utils import create_empty_solution, get_weeks
 
 
-# ───────────────────────────── helpers ────────────────────────────────
+# ───────────────────────── helpers ────────────────────────────────
 
 
 def _build_numpy_templates(problem: SchedulingProblem):
@@ -85,6 +85,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             min_util_factor: float = 0.90,
             monthly_ot_cap: float = 0.05,
             fairness_weight: int = 5_000_000,  # weight for (alpha_max-alpha_min) penalty
+            preference_weight: int = 5,  # bonus points for preferred shifts
             **_legacy,
     ) -> None:
         # user overrides
@@ -103,6 +104,8 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         self.monthly_ot_cap = monthly_ot_cap
         # fairness
         self.fairness_weight = fairness_weight
+        # preferences (bonus for assigning preferred shifts)
+        self.preference_weight = preference_weight
 
         # overtime allowance disabled
         self.yearly_allowance = 0
@@ -132,6 +135,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         self._build_absence_bitset()
         self._compute_possible_hours()
 
+        # build preference mapping
+        self._build_preference_mapping()
+
         # yearly limits
         self.yearly_caps = {
             emp.id: self.kpi.calculate_expected_yearly_hours(emp, self.problem.start_date.year)
@@ -159,9 +165,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         t0 = time.time()
 
         while (
-            gen < max_gens
-            and (time.time() - t0) < time_limit
-            and gens_no_improve < self.patience
+                gen < max_gens
+                and (time.time() - t0) < time_limit
+                and gens_no_improve < self.patience
         ):
             gen += 1
             children: List[Tuple[Solution, float]] = []
@@ -218,6 +224,18 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                         eid = self.problem.employees[eidx].id
                         self.possible_hours[eid] += duration
 
+    def _build_preference_mapping(self) -> None:
+        """Build mapping of employee preferences for shifts."""
+        self.employee_preferences: Dict[int, set] = {}
+        for emp in self.problem.employees:
+            # Get preferred shifts - check for various possible attribute names
+            prefs = set()
+            if hasattr(emp, 'preferred_shifts') and emp.preferred_shifts:
+                prefs = set(emp.preferred_shifts)
+            elif hasattr(emp, 'preferences') and emp.preferences:
+                prefs = set(emp.preferences)
+            self.employee_preferences[emp.id] = prefs
+
     # ---------------------- constructors ------------------------------
 
     def _create_random(self) -> Solution:
@@ -233,7 +251,14 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                     for emp in self.problem.employees
                     if not self.absent[self.emp_index[emp.id], d_idx]
                 ]
-                sol.assignments[(d, sh.id)] = random.sample(avail, min(need, len(avail)))
+
+                # Prefer employees who like this shift
+                preferred = [eid for eid in avail if sh.name in self.employee_preferences.get(eid, set())]
+                non_preferred = [eid for eid in avail if sh.name not in self.employee_preferences.get(eid, set())]
+
+                # Bias selection towards preferred employees
+                selection_pool = preferred * 3 + non_preferred  # 3x weight for preferred
+                sol.assignments[(d, sh.id)] = random.sample(selection_pool, min(need, len(selection_pool)))
         return sol
 
     def _create_greedy(self) -> Solution:
@@ -253,11 +278,17 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                         if not self.absent[self.emp_index[emp.id], d_idx]
                            and emp.id not in sol.assignments.get(key, [])
                            and week_hours[emp.id][wk] + sh.duration
-                           <= emp.max_hours_per_week * 0.975 #expect some days off
+                           <= emp.max_hours_per_week * 0.975  # expect some days off
                     ]
                     if not cand:
                         break
-                    chosen = min(cand, key=lambda eid: week_hours[eid][wk])
+
+                    # Prefer employees who like this shift, then by lowest hours
+                    def sort_key(eid):
+                        has_pref = sh.name in self.employee_preferences.get(eid, set())
+                        return (not has_pref, week_hours[eid][wk])  # preferred first, then by hours
+
+                    chosen = min(cand, key=sort_key)
                     sol.assignments.setdefault(key, []).append(chosen)
                     week_hours[chosen][wk] += sh.duration
         return sol
@@ -296,7 +327,12 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                 if not self.absent[self.emp_index[e.id], d_idx] and e.id not in lst
             ]
             if cand:
-                lst.append(random.choice(cand))
+                # Bias towards preferred employees in mutation too
+                preferred = [eid for eid in cand if sh.name in self.employee_preferences.get(eid, set())]
+                if preferred and random.random() < 0.7:  # 70% chance to pick preferred
+                    lst.append(random.choice(preferred))
+                else:
+                    lst.append(random.choice(cand))
         sol.assignments[key] = lst
 
     # --------------------------- fitness ------------------------------
@@ -335,6 +371,9 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
         week_pen = self._weekly_pen(assign_mat) * 2_000_000
         month_pen = self._monthly_pen(assign_mat, self.shift_hours) * 2_000_000
 
+        # Calculate preference bonus
+        pref_bonus = self._calculate_preference_bonus(sol)
+
         # ───── Vectorized: employee workloads ─────────────────────────────
         # (D, S, E) × (S,) → (D, E)
         emp_daily_hours = np.tensordot(assign_mat, self.shift_hours, axes=(1, 0))
@@ -364,9 +403,23 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
             # Quadratically punish imbalance so extremes explode in cost
             fair_pen = int((delta ** 2) * self.fairness_weight)
 
-        cost = cov_pen + rest_pen + week_pen + month_pen + fair_pen + overtime_pen + undertime_pen
+        cost = cov_pen + rest_pen + week_pen + month_pen + fair_pen + overtime_pen + undertime_pen - pref_bonus
         self._best = min(getattr(self, "_best", float("inf")), cost)
         return cost
+
+    def _calculate_preference_bonus(self, sol: Solution) -> int:
+        """Calculate bonus points for assigning employees to preferred shifts."""
+        bonus = 0
+        for (day, sh_id), emp_ids in sol.assignments.items():
+            if day not in self.day_index:
+                continue
+
+            shift = self.problem.shift_by_id[sh_id]
+            for emp_id in emp_ids:
+                if shift.name in self.employee_preferences.get(emp_id, set()):
+                    bonus += self.preference_weight
+
+        return bonus
 
     # ------------------ helpers for fitness --------------------------
 
@@ -445,7 +498,11 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                     ]
                     if not free:
                         break
-                    sol.assignments.setdefault(key, []).append(random.choice(free))
+
+                    # Prefer employees who like this shift
+                    preferred = [eid for eid in free if sh.name in self.employee_preferences.get(eid, set())]
+                    chosen = random.choice(preferred) if preferred else random.choice(free)
+                    sol.assignments.setdefault(key, []).append(chosen)
 
     def _resolve_rest_conflicts(self, sol: Solution) -> None:
         """Detect & fix any remaining rest violations by reassigning or dropping."""
@@ -508,8 +565,13 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                                             break
                             if not rest_ok:
                                 continue
-                            lst_curr.append(cid)
-                            break
+
+                            # Prefer employees who like this shift
+                            is_preferred = sh_curr.name in self.employee_preferences.get(cid, set())
+                            if is_preferred or not [c for c in self.problem.employees
+                                                    if sh_curr.name in self.employee_preferences.get(c.id, set())]:
+                                lst_curr.append(cid)
+                                break
                     sol.assignments[key_curr] = lst_curr
 
     def _fill_to_capacity(self, sol: Solution) -> None:
@@ -561,6 +623,12 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
                         cand.append(eid)
                     if not cand:
                         break
-                    chosen = min(cand, key=lambda eid: week_hours[eid][wk])
+
+                    # Prefer employees who like this shift, then by lowest weekly hours
+                    def sort_key(eid):
+                        has_pref = sh.name in self.employee_preferences.get(eid, set())
+                        return (not has_pref, week_hours[eid][wk])
+
+                    chosen = min(cand, key=sort_key)
                     sol.assignments.setdefault(key, []).append(chosen)
                     week_hours[chosen][wk] += sh.duration
