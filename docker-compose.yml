@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: shift-manager-backend
+    container_name: shift-manager-server
     restart: unless-stopped
     environment:
       - DEBUG=True
@@ -34,7 +34,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: shift-manager-frontend
+    container_name: shift-manager-spa
     restart: unless-stopped
     ports:
       - "80:80"
@@ -46,7 +46,7 @@ services:
   # MySQL Database
   db:
     image: mysql:8.0
-    container_name: shift-manager-db
+    container_name: shift-manager-database
     restart: unless-stopped
     environment:
       - MYSQL_DATABASE=shift_manager

@@ -8,6 +8,8 @@ import time
 import traceback
 from datetime import date, timedelta
 from typing import Dict, List, Any
+import numpy as np
+from scipy import stats
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -20,6 +22,12 @@ from scheduling_core import ILPScheduler
 from scheduling_core.base import SchedulingProblem
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
 from scheduling_core.simulated_annealing_compact import SimulatedAnnealingScheduler
+
+# Define which algorithms are heuristics (non-deterministic)
+HEURISTIC_ALGORITHMS = {
+    'Genetic Algorithm',
+    'Simulated Annealing'
+}
 
 
 class Command(BaseCommand):
@@ -46,11 +54,18 @@ class Command(BaseCommand):
             type=str,
             help='Run only specific company (small_company, medium_company, large_company)',
         )
+        parser.add_argument(
+            '--runs',
+            type=int,
+            default=5,
+            help='Number of runs for heuristic algorithms',
+        )
 
     def handle(self, *args, **options):
         load_fixtures = options.get('load_fixtures', False)
         algorithm_filter = options.get('algorithm')
         company_filter = options.get('company')
+        num_runs = options.get('runs', 20)
 
         try:
             test_cases = [
@@ -77,6 +92,12 @@ class Command(BaseCommand):
                     'display_name': 'Großes Unternehmen (100 MA, 5 Schichten)',
                     'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
                     'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
+                },
+                {
+                    'name': 'tight_company',
+                    'display_name': 'Mittleres Unternehmen (eng) (18 MA, 3 Schichten)',
+                    'employee_fixture': 'rostering_app/fixtures/tight_company/employees.json',
+                    'shift_fixture': 'rostering_app/fixtures/tight_company/shifts.json'
                 }
             ]
 
@@ -141,7 +162,8 @@ class Command(BaseCommand):
                     'small_company': 'Kleines Unternehmen',
                     'medium_company': 'Mittleres Unternehmen',
                     'bigger_company': 'Größeres Unternehmen',
-                    'large_company': 'Großes Unternehmen'
+                    'large_company': 'Großes Unternehmen',
+                    'tight_company': 'Knappes Unternehmen'
                 }
 
                 company_name = company_name_mapping.get(test_case['name'])
@@ -172,36 +194,105 @@ class Command(BaseCommand):
                 for algorithm in algorithms:
                     self.stdout.write(f"\nTesting {algorithm.name}...")
                     self._clear_algorithm_company_entries(company, algorithm.name)
-                    start_time = time.time()
-                    try:
-                        entries = algorithm.solve(problem)
-                        runtime = time.time() - start_time
-                        self._save_entries(entries, algorithm.name)
-                        kpis = self._calculate_comprehensive_kpis(company, algorithm.name)
+                    
+                    # Determine number of runs based on algorithm type
+                    runs = num_runs if algorithm.name in HEURISTIC_ALGORITHMS else 1
+                    
+                    if runs > 1:
+                        self.stdout.write(f"Running {algorithm.name} {runs} times (heuristic algorithm)...")
+                        import random
+                        random.seed(42)  # Use same seed for each run
+                        np.random.seed(42)  # Also set numpy random seed
+                    
+                    run_results = []
+                    all_runtimes = []
+                    all_kpis = []
+                    all_entries_counts = []
+                    
+                    for run_idx in range(runs):
+                        if runs > 1:
+                            self.stdout.write(f"  Run {run_idx + 1}/{runs}...")
 
+                        start_time = time.time()
+                        try:
+                            entries = algorithm.solve(problem)
+                            runtime = time.time() - start_time
+                            
+                            # Only save entries for the first run to avoid database conflicts
+                            if run_idx == 0:
+                                self._save_entries(entries, algorithm.name)
+                            
+                            kpis = self._calculate_comprehensive_kpis(company, algorithm.name)
+                            
+                            run_results.append({
+                                'runtime': runtime,
+                                'kpis': kpis,
+                                'status': 'success',
+                                'entries_count': len(entries)
+                            })
+                            
+                            all_runtimes.append(runtime)
+                            all_kpis.append(kpis)
+                            all_entries_counts.append(len(entries))
+                            
+                            if runs > 1:
+                                self.stdout.write(f"    ✓ Run {run_idx + 1} completed in {runtime:.2f}s")
+                            
+                        except Exception as e:
+                            runtime = time.time() - start_time
+                            run_results.append({
+                                'runtime': runtime,
+                                'kpis': None,
+                                'status': 'failed',
+                                'error': str(e)
+                            })
+                            all_runtimes.append(runtime)
+                            
+                            if runs > 1:
+                                self.stdout.write(f"    ✗ Run {run_idx + 1} failed: {str(e)}")
+                            else:
+                                self.stdout.write(self.style.ERROR(f"✗ {algorithm.name} failed: {str(e)}"))
+                                traceback.print_exc()
+                    
+                    # Calculate statistics for successful runs
+                    successful_runs = [r for r in run_results if r['status'] == 'success']
+                    if successful_runs:
+                        # Calculate runtime statistics
+                        runtime_stats = self._calculate_statistics(all_runtimes)
+                        
+                        # Calculate KPI statistics
+                        kpi_stats = self._calculate_kpi_statistics(all_kpis)
+                        
+                        # Calculate entries count statistics
+                        entries_stats = self._calculate_statistics(all_entries_counts)
+                        
                         results[algorithm.name] = {
-                            'runtime': runtime,
-                            'kpis': kpis,
-                            'status': 'success',
-                            'entries_count': len(entries)
+                            'runs': runs,
+                            'successful_runs': len(successful_runs),
+                            'failed_runs': len(run_results) - len(successful_runs),
+                            'runtime_stats': runtime_stats,
+                            'kpis_stats': kpi_stats,
+                            'entries_count_stats': entries_stats,
+                            'individual_runs': run_results,
+                            'status': 'success'
                         }
-
+                        
+                        avg_runtime = runtime_stats['mean']
                         self.stdout.write(self.style.SUCCESS(
-                            f"✓ {algorithm.name} completed in {runtime:.2f}s with {len(entries)} entries"
+                            f"✓ {algorithm.name} completed {len(successful_runs)}/{runs} runs successfully "
+                            f"(avg runtime: {avg_runtime:.2f}s)"
                         ))
-
-                    except Exception as e:
-                        runtime = time.time() - start_time
+                    else:
                         results[algorithm.name] = {
-                            'runtime': runtime,
-                            'kpis': None,
-                            'status': 'failed',
-                            'error': str(e)
+                            'runs': runs,
+                            'successful_runs': 0,
+                            'failed_runs': len(run_results),
+                            'individual_runs': run_results,
+                            'status': 'failed'
                         }
                         self.stdout.write(self.style.ERROR(
-                            f"✗ {algorithm.name} failed: {str(e)}"
+                            f"✗ {algorithm.name} failed all {runs} runs"
                         ))
-                        traceback.print_exc()
 
                 all_results[test_case['name']] = {
                     'display_name': test_case['display_name'],
@@ -218,7 +309,7 @@ class Command(BaseCommand):
 
             overall_file = os.path.join(export_dir, 'benchmark_results.json')
             with open(overall_file, 'w', encoding='utf-8') as f:
-                json.dump(all_results, f, indent=4, default=str)
+                json.dump(all_results, f, indent=4, default=str, allow_nan=False)
 
             EnhancedAnalytics.generate_comparison_graphs_across_test_cases(all_results, export_dir)
 
@@ -507,6 +598,182 @@ class Command(BaseCommand):
         cumsum = sum((i + 1) * val for i, val in enumerate(sorted_values))
         return (2 * cumsum) / (n * total) - (n + 1) / n
 
+    def _calculate_statistics(self, values: List[float], confidence_level: float = 0.95) -> Dict[str, Any]:
+        """Calculate mean, variance, and confidence interval for a list of values."""
+        if not values:
+            return {
+                'mean': 0.0,
+                'variance': 0.0,
+                'std_dev': 0.0,
+                'confidence_interval': (0.0, 0.0),
+                'min': 0.0,
+                'max': 0.0,
+                'count': 0
+            }
+        
+        values_array = np.array(values)
+        mean = float(np.mean(values_array))
+        
+        # Calculate variance and standard deviation only if we have more than one value
+        if len(values) > 1:
+            variance = float(np.var(values_array, ddof=1))  # Sample variance
+            std_dev = float(np.std(values_array, ddof=1))   # Sample standard deviation
+            
+            # Treat very small variances as zero (practically identical values)
+            # This handles floating-point precision issues where values are essentially the same
+            # Use relative threshold based on mean value
+            relative_threshold = max(abs(mean) * 1e-10, 1e-10)
+            if variance < relative_threshold:  # Threshold for "practically identical"
+                variance = 0.0
+                std_dev = 0.0
+        else:
+            variance = 0.0
+            std_dev = 0.0
+        
+        # Ensure no NaN values
+        if np.isnan(mean):
+            mean = 0.0
+        if np.isnan(variance):
+            variance = 0.0
+        if np.isnan(std_dev):
+            std_dev = 0.0
+        
+        # Calculate confidence interval
+        if len(values) > 1 and variance > 0:
+            try:
+                sem = stats.sem(values_array)
+                if sem > relative_threshold:  # Only calculate if standard error is meaningfully positive
+                    confidence_interval = stats.t.interval(
+                        confidence_level, 
+                        len(values) - 1, 
+                        loc=mean, 
+                        scale=sem
+                    )
+                    confidence_interval = (float(confidence_interval[0]), float(confidence_interval[1]))
+                    # Check for NaN values in confidence interval
+                    if np.isnan(confidence_interval[0]) or np.isnan(confidence_interval[1]):
+                        confidence_interval = (mean, mean)
+                else:
+                    # Standard error is too small, treat as identical values
+                    confidence_interval = (mean, mean)
+            except (ValueError, RuntimeWarning):
+                # Fallback if confidence interval calculation fails
+                confidence_interval = (mean, mean)
+        else:
+            # If variance is 0 (all values identical) or only one value, use mean as interval
+            confidence_interval = (mean, mean)
+        
+        min_val = float(np.min(values_array))
+        max_val = float(np.max(values_array))
+        
+        # Ensure no NaN values in min/max
+        if np.isnan(min_val):
+            min_val = mean
+        if np.isnan(max_val):
+            max_val = mean
+        
+        return {
+            'mean': mean,
+            'variance': variance,
+            'std_dev': std_dev,
+            'confidence_interval': confidence_interval,
+            'min': min_val,
+            'max': max_val,
+            'count': len(values)
+        }
+
+    def _calculate_nested_statistics(self, data: Dict[str, List[float]], confidence_level: float = 0.95) -> Dict[str, Any]:
+        """Calculate statistics for nested data structures."""
+        result = {}
+        for key, values in data.items():
+            if isinstance(values, list) and all(isinstance(v, (int, float)) for v in values):
+                result[key] = self._calculate_statistics(values, confidence_level)
+            elif isinstance(values, dict):
+                result[key] = self._calculate_nested_statistics(values, confidence_level)
+            else:
+                result[key] = values
+        return result
+
+    def _calculate_kpi_statistics(self, kpi_list: List[Dict[str, Any]], confidence_level: float = 0.95) -> Dict[str, Any]:
+        """Calculate statistics for KPI data across multiple runs."""
+        if not kpi_list:
+            return {}
+        
+        # Extract all numeric values from KPIs
+        kpi_values = defaultdict(list)
+        
+        for kpis in kpi_list:
+            if not kpis:
+                continue
+            self._extract_numeric_values(kpis, kpi_values)
+        
+        # Special handling for coverage_stats
+        coverage_stats = self._calculate_coverage_statistics(kpi_list, confidence_level)
+        
+        # Calculate statistics for each metric
+        result = {}
+        for metric_name, values in kpi_values.items():
+            if values:  # Only calculate if we have values
+                # Debug: Print some examples of values that are causing issues
+                if len(values) > 1 and any('fairness_metrics' in metric_name for _ in [1]):
+                    unique_values = len(set(values))
+                    if unique_values == 1:
+                        self.stdout.write(f"DEBUG: {metric_name} has {len(values)} identical values: {values[0]}")
+                    elif unique_values < len(values) * 0.1:  # Less than 10% unique values
+                        self.stdout.write(f"DEBUG: {metric_name} has {unique_values} unique values out of {len(values)} total")
+                
+                result[metric_name] = self._calculate_statistics(values, confidence_level)
+        
+        # Add coverage statistics to result
+        if coverage_stats:
+            result['coverage_stats'] = coverage_stats
+        
+        return result
+
+    def _calculate_coverage_statistics(self, kpi_list: List[Dict[str, Any]], confidence_level: float = 0.95) -> Dict[str, Any]:
+        """Calculate statistics for coverage data across multiple runs."""
+        if not kpi_list:
+            return {}
+        
+        # Collect coverage data from all runs
+        all_coverage_data = []
+        for kpis in kpi_list:
+            if kpis and 'coverage_stats' in kpis:
+                all_coverage_data.append(kpis['coverage_stats'])
+        
+        if not all_coverage_data:
+            return {}
+        
+        # Group coverage percentages by shift name
+        shift_coverage_data = defaultdict(list)
+        
+        for coverage_stats in all_coverage_data:
+            for shift_stat in coverage_stats:
+                shift_name = shift_stat['shift']['name']
+                coverage_percentage = shift_stat['coverage_percentage']
+                shift_coverage_data[shift_name].append(coverage_percentage)
+        
+        # Calculate statistics for each shift
+        result = {}
+        for shift_name, coverage_values in shift_coverage_data.items():
+            if coverage_values:
+                result[shift_name] = self._calculate_statistics(coverage_values, confidence_level)
+        
+        return result
+
+    def _extract_numeric_values(self, data: Any, kpi_values: Dict[str, List[float]], prefix: str = ""):
+        """Recursively extract numeric values from nested KPI data."""
+        if isinstance(data, dict):
+            for key, value in data.items():
+                new_prefix = f"{prefix}.{key}" if prefix else key
+                self._extract_numeric_values(value, kpi_values, new_prefix)
+        elif isinstance(data, list):
+            for i, item in enumerate(data):
+                new_prefix = f"{prefix}[{i}]" if prefix else f"[{i}]"
+                self._extract_numeric_values(item, kpi_values, new_prefix)
+        elif isinstance(data, (int, float)):
+            kpi_values[prefix].append(float(data))
+
     def _save_test_results(self, test_name: str, results: Dict, export_dir: str):
         test_dir = os.path.join(export_dir, test_name)
         if not os.path.exists(test_dir):
@@ -514,7 +781,7 @@ class Command(BaseCommand):
 
         results_file = os.path.join(test_dir, 'results.json')
         with open(results_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=4, default=str)
+            json.dump(results, f, indent=4, default=str, allow_nan=False)
 
     def _generate_enhanced_test_graphs_with_analytics(self, test_name: str, results: Dict, export_dir: str, company):
         self.stdout.write(f"Generating graphs for {test_name}...")

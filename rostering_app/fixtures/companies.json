@@ -46,5 +46,17 @@
       "color": "info",
       "sunday_is_workday": true
     }
+  },
+  {
+    "model": "rostering_app.company",
+    "pk": 5,
+    "fields": {
+      "name": "Knappes Unternehmen",
+      "size": "tight",
+      "description": "18 Mitarbeiter, 3 Schichten mit sehr knappen Personalschlüssel",
+      "icon": "⚠️",
+      "color": "danger",
+      "sunday_is_workday": false
+    }
   }
 ]
