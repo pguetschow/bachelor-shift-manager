@@ -765,7 +765,7 @@ class EnhancedAnalytics:
         # Define fairness metrics to compare
         fairness_metrics = [
             ('jain_index', 'Jain-Fairness-Index', 'Index'),
-            # ('gini_overtime', 'Gini-Koeffizient (Überstunden)', 'Index'),
+            ('gini_overtime', 'Gini-Koeffizient (Überstunden)', 'Index'),
             # ('variance_hours', 'Varianz Arbeitsstunden', 'Stunden²'),
             # ('gini_coefficient', 'Gini-Koeffizient (Arbeitsstunden)', 'Index'),
             # ('hours_std_dev', 'Standardabweichung', 'Stunden'),

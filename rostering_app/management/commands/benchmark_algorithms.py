@@ -57,7 +57,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--runs',
             type=int,
-            default=5,
+            default=15,
             help='Number of runs for heuristic algorithms',
         )
 
