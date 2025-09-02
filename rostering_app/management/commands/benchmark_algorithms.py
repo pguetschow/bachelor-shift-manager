@@ -1,13 +1,15 @@
-"""Benchmark different scheduling algorithms across multiple test cases."""
+from __future__ import annotations
+
+import hashlib
+import inspect
 import json
 import os
 import statistics
-from collections import defaultdict
-from typing import Set
 import time
-import traceback
+from collections import defaultdict
 from datetime import date, timedelta
-from typing import Dict, List, Any
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
 from scipy import stats
 
@@ -15,18 +17,46 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from rostering_app.converters import employees_to_core, shifts_to_core
-from rostering_app.models import ScheduleEntry, Employee, Shift, Company
-from rostering_app.services.enhanced_analytics import EnhancedAnalytics
+from rostering_app.models import Company, Employee, Shift, ScheduleEntry
+
 from rostering_app.services.kpi_calculator import KPICalculator
+# Enhanced analytics is optional; guard import
+try:
+    from rostering_app.services.enhanced_analytics import EnhancedAnalytics
+except Exception:  # pragma: no cover
+    EnhancedAnalytics = None  # type: ignore
+
 from scheduling_core import ILPScheduler
 from scheduling_core.base import SchedulingProblem
 from scheduling_core.genetic_algorithm import GeneticAlgorithmScheduler
 from scheduling_core.simulated_annealing_compact import SimulatedAnnealingScheduler
 
-# Define which algorithms are heuristics (non-deterministic)
-HEURISTIC_ALGORITHMS = {
-    'Genetic Algorithm',
-    'Simulated Annealing'
+HEURISTIC_ALGORITHMS = {"Genetic Algorithm", "Simulated Annealing"}
+
+DEFAULT_TEST_CASES = [
+    {"name": "small_company", "display_name": "Kleines Unternehmen (10 MA, 2 Schichten)",
+     "employee_fixture": "rostering_app/fixtures/small_company/employees.json",
+     "shift_fixture": "rostering_app/fixtures/small_company/shifts.json"},
+    {"name": "medium_company", "display_name": "Mittleres Unternehmen (30 MA, 3 Schichten)",
+     "employee_fixture": "rostering_app/fixtures/medium_company/employees.json",
+     "shift_fixture": "rostering_app/fixtures/medium_company/shifts.json"},
+    {"name": "bigger_company", "display_name": "Größeres Unternehmen (70 MA, 4 Schichten)",
+     "employee_fixture": "rostering_app/fixtures/bigger_company/employees.json",
+     "shift_fixture": "rostering_app/fixtures/bigger_company/shifts.json"},
+    {"name": "large_company", "display_name": "Großes Unternehmen (100 MA, 5 Schichten)",
+     "employee_fixture": "rostering_app/fixtures/large_company/employees.json",
+     "shift_fixture": "rostering_app/fixtures/large_company/shifts.json"},
+    {"name": "tight_company", "display_name": "Mittleres Unternehmen (eng) (18 MA, 3 Schichten)",
+     "employee_fixture": "rostering_app/fixtures/tight_company/employees.json",
+     "shift_fixture": "rostering_app/fixtures/tight_company/shifts.json"},
+]
+
+COMPANY_NAME_MAP = {
+    "small_company": "Kleines Unternehmen",
+    "medium_company": "Mittleres Unternehmen",
+    "bigger_company": "Größeres Unternehmen",
+    "large_company": "Großes Unternehmen",
+    "tight_company": "Knappes Unternehmen",
 }
 
 
@@ -34,381 +64,342 @@ class Command(BaseCommand):
     help = "Benchmark scheduling algorithms across different company sizes"
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            '--load-fixtures',
-            action='store_true',
-            help='Load fixtures into database (clears existing data)',
-        )
-        parser.add_argument(
-            '--force',
-            action='store_true',
-            help='Force the benchmark to run even if it is already in progress',
-        )
-        parser.add_argument(
-            '--algorithm',
-            type=str,
-            help='Run only specific algorithm (LinearProgramming, GeneticAlgorithm, SimulatedAnnealing)',
-        )
-        parser.add_argument(
-            '--company',
-            type=str,
-            help='Run only specific company (small_company, medium_company, large_company)',
-        )
-        parser.add_argument(
-            '--runs',
-            type=int,
-            default=15,
-            help='Number of runs for heuristic algorithms',
-        )
+        parser.add_argument("--load-fixtures", action="store_true", help="Load fixtures and clear DB")
+        parser.add_argument("--force", action="store_true")
+        parser.add_argument("--algorithm", type=str, help="LinearProgramming, GeneticAlgorithm, CompactSA")
+        parser.add_argument("--company", type=str, help="small_company, medium_company, bigger_company, large_company, tight_company")
+        parser.add_argument("--runs", type=int, default=15)
+        parser.add_argument("--base-seed", type=int, default=42)
+        # enforce stochasticity through input shuffling
+        parser.add_argument("--shuffle-inputs", action="store_true",
+                            help="Shuffle employees/shifts order per run (only for heuristics by default).")
+        parser.add_argument("--shuffle-scope", type=str, default="both", choices=["employees", "shifts", "both"],
+                            help="Which inputs to shuffle when --shuffle-inputs is enabled.")
+        parser.add_argument("--shuffle-seed-offset", type=int, default=50000,
+                            help="Seed offset used for shuffling per run (base_seed + offset + run_idx).")
+        parser.add_argument("--shuffle-ilp", action="store_true",
+                            help="Also shuffle inputs for ILP (off by default).")
 
-    def handle(self, *args, **options):
-        load_fixtures = options.get('load_fixtures', False)
-        algorithm_filter = options.get('algorithm')
-        company_filter = options.get('company')
-        num_runs = options.get('runs', 20)
+    def handle(self, *args, **opts):
+        load_fixtures = opts.get("load_fixtures", False)
+        algo_filter = opts.get("algorithm")
+        company_filter = opts.get("company")
+        runs_default = int(opts.get("runs", 15))
+        base_seed = int(opts.get("base_seed", 42))
+        shuffle_inputs = bool(opts.get("shuffle_inputs", False))
+        shuffle_scope = opts.get("shuffle_scope", "both")
+        shuffle_seed_offset = int(opts.get("shuffle_seed_offset", 50000))
+        shuffle_ilp = bool(opts.get("shuffle_ilp", False))
 
-        try:
-            test_cases = [
-                {
-                    'name': 'small_company',
-                    'display_name': 'Kleines Unternehmen (10 MA, 2 Schichten)',
-                    'employee_fixture': 'rostering_app/fixtures/small_company/employees.json',
-                    'shift_fixture': 'rostering_app/fixtures/small_company/shifts.json'
-                },
-                {
-                    'name': 'medium_company',
-                    'display_name': 'Mittleres Unternehmen (30 MA, 3 Schichten)',
-                    'employee_fixture': 'rostering_app/fixtures/medium_company/employees.json',
-                    'shift_fixture': 'rostering_app/fixtures/medium_company/shifts.json'
-                },
-                {
-                    'name': 'bigger_company',
-                    'display_name': 'Größeres Unternehmen (70 MA, 4 Schichten)',
-                    'employee_fixture': 'rostering_app/fixtures/bigger_company/employees.json',
-                    'shift_fixture': 'rostering_app/fixtures/bigger_company/shifts.json'
-                },
-                {
-                    'name': 'large_company',
-                    'display_name': 'Großes Unternehmen (100 MA, 5 Schichten)',
-                    'employee_fixture': 'rostering_app/fixtures/large_company/employees.json',
-                    'shift_fixture': 'rostering_app/fixtures/large_company/shifts.json'
-                },
-                {
-                    'name': 'tight_company',
-                    'display_name': 'Mittleres Unternehmen (eng) (18 MA, 3 Schichten)',
-                    'employee_fixture': 'rostering_app/fixtures/tight_company/employees.json',
-                    'shift_fixture': 'rostering_app/fixtures/tight_company/shifts.json'
-                }
-            ]
+        cases = list(DEFAULT_TEST_CASES)
+        if company_filter:
+            cases = [c for c in cases if c["name"] == company_filter]
+            if not cases:
+                self.stdout.write(self.style.ERROR(f"Company '{company_filter}' not found"))
+                return
 
-            if company_filter:
-                test_cases = [tc for tc in test_cases if tc['name'] == company_filter]
-                if not test_cases:
-                    self.stdout.write(self.style.ERROR(f"Company '{company_filter}' not found"))
-                    return
+        algos = [ILPScheduler, GeneticAlgorithmScheduler, SimulatedAnnealingScheduler]
+        if algo_filter:
+            amap = {
+                "LinearProgramming": ILPScheduler,
+                "GeneticAlgorithm": GeneticAlgorithmScheduler,
+                "CompactSA": SimulatedAnnealingScheduler,
+            }
+            if algo_filter not in amap:
+                self.stdout.write(self.style.ERROR(f"Algorithm '{algo_filter}' not found"))
+                return
+            algos = [amap[algo_filter]]
 
-            algorithm_classes = [
-                # CPScheduler,
-                ILPScheduler,
-                GeneticAlgorithmScheduler,
-                SimulatedAnnealingScheduler,
-            ]
+        os.makedirs("export", exist_ok=True)
 
-            if algorithm_filter:
-                algorithm_map = {
-                    'LinearProgramming': ILPScheduler,
-                    'GeneticAlgorithm': GeneticAlgorithmScheduler,
-                    'CompactSA': SimulatedAnnealingScheduler,
-                }
-                if algorithm_filter in algorithm_map:
-                    algorithm_classes = [algorithm_map[algorithm_filter]]
-                else:
-                    self.stdout.write(self.style.ERROR(f"Algorithm '{algorithm_filter}' not found"))
-                    return
+        if load_fixtures:
+            self._reset_db()
+            self._load_company_fixtures("rostering_app/fixtures/companies.json")
+            for c in cases:
+                self._load_fixtures(c["employee_fixture"], c["shift_fixture"])
+            self.stdout.write(self.style.SUCCESS("Fixtures loaded."))
+        else:
+            self.stdout.write("Using existing DB contents")
 
-            export_dir = 'export'
-            if not os.path.exists(export_dir):
-                os.makedirs(export_dir)
+        all_results: Dict[str, Any] = {}
 
-            if load_fixtures:
-                ScheduleEntry.objects.all().delete()
+        for tc in cases:
+            self.stdout.write("\n" + "=" * 60)
+            self.stdout.write(f"Benchmarking: {tc['display_name']}")
+            self.stdout.write("=" * 60 + "\n")
 
-                Employee.objects.all().delete()
-                Shift.objects.all().delete()
-                Company.objects.all().delete()
+            company_name = COMPANY_NAME_MAP.get(tc["name"])
+            company = (
+                Company.objects.filter(name=company_name).first()
+                if company_name
+                else Company.objects.filter(name__icontains=tc["name"].split('_')[0]).first()
+            )
+            if not company:
+                self.stdout.write(self.style.ERROR(f"Company not found for test case {tc['name']}"))
+                continue
 
-                self.stdout.write("Cleared database")
+            base_problem = self._create_problem(company)
 
-                # Load company fixtures first
-                self._load_company_fixtures('rostering_app/fixtures/companies.json')
-                self.stdout.write(f"Loaded {Company.objects.count()} companies")
+            results: Dict[str, Any] = {}
+            for Alg in algos:
+                alg = Alg(sundays_off=not company.sunday_is_workday)
+                name = alg.name
+                self.stdout.write(f"\nTesting {name}...")
 
-                for test_case in test_cases:
-                    self._load_fixtures(test_case['employee_fixture'], test_case['shift_fixture'])
+                runs = runs_default if (name in HEURISTIC_ALGORITHMS or shuffle_ilp) else 1
+                prev_signature = None
 
-                self.stdout.write(
-                    f"Loaded {Employee.objects.count()} employees and {Shift.objects.count()} shifts total")
-            else:
-                self.stdout.write("Using existing database data (no fixtures loaded)")
+                run_results: List[Dict[str, Any]] = []
+                all_runtimes: List[float] = []
+                all_kpis: List[Dict[str, Any]] = []
+                all_entries_counts: List[int] = []
 
-            all_results = {}
-
-            for test_case in test_cases:
-                self.stdout.write(f"\n{'=' * 60}")
-                self.stdout.write(f"Benchmarking: {test_case['display_name']}")
-                self.stdout.write(f"{'=' * 60}\n")
-
-                company_name_mapping = {
-                    'small_company': 'Kleines Unternehmen',
-                    'medium_company': 'Mittleres Unternehmen',
-                    'bigger_company': 'Größeres Unternehmen',
-                    'large_company': 'Großes Unternehmen',
-                    'tight_company': 'Knappes Unternehmen'
-                }
-
-                company_name = company_name_mapping.get(test_case['name'])
-                self.stdout.write(f"Looking for company: '{company_name}' for test case '{test_case['name']}'")
-
-                if company_name:
-                    company = Company.objects.filter(name=company_name).first()
-                else:
-                    company = Company.objects.filter(name__icontains=test_case['name'].split('_')[0]).first()
-
-                self.stdout.write(f"Using company: {company.name if company else 'NOT FOUND'}")
-                if company:
-                    self.stdout.write(f"Company settings: sunday_is_workday={company.sunday_is_workday}")
-
-                if not company:
-                    self.stdout.write(self.style.ERROR(f"Company not found for test case {test_case['name']}"))
-                    continue
-
-                problem = self._create_problem(company)
-                self.stdout.write(
-                    f"Problem created with {len(problem.employees)} employees and {len(problem.shifts)} shifts")
-
-                algorithms = []
-                for algorithm_class in algorithm_classes:
-                    algorithms.append(algorithm_class(sundays_off=not company.sunday_is_workday))
-
-                results = {}
-                for algorithm in algorithms:
-                    self.stdout.write(f"\nTesting {algorithm.name}...")
-                    self._clear_algorithm_company_entries(company, algorithm.name)
-                    
-                    # Determine number of runs based on algorithm type
-                    runs = num_runs if algorithm.name in HEURISTIC_ALGORITHMS else 1
-                    
+                for run_idx in range(runs):
                     if runs > 1:
-                        self.stdout.write(f"Running {algorithm.name} {runs} times (heuristic algorithm)...")
+                        self.stdout.write(f"  Run {run_idx + 1}/{runs}...")
+
+                    # Rebuild problem if we plan to shuffle inputs per run
+                    problem = base_problem
+                    if shuffle_inputs and (name in HEURISTIC_ALGORITHMS or shuffle_ilp):
+                        problem = self._create_problem(company)  # fresh
+                        shuffle_seed = base_seed + shuffle_seed_offset + run_idx
+                        problem = self._maybe_shuffle_problem(problem, shuffle_seed, shuffle_scope)
+                        self.stdout.write(f"    ↳ Shuffled {shuffle_scope} with seed {shuffle_seed}")
+
+                    # Unique seeds for heuristics
+                    if name in HEURISTIC_ALGORITHMS:
                         import random
-                        random.seed(42)  # Use same seed for each run
-                        np.random.seed(42)  # Also set numpy random seed
-                    
-                    run_results = []
-                    all_runtimes = []
-                    all_kpis = []
-                    all_entries_counts = []
-                    
-                    for run_idx in range(runs):
-                        if runs > 1:
-                            self.stdout.write(f"  Run {run_idx + 1}/{runs}...")
-
-                        start_time = time.time()
+                        random.seed(base_seed + run_idx)
+                        np.random.seed(base_seed + run_idx)
+                        # Try to also pass a seed directly into the algorithm if supported
                         try:
-                            entries = algorithm.solve(problem)
-                            runtime = time.time() - start_time
-                            
-                            # Only save entries for the first run to avoid database conflicts
-                            if run_idx == 0:
-                                self._save_entries(entries, algorithm.name)
-                            
-                            kpis = self._calculate_comprehensive_kpis(company, algorithm.name)
-                            
-                            run_results.append({
-                                'runtime': runtime,
-                                'kpis': kpis,
-                                'status': 'success',
-                                'entries_count': len(entries)
-                            })
-                            
-                            all_runtimes.append(runtime)
-                            all_kpis.append(kpis)
-                            all_entries_counts.append(len(entries))
-                            
-                            if runs > 1:
-                                self.stdout.write(f"    ✓ Run {run_idx + 1} completed in {runtime:.2f}s")
-                            
-                        except Exception as e:
-                            runtime = time.time() - start_time
-                            run_results.append({
-                                'runtime': runtime,
-                                'kpis': None,
-                                'status': 'failed',
-                                'error': str(e)
-                            })
-                            all_runtimes.append(runtime)
-                            
-                            if runs > 1:
-                                self.stdout.write(f"    ✗ Run {run_idx + 1} failed: {str(e)}")
-                            else:
-                                self.stdout.write(self.style.ERROR(f"✗ {algorithm.name} failed: {str(e)}"))
-                                traceback.print_exc()
-                    
-                    # Calculate statistics for successful runs
-                    successful_runs = [r for r in run_results if r['status'] == 'success']
-                    if successful_runs:
-                        # Calculate runtime statistics
-                        runtime_stats = self._calculate_statistics(all_runtimes)
-                        
-                        # Calculate KPI statistics
-                        kpi_stats = self._calculate_kpi_statistics(all_kpis)
-                        
-                        # Calculate entries count statistics
-                        entries_stats = self._calculate_statistics(all_entries_counts)
-                        
-                        results[algorithm.name] = {
-                            'runs': runs,
-                            'successful_runs': len(successful_runs),
-                            'failed_runs': len(run_results) - len(successful_runs),
-                            'runtime_stats': runtime_stats,
-                            'kpis_stats': kpi_stats,
-                            'entries_count_stats': entries_stats,
-                            'individual_runs': run_results,
-                            'status': 'success'
-                        }
-                        
-                        avg_runtime = runtime_stats['mean']
-                        self.stdout.write(self.style.SUCCESS(
-                            f"✓ {algorithm.name} completed {len(successful_runs)}/{runs} runs successfully "
-                            f"(avg runtime: {avg_runtime:.2f}s)"
-                        ))
-                    else:
-                        results[algorithm.name] = {
-                            'runs': runs,
-                            'successful_runs': 0,
-                            'failed_runs': len(run_results),
-                            'individual_runs': run_results,
-                            'status': 'failed'
-                        }
-                        self.stdout.write(self.style.ERROR(
-                            f"✗ {algorithm.name} failed all {runs} runs"
-                        ))
+                            run_seed = base_seed + run_idx
+                            # attribute
+                            if hasattr(alg, "seed"):
+                                setattr(alg, "seed", run_seed)
+                            # setter
+                            if hasattr(alg, "set_seed") and callable(getattr(alg, "set_seed")):
+                                try:
+                                    alg.set_seed(run_seed)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
 
-                all_results[test_case['name']] = {
-                    'display_name': test_case['display_name'],
-                    'results': results,
-                    'problem_size': {
-                        'employees': len(problem.employees),
-                        'shifts': len(problem.shifts),
-                        'days': (problem.end_date - problem.start_date).days + 1
+                    t0 = time.time()
+                    try:
+                        # Try to pass seed kwarg if solve supports it
+                        solve_kwargs: Dict[str, Any] = {}
+                        try:
+                            sig = inspect.signature(alg.solve)
+                            if "seed" in sig.parameters and name in HEURISTIC_ALGORITHMS:
+                                solve_kwargs["seed"] = base_seed + run_idx
+                        except Exception:
+                            pass
+
+                        entries = alg.solve(problem, **solve_kwargs) if solve_kwargs else alg.solve(problem)
+                        runtime = time.time() - t0
+
+                        # Build signature & diff to previous run
+                        signature, diff_pct = self._solution_signature(entries, prev_signature)
+                        prev_signature = signature
+
+                        # Persist entries for this run (clear only this algo/company)
+                        self._clear_algorithm_company_entries(company, name)
+                        self._save_entries(entries, name)
+
+                        # Robustness simulation uses separate seed so it varies per run
+                        import random as _r
+                        _r.seed(base_seed + 10_000 + run_idx)
+                        np.random.seed(base_seed + 10_000 + run_idx)
+
+                        kpis = self._calculate_comprehensive_kpis(company, name)
+                        # Attach diagnostics for transparency
+                        kpis["__solution_hash"] = signature
+                        kpis["__diff_vs_previous_percent"] = diff_pct
+
+                        run_results.append({
+                            "runtime": runtime,
+                            "kpis": kpis,
+                            "status": "success",
+                            "entries_count": len(entries),
+                            "solution_hash": signature,
+                            "diff_vs_previous_percent": diff_pct,
+                        })
+                        all_runtimes.append(runtime)
+                        all_kpis.append(kpis)
+                        all_entries_counts.append(len(entries))
+
+                        if runs > 1:
+                            self.stdout.write(f"    ✓ Run {run_idx + 1} completed in {runtime:.2f}s; Δ={diff_pct:.2f}%")
+
+                    except Exception as e:
+                        runtime = time.time() - t0
+                        run_results.append({"runtime": runtime, "kpis": None, "status": "failed", "error": str(e)})
+                        all_runtimes.append(runtime)
+                        self.stdout.write(f"    ✗ Run {run_idx + 1} failed: {e}")
+
+                succ = [r for r in run_results if r["status"] == "success"]
+                if succ:
+                    runtime_stats = self._calculate_statistics(all_runtimes)
+                    kpi_stats = self._calculate_kpi_statistics(all_kpis)
+                    entries_stats = self._calculate_statistics(all_entries_counts)
+                    results[name] = {
+                        "runs": runs,
+                        "successful_runs": len(succ),
+                        "failed_runs": len(run_results) - len(succ),
+                        "runtime_stats": runtime_stats,
+                        "kpis_stats": kpi_stats,
+                        "entries_count_stats": entries_stats,
+                        "individual_runs": run_results,
+                        "status": "success",
                     }
-                }
+                    self.stdout.write(self.style.SUCCESS(
+                        f"✓ {name} {len(succ)}/{runs} runs; avg {runtime_stats['mean']:.2f}s"))
+                else:
+                    results[name] = {
+                        "runs": runs,
+                        "successful_runs": 0,
+                        "failed_runs": len(run_results),
+                        "individual_runs": run_results,
+                        "status": "failed",
+                    }
+                    self.stdout.write(self.style.ERROR(f"✗ {name} failed all {runs} runs"))
 
-                self._save_test_results(test_case['name'], results, export_dir)
-                self._generate_enhanced_test_graphs_with_analytics(test_case['name'], results, export_dir, company)
+            # Save per-test-case results
+            all_results[tc["name"]] = {
+                "display_name": tc["display_name"],
+                "results": results,
+                "problem_size": {
+                    "employees": len(base_problem.employees),
+                    "shifts": len(base_problem.shifts),
+                    "days": (base_problem.end_date - base_problem.start_date).days + 1,
+                },
+            }
 
-            overall_file = os.path.join(export_dir, 'benchmark_results.json')
-            with open(overall_file, 'w', encoding='utf-8') as f:
-                json.dump(all_results, f, indent=4, default=str, allow_nan=False)
+            self._save_test_results(tc["name"], results, "export")
+            self._maybe_generate_case_graphs(tc["name"], results, "export", company)
 
-            EnhancedAnalytics.generate_comparison_graphs_across_test_cases(all_results, export_dir)
+        # Overall summary
+        self._maybe_generate_overall_graphs(all_results, "export")
+        with open(os.path.join("export", "benchmark_results.json"), "w", encoding="utf-8") as f:
+            json.dump(all_results, f, indent=4, default=str, allow_nan=False)
 
-            self.stdout.write(self.style.SUCCESS(
-                f"\nBenchmark complete! Results saved to {export_dir}/"
-            ))
+        self.stdout.write(self.style.SUCCESS("\nBenchmark complete! Results saved to export/"))
 
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(
-                f"Benchmark failed: {str(e)}"
-            ))
-            traceback.print_exc()
-            raise
+    # ------------------------------ helpers ---------------------------------
+    def _reset_db(self):
+        ScheduleEntry.objects.all().delete()
+        Employee.objects.all().delete()
+        Shift.objects.all().delete()
+        Company.objects.all().delete()
+
+    def _solution_signature(self, entries, prev_signature: str | None) -> Tuple[str, float]:
+        tup = sorted((e.employee_id, e.date.isoformat(), e.shift_id) for e in entries)
+        raw = json.dumps(tup, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        signature = hashlib.sha256(raw).hexdigest()
+        prev_tup = getattr(self, "_prev_tup", None)
+        if prev_signature is None or prev_tup is None:
+            self._prev_tup = tup
+            return signature, 0.0
+        s1, s2 = set(prev_tup), set(tup)
+        diff_pct = 100.0 * len(s1.symmetric_difference(s2)) / max(len(s1), len(s2)) if max(len(s1), len(s2)) else 0.0
+        self._prev_tup = tup
+        return signature, diff_pct
 
     def _clear_algorithm_company_entries(self, company, algorithm_name):
-        deleted_count = ScheduleEntry.objects.filter(
-            company=company,
-            algorithm=algorithm_name
-        ).delete()[0]
-
-        if deleted_count > 0:
-            self.stdout.write(f"Cleared {deleted_count} existing entries for {algorithm_name} at {company.name}")
+        deleted = ScheduleEntry.objects.filter(company=company, algorithm=algorithm_name).delete()[0]
+        if deleted:
+            self.stdout.write(f"Cleared {deleted} entries for {algorithm_name} at {company.name}")
 
     def _load_fixtures(self, employee_file: str, shift_file: str):
-        with open(employee_file, 'r', encoding='utf-8') as f:
-            employee_data = json.load(f)
-            for item in employee_data:
-                fields = item['fields']
-                if 'company' in fields:
-                    fields['company'] = Company.objects.get(pk=fields['company'])
+        with open(employee_file, "r", encoding="utf-8") as f:
+            employees = json.load(f)
+            for item in employees:
+                fields = item["fields"]
+                if "company" in fields:
+                    fields["company"] = Company.objects.get(pk=fields["company"])
                 Employee.objects.create(**fields)
-        with open(shift_file, 'r', encoding='utf-8') as f:
-            shift_data = json.load(f)
-            for item in shift_data:
-                fields = item['fields']
-                if 'company' in fields:
-                    fields['company'] = Company.objects.get(pk=fields['company'])
+        with open(shift_file, "r", encoding="utf-8") as f:
+            shifts = json.load(f)
+            for item in shifts:
+                fields = item["fields"]
+                if "company" in fields:
+                    fields["company"] = Company.objects.get(pk=fields["company"])
                 Shift.objects.create(**fields)
 
     def _load_company_fixtures(self, company_file: str):
-        with open(company_file, 'r', encoding='utf-8') as f:
-            company_data = json.load(f)
-            for item in company_data:
-                fields = item['fields']
-                pk = item.get('pk')
+        with open(company_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            for item in data:
+                fields = item["fields"]
+                pk = item.get("pk")
                 if pk is not None:
                     Company.objects.create(pk=pk, **fields)
                 else:
                     Company.objects.create(**fields)
 
     def _create_problem(self, company) -> SchedulingProblem:
-        company_employees = Employee.objects.filter(company=company)
-        self.stdout.write(f"Found {company_employees.count()} employees for company {company.name}")
-        employees = employees_to_core(company_employees)
-
-        company_shifts = Shift.objects.filter(company=company)
-        self.stdout.write(f"Found {company_shifts.count()} shifts for company {company.name}")
-        shifts = shifts_to_core(company_shifts)
-
+        emps_qs = Employee.objects.filter(company=company)
+        employees = employees_to_core(emps_qs)
+        shifts_qs = Shift.objects.filter(company=company)
+        shifts = shifts_to_core(shifts_qs)
         return SchedulingProblem(
             employees=employees,
             shifts=shifts,
             start_date=date(2025, 1, 1),
             end_date=date(2025, 12, 31),
-            company=company
+            company=company,
         )
 
-    def _save_entries(self, entries: List, algorithm_name: str = ''):
-        with transaction.atomic():
-            for entry in entries:
-                employee = Employee.objects.get(id=entry.employee_id)
-                company = employee.company
-                ScheduleEntry.objects.create(
-                    employee_id=entry.employee_id,
-                    date=entry.date,
-                    shift_id=entry.shift_id,
-                    company=company,
-                    algorithm=algorithm_name
-                )
+    def _maybe_shuffle_problem(self, problem: SchedulingProblem, seed: int, scope: str) -> SchedulingProblem:
+        import random
+        rng = random.Random(seed)
+        employees = list(problem.employees)
+        shifts = list(problem.shifts)
+        if scope in ("employees", "both"):
+            rng.shuffle(employees)
+        if scope in ("shifts", "both"):
+            rng.shuffle(shifts)
+        # Rebuild problem with same metadata but shuffled order
+        return SchedulingProblem(
+            employees=employees,
+            shifts=shifts,
+            start_date=problem.start_date,
+            end_date=problem.end_date,
+            company=problem.company,
+        )
 
+    @transaction.atomic
+    def _save_entries(self, entries, algorithm_name: str):
+        for entry in entries:
+            employee = Employee.objects.get(id=entry.employee_id)
+            ScheduleEntry.objects.create(
+                employee_id=entry.employee_id,
+                date=entry.date,
+                shift_id=entry.shift_id,
+                company=employee.company,
+                algorithm=algorithm_name,
+            )
+
+    def _save_test_results(self, test_key: str, results: Dict[str, Any], export_dir: str) -> None:
+        os.makedirs(export_dir, exist_ok=True)
+        path = os.path.join(export_dir, f"{test_key}_results.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=4, default=str, allow_nan=False)
+
+    # ------------------ KPI aggregation ---------------------------------
     def _calculate_comprehensive_kpis(self, company, algorithm_name) -> Dict[str, Any]:
         employees = list(Employee.objects.filter(company=company))
-        shifts = list(Shift.objects.filter(company=company))
-        start_date = date(2025, 1, 1)
-        end_date = date(2025, 12, 31)
+        start_date, end_date = date(2025, 1, 1), date(2025, 12, 31)
 
-        from rostering_app.utils import get_working_days_in_range
-        working_days = get_working_days_in_range(start_date, end_date, company)
-        total_working_days = len(working_days)
-
-        kpi_calculator = KPICalculator(company)
+        kpi = KPICalculator(company)
         entries = ScheduleEntry.objects.filter(
-            company=company,
-            algorithm=algorithm_name,
-            date__gte=start_date,
-            date__lte=end_date
+            company=company, algorithm=algorithm_name, date__gte=start_date, date__lte=end_date
         )
 
-        monthly_stats = {}
+        # Monthly rollups (aggregate values may be invariant across plans)
+        monthly_stats: Dict[int, Dict[str, Any]] = {}
         for month in range(1, 13):
             month_start = date(2025, month, 1)
             month_end = date(2025, month, 28)
@@ -416,381 +407,223 @@ class Command(BaseCommand):
                 month_end += timedelta(days=1)
             month_end -= timedelta(days=1)
 
-            company_analytics = kpi_calculator.calculate_company_analytics(
-                entries, 2025, month, algorithm_name
-            )
+            company_analytics = kpi.calculate_company_analytics(entries, 2025, month, algorithm_name)
 
-            contract_32h = []
-            contract_40h = []
-
+            # Contract buckets
+            c32, c40 = [], []
             for emp in employees:
-                emp_entries = [e for e in entries if e.employee.id == emp.id and month_start <= e.date <= month_end]
-                emp_hours = sum(
-                    kpi_calculator.calculate_shift_hours_in_month(e.shift, e.date, month_start, month_end)
-                    for e in emp_entries
-                )
-
-                if emp.max_hours_per_week == 32:
-                    contract_32h.append(emp_hours)
-                elif emp.max_hours_per_week == 40:
-                    contract_40h.append(emp_hours)
+                emp_entries = [e for e in entries if (e.employee.id == emp.id and month_start <= e.date <= month_end)]
+                emp_hours = sum(kpi.calculate_shift_hours_in_month(e.shift, e.date, month_start, month_end) for e in emp_entries)
+                wh = getattr(emp, "max_hours_per_week", 0)
+                if wh == 32:
+                    c32.append(emp_hours)
+                elif wh == 40:
+                    c40.append(emp_hours)
 
             monthly_stats[month] = {
-                'contract_32h_avg': statistics.mean(contract_32h) if contract_32h else 0,
-                'contract_40h_avg': statistics.mean(contract_40h) if contract_40h else 0,
-                'contract_32h_count': len(contract_32h),
-                'contract_40h_count': len(contract_40h),
-                'company_analytics': company_analytics
+                "contract_32h_avg": statistics.mean(c32) if c32 else 0.0,
+                "contract_40h_avg": statistics.mean(c40) if c40 else 0.0,
+                "contract_32h_count": len(c32),
+                "contract_40h_count": len(c40),
+                "company_analytics": company_analytics,
             }
 
-        coverage_stats = kpi_calculator.calculate_coverage_stats(entries, start_date, end_date)
-        rest_violations_detailed = kpi_calculator.check_rest_period_violations_detailed(entries, start_date, end_date)
-        total_rest_violations = rest_violations_detailed['total_violations']
+        coverage_stats = kpi.calculate_coverage_stats(entries, start_date, end_date)
+        rest_details = kpi.check_rest_period_violations_detailed(entries, start_date, end_date)
+        total_rest_violations = rest_details.get("total_violations", 0)
 
-        # ------------------------------------------------------------------
-        # Calculate extended per-employee statistics
-        # ------------------------------------------------------------------
-        employee_hours: List[float] = []  # actual hours per employee over the year
-        expected_hours_list: List[float] = []  # expected contractual hours per employee
-        utilizations: List[float] = []  # utilisation ratio (actual/expected)
-        utilizations_32: List[float] = []
-        utilizations_40: List[float] = []
-        overtime_list: List[float] = []  # positive difference between actual and expected
-        # Build a lookup for entries per employee to avoid repeated filtering
+        # Per-employee fairness metrics (more plan-sensitive)
+        employee_hours: List[float] = []
+        util_32: List[float] = []
+        util_40: List[float] = []
+        overtime_list: List[float] = []
+
         entries_by_emp: Dict[int, List[Any]] = defaultdict(list)
         for e in entries:
             entries_by_emp[e.employee.id].append(e)
         for emp in employees:
             emp_entries = entries_by_emp.get(emp.id, [])
-            # total actual hours for the employee
-            actual = sum(
-                kpi_calculator.calculate_shift_hours_in_range(e.shift, e.date, start_date, end_date)
-                for e in emp_entries
-            )
+            actual = sum(kpi.calculate_shift_hours_in_range(e.shift, e.date, start_date, end_date) for e in emp_entries)
             employee_hours.append(actual)
-            # expected contractual hours (deducting absences if available)
             try:
-                expected = kpi_calculator.calculate_expected_yearly_hours(emp, 2025)
+                expected = kpi.calculate_expected_yearly_hours(emp, 2025)
             except Exception:
-                expected = getattr(emp, 'max_hours_per_week', 0) * 52
-            expected_hours_list.append(expected)
-            # utilisation ratio
+                expected = getattr(emp, "max_hours_per_week", 0) * 52
             util = (actual / expected) if expected > 0 else 0.0
-            utilizations.append(util)
-            # group by contract type
-            if getattr(emp, 'max_hours_per_week', 0) == 32:
-                utilizations_32.append(util)
-            elif getattr(emp, 'max_hours_per_week', 0) == 40:
-                utilizations_40.append(util)
-            # overtime
+            if getattr(emp, "max_hours_per_week", 0) == 32:
+                util_32.append(util)
+            elif getattr(emp, "max_hours_per_week", 0) == 40:
+                util_40.append(util)
             overtime_list.append(max(actual - expected, 0.0))
 
-        # Utilisation statistics
-        util_min = min(utilizations) if utilizations else 0.0
-        util_max = max(utilizations) if utilizations else 0.0
-        util_avg = statistics.mean(utilizations) if utilizations else 0.0
-        util_stats_by_contract = {
-            '32h': {
-                'min': min(utilizations_32) if utilizations_32 else 0.0,
-                'max': max(utilizations_32) if utilizations_32 else 0.0,
-                'avg': statistics.mean(utilizations_32) if utilizations_32 else 0.0,
-            },
-            '40h': {
-                'min': min(utilizations_40) if utilizations_40 else 0.0,
-                'max': max(utilizations_40) if utilizations_40 else 0.0,
-                'avg': statistics.mean(utilizations_40) if utilizations_40 else 0.0,
-            },
-        }
-
-        # Fairness metrics based on actual hours
         if employee_hours:
             hours_mean = statistics.mean(employee_hours)
             hours_stdev = statistics.stdev(employee_hours) if len(employee_hours) > 1 else 0.0
             hours_cv = (hours_stdev / hours_mean * 100) if hours_mean > 0 else 0.0
             gini = self._calculate_gini(employee_hours)
-            # Jain fairness index
             sum_hours = sum(employee_hours)
-            sum_sq_hours = sum(h * h for h in employee_hours)
+            sum_sq_hours = sum(h*h for h in employee_hours)
             jain_index = (sum_hours * sum_hours) / (len(employee_hours) * sum_sq_hours) if sum_sq_hours > 0 else 0.0
-            # Variance (population)
             variance_hours = statistics.pvariance(employee_hours) if len(employee_hours) > 1 else 0.0
-            # Gini coefficient on overtime
             gini_overtime = self._calculate_gini(overtime_list) if overtime_list else 0.0
         else:
             hours_mean = hours_stdev = hours_cv = gini = jain_index = variance_hours = gini_overtime = 0.0
 
-        # Preference satisfaction calculation
+        # Preference satisfaction (compare IDs)
         total_assigned = 0
         pref_matches = 0
-
-        entries_by_emp: Dict[int, List[ScheduleEntry]] = defaultdict(list)
+        by_emp2: Dict[int, List[ScheduleEntry]] = defaultdict(list)
         for e in entries:
-            entries_by_emp[e.employee.id].append(e)
-
+            by_emp2[e.employee.id].append(e)
         for emp in employees:
-            preferred = set(getattr(emp, "preferred_shifts", []))
-            if not preferred:
+            preferred_ids = set(getattr(emp, "preferred_shifts", []))
+            if not preferred_ids:
                 continue
-
-            emp_entries = entries_by_emp.get(emp.id, [])
+            emp_entries = by_emp2.get(emp.id, [])
+            for e in emp_entries:
+                if e.shift and e.shift.id in preferred_ids:
+                    pref_matches += 1
             total_assigned += len(emp_entries)
-            pref_matches += sum(
-                1 for e in emp_entries if e.shift.name in preferred
-            )
-
-        preference_satisfaction = (pref_matches / total_assigned) if total_assigned else 0.0
-
-        # Average shift utilisation across all shifts and days
-        if coverage_stats:
-            coverage_percentages = [stat['coverage_percentage'] for stat in coverage_stats if stat.get('coverage_percentage') is not None]
-            avg_shift_utilisation = (sum(coverage_percentages) / len(coverage_percentages) / 100) if coverage_percentages else 0.0
-        else:
-            avg_shift_utilisation = 0.0
-
-        # Robustness: expected extra understaff percentage from Monte Carlo absence simulation
-        try:
-            ea = EnhancedAnalytics(company, entries, employees, shifts)
-            robustness = ea.absence_impact()
-        except Exception:
-            robustness = 0.0
+        pref_satisfaction = (pref_matches / total_assigned * 100) if total_assigned else 0.0
 
         return {
-            'monthly_stats': monthly_stats,
-            'coverage_stats': coverage_stats,
-            'constraint_violations': {
-                'rest_period_violations': total_rest_violations,
-                'total_violations':  total_rest_violations,
-                'rest_period_violations_detailed': rest_violations_detailed
+            "monthly_stats": monthly_stats,
+            "coverage_stats": coverage_stats,
+            "constraint_violations": {
+                "rest_period_violations": total_rest_violations,
+                "total_violations": total_rest_violations,
+                "rest_period_violations_detailed": rest_details,
             },
-            'fairness_metrics': {
-                'gini_coefficient': gini,
-                'hours_std_dev': hours_stdev,
-                'hours_cv': hours_cv,
-                'min_hours': min(employee_hours) if employee_hours else 0.0,
-                'max_hours': max(employee_hours) if employee_hours else 0.0,
-                'avg_hours': hours_mean,
-                'jain_index': jain_index,
-                'gini_overtime': gini_overtime,
-                'variance_hours': variance_hours
+            "fairness_metrics": {
+                "gini_coefficient": gini,
+                "hours_std_dev": hours_stdev,
+                "hours_cv": hours_cv,
+                "min_hours": min(employee_hours) if employee_hours else 0.0,
+                "max_hours": max(employee_hours) if employee_hours else 0.0,
+                "avg_hours": hours_mean,
+                "jain_index": jain_index,
+                "gini_overtime": gini_overtime,
+                "variance_hours": variance_hours,
             },
-            'utilization': {
-                'min': util_min,
-                'max': util_max,
-                'avg': util_avg,
-                'by_contract': util_stats_by_contract
+            "utilization": {
+                "min": min(util_32 + util_40) if (util_32 or util_40) else 0.0,
+                "max": max(util_32 + util_40) if (util_32 or util_40) else 0.0,
+                "avg": statistics.mean(util_32 + util_40) if (util_32 or util_40) else 0.0,
+                "by_contract": {
+                    "32h": {
+                        "min": min(util_32) if util_32 else 0.0,
+                        "max": max(util_32) if util_32 else 0.0,
+                        "avg": statistics.mean(util_32) if util_32 else 0.0,
+                    },
+                    "40h": {
+                        "min": min(util_40) if util_40 else 0.0,
+                        "max": max(util_40) if util_40 else 0.0,
+                        "avg": statistics.mean(util_40) if util_40 else 0.0,
+                    },
+                },
             },
-            'average_shift_utilization': avg_shift_utilisation,
-            'preference_satisfaction': preference_satisfaction,
-            'robustness_extra_under_pct': robustness,
-            'total_working_days': total_working_days,
-            'total_employees': len(employees),
-            'total_shifts': len(shifts)
+            "average_shift_utilization": (sum([s["coverage_percentage"] for s in coverage_stats]) / len(coverage_stats) / 100) if coverage_stats else 0.0,
+            "preference_satisfaction_percent": pref_satisfaction,
         }
 
+    # ---------- stats helpers ----------
     def _calculate_gini(self, values: List[float]) -> float:
         n = len(values)
         total = sum(values)
-        if n == 0 or total == 0:
-            return 0.0
-        if n == 1:
+        if n <= 1 or total == 0:
             return 0.0
         sorted_values = sorted(values)
-        cumsum = sum((i + 1) * val for i, val in enumerate(sorted_values))
+        cumsum = sum((i + 1) * v for i, v in enumerate(sorted_values))
         return (2 * cumsum) / (n * total) - (n + 1) / n
 
     def _calculate_statistics(self, values: List[float], confidence_level: float = 0.95) -> Dict[str, Any]:
-        """Calculate mean, variance, and confidence interval for a list of values."""
         if not values:
-            return {
-                'mean': 0.0,
-                'variance': 0.0,
-                'std_dev': 0.0,
-                'confidence_interval': (0.0, 0.0),
-                'min': 0.0,
-                'max': 0.0,
-                'count': 0
-            }
-        
-        values_array = np.array(values)
-        mean = float(np.mean(values_array))
-        
-        # Calculate variance and standard deviation only if we have more than one value
-        if len(values) > 1:
-            variance = float(np.var(values_array, ddof=1))  # Sample variance
-            std_dev = float(np.std(values_array, ddof=1))   # Sample standard deviation
-            
-            # Treat very small variances as zero (practically identical values)
-            # This handles floating-point precision issues where values are essentially the same
-            # Use relative threshold based on mean value
-            relative_threshold = max(abs(mean) * 1e-10, 1e-10)
-            if variance < relative_threshold:  # Threshold for "practically identical"
+            return {"mean": 0.0, "variance": 0.0, "std_dev": 0.0,
+                    "confidence_interval": (0.0, 0.0), "min": 0.0, "max": 0.0, "count": 0}
+        arr = np.array(values, dtype=float)
+        mean = float(np.mean(arr))
+        if len(arr) > 1:
+            variance = float(np.var(arr, ddof=1))
+            std_dev = float(np.std(arr, ddof=1))
+            rel_thresh = max(abs(mean) * 1e-12, 1e-12)  # treat tiny noise as zero
+            if variance < rel_thresh:
                 variance = 0.0
                 std_dev = 0.0
         else:
             variance = 0.0
             std_dev = 0.0
-        
-        # Ensure no NaN values
-        if np.isnan(mean):
-            mean = 0.0
-        if np.isnan(variance):
-            variance = 0.0
-        if np.isnan(std_dev):
-            std_dev = 0.0
-        
-        # Calculate confidence interval
-        if len(values) > 1 and variance > 0:
+        if np.isnan(mean): mean = 0.0
+        if np.isnan(variance): variance = 0.0
+        if np.isnan(std_dev): std_dev = 0.0
+        if len(arr) > 1 and variance > 0:
             try:
-                sem = stats.sem(values_array)
-                if sem > relative_threshold:  # Only calculate if standard error is meaningfully positive
-                    confidence_interval = stats.t.interval(
-                        confidence_level, 
-                        len(values) - 1, 
-                        loc=mean, 
-                        scale=sem
-                    )
-                    confidence_interval = (float(confidence_interval[0]), float(confidence_interval[1]))
-                    # Check for NaN values in confidence interval
-                    if np.isnan(confidence_interval[0]) or np.isnan(confidence_interval[1]):
-                        confidence_interval = (mean, mean)
+                sem = stats.sem(arr)
+                if sem > 0:
+                    lo, hi = stats.t.interval(confidence_level, len(arr) - 1, loc=mean, scale=sem)
+                    ci = (float(lo), float(hi))
+                    if np.isnan(ci[0]) or np.isnan(ci[1]):
+                        ci = (mean, mean)
                 else:
-                    # Standard error is too small, treat as identical values
-                    confidence_interval = (mean, mean)
-            except (ValueError, RuntimeWarning):
-                # Fallback if confidence interval calculation fails
-                confidence_interval = (mean, mean)
+                    ci = (mean, mean)
+            except Exception:
+                ci = (mean, mean)
         else:
-            # If variance is 0 (all values identical) or only one value, use mean as interval
-            confidence_interval = (mean, mean)
-        
-        min_val = float(np.min(values_array))
-        max_val = float(np.max(values_array))
-        
-        # Ensure no NaN values in min/max
-        if np.isnan(min_val):
-            min_val = mean
-        if np.isnan(max_val):
-            max_val = mean
-        
-        return {
-            'mean': mean,
-            'variance': variance,
-            'std_dev': std_dev,
-            'confidence_interval': confidence_interval,
-            'min': min_val,
-            'max': max_val,
-            'count': len(values)
-        }
+            ci = (mean, mean)
+        return {"mean": mean, "variance": variance, "std_dev": std_dev,
+                "confidence_interval": ci, "min": float(np.min(arr)), "max": float(np.max(arr)), "count": len(arr)}
 
-    def _calculate_nested_statistics(self, data: Dict[str, List[float]], confidence_level: float = 0.95) -> Dict[str, Any]:
-        """Calculate statistics for nested data structures."""
-        result = {}
-        for key, values in data.items():
-            if isinstance(values, list) and all(isinstance(v, (int, float)) for v in values):
-                result[key] = self._calculate_statistics(values, confidence_level)
-            elif isinstance(values, dict):
-                result[key] = self._calculate_nested_statistics(values, confidence_level)
-            else:
-                result[key] = values
-        return result
+    def _extract_numeric_values(self, src: Any, out: Dict[str, List[float]], prefix: str = "") -> None:
+        if isinstance(src, dict):
+            for k, v in src.items():
+                key = f"{prefix}.{k}" if prefix else str(k)
+                self._extract_numeric_values(v, out, key)
+        elif isinstance(src, (list, tuple)):
+            for i, v in enumerate(src):
+                key = f"{prefix}[{i}]"
+                self._extract_numeric_values(v, out, key)
+        elif isinstance(src, (int, float)) and not (isinstance(src, float) and np.isnan(src)):
+            out[prefix].append(float(src))
 
     def _calculate_kpi_statistics(self, kpi_list: List[Dict[str, Any]], confidence_level: float = 0.95) -> Dict[str, Any]:
-        """Calculate statistics for KPI data across multiple runs."""
         if not kpi_list:
             return {}
-        
-        # Extract all numeric values from KPIs
-        kpi_values = defaultdict(list)
-        
+        flat: Dict[str, List[float]] = defaultdict(list)
         for kpis in kpi_list:
-            if not kpis:
-                continue
-            self._extract_numeric_values(kpis, kpi_values)
-        
-        # Special handling for coverage_stats
-        coverage_stats = self._calculate_coverage_statistics(kpi_list, confidence_level)
-        
-        # Calculate statistics for each metric
-        result = {}
-        for metric_name, values in kpi_values.items():
-            if values:  # Only calculate if we have values
-                # Debug: Print some examples of values that are causing issues
-                if len(values) > 1 and any('fairness_metrics' in metric_name for _ in [1]):
-                    unique_values = len(set(values))
-                    if unique_values == 1:
-                        self.stdout.write(f"DEBUG: {metric_name} has {len(values)} identical values: {values[0]}")
-                    elif unique_values < len(values) * 0.1:  # Less than 10% unique values
-                        self.stdout.write(f"DEBUG: {metric_name} has {unique_values} unique values out of {len(values)} total")
-                
-                result[metric_name] = self._calculate_statistics(values, confidence_level)
-        
-        # Add coverage statistics to result
-        if coverage_stats:
-            result['coverage_stats'] = coverage_stats
-        
-        return result
+            if kpis:
+                self._extract_numeric_values(kpis, flat)
+        # Special handling: coverage stats are a list of dicts per shift -> compute per-shift stats
+        coverage_key = "coverage_stats"
+        if coverage_key in flat:
+            flat.pop(coverage_key, None)
+        return {metric: self._calculate_statistics(vals, confidence_level) for metric, vals in flat.items() if vals}
 
-    def _calculate_coverage_statistics(self, kpi_list: List[Dict[str, Any]], confidence_level: float = 0.95) -> Dict[str, Any]:
-        """Calculate statistics for coverage data across multiple runs."""
-        if not kpi_list:
-            return {}
-        
-        # Collect coverage data from all runs
-        all_coverage_data = []
-        for kpis in kpi_list:
-            if kpis and 'coverage_stats' in kpis:
-                all_coverage_data.append(kpis['coverage_stats'])
-        
-        if not all_coverage_data:
-            return {}
-        
-        # Group coverage percentages by shift name
-        shift_coverage_data = defaultdict(list)
-        
-        for coverage_stats in all_coverage_data:
-            for shift_stat in coverage_stats:
-                shift_name = shift_stat['shift']['name']
-                coverage_percentage = shift_stat['coverage_percentage']
-                shift_coverage_data[shift_name].append(coverage_percentage)
-        
-        # Calculate statistics for each shift
-        result = {}
-        for shift_name, coverage_values in shift_coverage_data.items():
-            if coverage_values:
-                result[shift_name] = self._calculate_statistics(coverage_values, confidence_level)
-        
-        return result
+    # ----------------------- outputs / graphs -----------------------
+    def _maybe_generate_case_graphs(self, test_key: str, results: Dict[str, Any], export_dir: str, company):
+        if not EnhancedAnalytics:
+            return
+        try:
+            # build a full analytics instance on the *current* DB snapshot
+            all_entries = ScheduleEntry.objects.filter(company=company)
+            employees = list(Employee.objects.filter(company=company))
+            shifts = list(Shift.objects.filter(company=company))
+            ea = EnhancedAnalytics(company, all_entries, employees, shifts)
 
-    def _extract_numeric_values(self, data: Any, kpi_values: Dict[str, List[float]], prefix: str = ""):
-        """Recursively extract numeric values from nested KPI data."""
-        if isinstance(data, dict):
-            for key, value in data.items():
-                new_prefix = f"{prefix}.{key}" if prefix else key
-                self._extract_numeric_values(value, kpi_values, new_prefix)
-        elif isinstance(data, list):
-            for i, item in enumerate(data):
-                new_prefix = f"{prefix}[{i}]" if prefix else f"[{i}]"
-                self._extract_numeric_values(item, kpi_values, new_prefix)
-        elif isinstance(data, (int, float)):
-            kpi_values[prefix].append(float(data))
+            # Prefer the "all comparison" helper if present, else fall back
+            if hasattr(ea, "generate_all_individual_comparison_graphs"):
+                ea.generate_all_individual_comparison_graphs(results, export_dir, test_key)
+            elif hasattr(ea, "generate_algorithm_comparison_graphs"):
+                ea.generate_algorithm_comparison_graphs(results, export_dir, test_key)
+            # Always try to include the monthly contract graph for context
+            if hasattr(ea, "generate_monthly_hours_by_contract_graph"):
+                ea.generate_monthly_hours_by_contract_graph(export_dir, test_key)
+        except Exception as e:
+            self.stdout.write(f"[warn] Analytics graph generation skipped: {e}")
 
-    def _save_test_results(self, test_name: str, results: Dict, export_dir: str):
-        test_dir = os.path.join(export_dir, test_name)
-        if not os.path.exists(test_dir):
-            os.makedirs(test_dir)
-
-        results_file = os.path.join(test_dir, 'results.json')
-        with open(results_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=4, default=str, allow_nan=False)
-
-    def _generate_enhanced_test_graphs_with_analytics(self, test_name: str, results: Dict, export_dir: str, company):
-        self.stdout.write(f"Generating graphs for {test_name}...")
-
-        all_entries = ScheduleEntry.objects.filter(company=company)
-        employees = list(Employee.objects.filter(company=company))
-        shifts = list(Shift.objects.filter(company=company))
-
-        analytics = EnhancedAnalytics(company, all_entries, employees, shifts)
-        analytics.generate_algorithm_comparison_graphs(results, export_dir, test_name)
-
-        self.stdout.write(self.style.SUCCESS(f"Generated enhanced graphs for {test_name}"))
+    def _maybe_generate_overall_graphs(self, all_results: Dict[str, Any], export_dir: str):
+        if not EnhancedAnalytics:
+            return
+        try:
+            if hasattr(EnhancedAnalytics, "generate_comparison_graphs_across_test_cases"):
+                EnhancedAnalytics.generate_comparison_graphs_across_test_cases(all_results, export_dir)
+        except Exception as e:
+            self.stdout.write(f"[warn] Overall comparison graph skipped: {e}")
