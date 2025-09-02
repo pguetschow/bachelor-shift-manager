@@ -349,43 +349,103 @@ class EnhancedAnalytics:
     # ------------------------------------------------------------------
     # Individual graph generation methods ––––––––––––––––––––––––––––
     # ------------------------------------------------------------------
-    def generate_monthly_hours_by_contract_graph(self, export_dir: str, test_name: str):
-        """Generate monthly hours by contract type graph."""
+    def generate_monthly_hours_by_contract_graph(self, results: Dict, export_dir: str, test_name: str):
+        """Create monthly average hours by contract (32h/40h) with one line per algorithm.
+
+        Uses aggregated statistics from ``kpis_stats.monthly_stats.<m>.contract_XXh_avg``
+        with mean and confidence_interval when available. Falls back to single-run
+        values in ``kpis.monthly_stats`` if needed.
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
         test_dir = os.path.join(export_dir, test_name)
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
 
-        # Calculate monthly hours by contract
-        start_date = min(self._dates) if self._dates else date(2025, 1, 1)
-        end_date = max(self._dates) if self._dates else date(2025, 12, 31)
-        monthly_stats = self._calculate_monthly_hours_by_contract(start_date, end_date)
+        # Filter successful results
+        successful = {k: v for k, v in results.items() if v.get('status') == 'success'}
+        if not successful:
+            return
 
+        algorithms = list(successful.keys())
         months = list(range(1, 13))
-        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'Mai', 'Jun',
-                      'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
 
-        # Create the graph
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+        # Prepare per-algorithm series for both contracts
+        series_32 = {}  # alg -> (means, lower, upper)
+        series_40 = {}
 
-        # 32h contracts
-        hours_32h = [monthly_stats[month]['contract_32h_avg'] for month in months]
-        if any(h > 0 for h in hours_32h):
-            ax1.plot(month_names, hours_32h, marker='o', label='32h Verträge', linewidth=2)
+        for alg in algorithms:
+            info = successful[alg]
+            means32, lo32, hi32 = [], [], []
+            means40, lo40, hi40 = [], [], []
+            if 'kpis_stats' in info:
+                ks = info['kpis_stats']
+                for m in months:
+                    stat32 = ks.get(f'monthly_stats.{m}.contract_32h_avg', {})
+                    stat40 = ks.get(f'monthly_stats.{m}.contract_40h_avg', {})
+                    m32 = float(stat32.get('mean', 0.0)) if isinstance(stat32, dict) else float(stat32 or 0.0)
+                    m40 = float(stat40.get('mean', 0.0)) if isinstance(stat40, dict) else float(stat40 or 0.0)
+                    ci32 = stat32.get('confidence_interval', [m32, m32]) if isinstance(stat32, dict) else [m32, m32]
+                    ci40 = stat40.get('confidence_interval', [m40, m40]) if isinstance(stat40, dict) else [m40, m40]
+                    means32.append(m32);
+                    lo32.append(max(0.0, m32 - float(ci32[0])));
+                    hi32.append(max(0.0, float(ci32[1]) - m32))
+                    means40.append(m40);
+                    lo40.append(max(0.0, m40 - float(ci40[0])));
+                    hi40.append(max(0.0, float(ci40[1]) - m40))
+            else:
+                # Old format: single-run KPIs
+                k = info.get('kpis', {})
+                mstats = k.get('monthly_stats', {})
+                for m in months:
+                    cell = mstats.get(m, {})
+                    m32 = float(cell.get('contract_32h_avg', 0.0))
+                    m40 = float(cell.get('contract_40h_avg', 0.0))
+                    means32.append(m32);
+                    lo32.append(0.0);
+                    hi32.append(0.0)
+                    means40.append(m40);
+                    lo40.append(0.0);
+                    hi40.append(0.0)
+            series_32[alg] = (means32, lo32, hi32)
+            series_40[alg] = (means40, lo40, hi40)
 
-        # 40h contracts
-        hours_40h = [monthly_stats[month]['contract_40h_avg'] for month in months]
-        if any(h > 0 for h in hours_40h):
-            ax2.plot(month_names, hours_40h, marker='s', label='40h Verträge', linewidth=2)
+        # Plot with two subplots: 32h and 40h
+        fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
 
-        ax1.set_title('Durchschnittliche Arbeitsstunden pro Monat - 32h Verträge')
-        ax1.set_ylabel('Stunden')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
+        for alg in algorithms:
+            means, lo, hi = series_32[alg]
+            line, = axes[0].plot(months, means, label=alg)
+            col = line.get_color()  # Linienfarbe übernehmen
+            if any(e > 0 for e in lo + hi):
+                lower = np.array(means) - np.array(lo)
+                upper = np.array(means) + np.array(hi)
+                axes[0].fill_between(
+                    months, lower, upper,
+                    color=col, alpha=0.15, linewidth=0, zorder=line.get_zorder() - 1
+                )
+        axes[0].set_title('Monatliche Stunden – Vertrag 32h')
+        axes[0].set_ylabel('Ø Stunden')
+        axes[0].grid(True, alpha=0.3)
+        axes[0].legend()
 
-        ax2.set_title('Durchschnittliche Arbeitsstunden pro Monat - 40h Verträge')
-        ax2.set_ylabel('Stunden')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
+        for alg in algorithms:
+            means, lo, hi = series_40[alg]
+            line, = axes[1].plot(months, means, label=alg)
+            col = line.get_color()  # Linienfarbe übernehmen
+            if any(e > 0 for e in lo + hi):
+                lower = np.array(means) - np.array(lo)
+                upper = np.array(means) + np.array(hi)
+                axes[1].fill_between(
+                    months, lower, upper,
+                    color=col, alpha=0.15, linewidth=0, zorder=line.get_zorder() - 1
+                )
+
+        axes[1].set_title('Monatliche Stunden – Vertrag 40h')
+        axes[1].set_xlabel('Monat')
+        axes[1].set_ylabel('Ø Stunden')
+        axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
 
         plt.tight_layout()
         plt.savefig(os.path.join(test_dir, 'monthly_hours_by_contract.png'), dpi=300)
@@ -1247,7 +1307,7 @@ class EnhancedAnalytics:
                                                    min_hours: float, max_hours: float, avg_hours: float, results: Dict = None):
         """Generate all individual graphs for a single algorithm."""
         # Generate monthly hours by contract graph (already individual)
-        self.generate_monthly_hours_by_contract_graph(export_dir, test_name)
+        # self.generate_monthly_hours_by_contract_graph(export_dir, test_name)
 
         # Generate individual fairness graphs
         self.generate_individual_fairness_graphs(export_dir, test_name, algorithm_name, results)
@@ -1441,3 +1501,7 @@ class EnhancedAnalytics:
         n = arr.size
         index = np.arange(1, n + 1)
         return (np.sum((2 * index - n - 1) * arr) / (n * np.sum(arr)))
+
+
+
+

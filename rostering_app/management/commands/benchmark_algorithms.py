@@ -626,7 +626,7 @@ class Command(BaseCommand):
                 ea.generate_algorithm_comparison_graphs(results, export_dir, test_key)
             # Always try to include the monthly contract graph for context
             if hasattr(ea, "generate_monthly_hours_by_contract_graph"):
-                ea.generate_monthly_hours_by_contract_graph(export_dir, test_key)
+                ea.generate_monthly_hours_by_contract_graph(results, export_dir, test_key)
         except Exception as e:
             self.stdout.write(f"[warn] Analytics graph generation skipped: {e}")
 
