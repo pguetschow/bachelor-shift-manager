@@ -68,7 +68,7 @@ class Command(BaseCommand):
         parser.add_argument("--force", action="store_true")
         parser.add_argument("--algorithm", type=str, help="LinearProgramming, GeneticAlgorithm, CompactSA")
         parser.add_argument("--company", type=str, help="small_company, medium_company, bigger_company, large_company, tight_company")
-        parser.add_argument("--runs", type=int, default=15)
+        parser.add_argument("--runs", type=int, default=5)
         parser.add_argument("--base-seed", type=int, default=42)
         # enforce stochasticity through input shuffling
         parser.add_argument("--shuffle-inputs", action="store_true",
@@ -468,6 +468,16 @@ class Command(BaseCommand):
             gini_overtime = self._calculate_gini(overtime_list) if overtime_list else 0.0
         else:
             hours_mean = hours_stdev = hours_cv = gini = jain_index = variance_hours = gini_overtime = 0.0
+        # Robustness (expected extra understaffed % when ~5% of employees are absent)
+        robustness_extra_under_pct = 0.0
+        try:
+            if EnhancedAnalytics is not None:
+                shifts = list(Shift.objects.filter(company=company))
+                ea = EnhancedAnalytics(company, entries, employees, shifts)
+                robustness_extra_under_pct = float(ea.absence_impact(pct=0.05, repeats=100))
+        except Exception:
+            robustness_extra_under_pct = 0.0
+
 
         # Preference satisfaction (compare IDs)
         total_assigned = 0
@@ -476,12 +486,12 @@ class Command(BaseCommand):
         for e in entries:
             by_emp2[e.employee.id].append(e)
         for emp in employees:
-            preferred_ids = set(getattr(emp, "preferred_shifts", []))
-            if not preferred_ids:
+            pref_shifts = set(getattr(emp, "preferred_shifts", []))
+            if not pref_shifts:
                 continue
             emp_entries = by_emp2.get(emp.id, [])
             for e in emp_entries:
-                if e.shift and e.shift.id in preferred_ids:
+                if e.shift and e.shift.name in pref_shifts:
                     pref_matches += 1
             total_assigned += len(emp_entries)
         pref_satisfaction = (pref_matches / total_assigned * 100) if total_assigned else 0.0
@@ -524,6 +534,7 @@ class Command(BaseCommand):
             },
             "average_shift_utilization": (sum([s["coverage_percentage"] for s in coverage_stats]) / len(coverage_stats) / 100) if coverage_stats else 0.0,
             "preference_satisfaction_percent": pref_satisfaction,
+            "robustness_extra_under_pct": robustness_extra_under_pct,
         }
 
     # ---------- stats helpers ----------

@@ -399,14 +399,14 @@ class EnhancedAnalytics:
 
         # Check if we have statistical data for this algorithm
         has_stats = results and algorithm_name in results and 'kpis_stats' in results[algorithm_name]
-        
+
         if has_stats:
             # Use statistical data from multiple runs
             stats_data = results[algorithm_name]['kpis_stats']
             jain_stats = stats_data.get('fairness_metrics.jain_index', {})
             jain_mean = jain_stats.get('mean', 0)
             jain_std = jain_stats.get('std_dev', 0)
-            
+
             metrics = {
                 'jain_fairness_index': ('Jain-Fairness-Index', jain_mean, jain_std, 'Index'),
             }
@@ -419,13 +419,13 @@ class EnhancedAnalytics:
 
         for metric_key, (label, val, error, ylabel) in metrics.items():
             fig, ax = plt.subplots(figsize=(8, 6))
-            
+
             # Use error bars if we have statistical data
             if error > 0:
                 bars = ax.bar([algorithm_name], [val], color='skyblue', yerr=error, capsize=5)
             else:
                 bars = ax.bar([algorithm_name], [val], color='skyblue')
-            
+
             ax.set_title(label)
             ax.set_ylabel(ylabel)
             ax.set_xticklabels([algorithm_name], rotation=45, ha='right')
@@ -449,28 +449,28 @@ class EnhancedAnalytics:
 
         # Check if we have statistical data for this algorithm
         has_stats = results and algorithm_name in results and 'kpis_stats' in results[algorithm_name]
-        
+
         if has_stats:
             # Use statistical data from multiple runs
             stats_data = results[algorithm_name]['kpis_stats']
-            
+
             # Check if we have coverage statistics
             if 'coverage_stats' in stats_data:
                 coverage_stats = stats_data['coverage_stats']
-                
+
                 # Create the graph with error bars using pre-calculated statistics
                 shift_names = list(coverage_stats.keys())
                 coverage_means = [coverage_stats[name]['mean'] for name in shift_names]
                 coverage_stds = [coverage_stats[name]['std_dev'] for name in shift_names]
-                
+
                 fig, ax = plt.subplots(figsize=(10, 6))
-                
+
                 # Use error bars if we have meaningful standard deviation
                 if any(std > 0 for std in coverage_stds):
                     bars = ax.bar(shift_names, coverage_means, color='lightblue', yerr=coverage_stds, capsize=5)
                 else:
                     bars = ax.bar(shift_names, coverage_means, color='lightblue')
-                
+
                 ax.set_title(f'Abdeckung - {algorithm_name}')
                 ax.set_ylabel('Abdeckung (%)')
                 ax.set_xticklabels(shift_names, rotation=45, ha='right')
@@ -488,59 +488,59 @@ class EnhancedAnalytics:
             else:
                 # Fallback: use individual runs if coverage_stats not available
                 individual_runs = results[algorithm_name]['individual_runs']
-                
+
                 # Get coverage stats from all successful runs
                 all_coverage_stats = []
                 for run in individual_runs:
                     if run['status'] == 'success' and run['kpis'] and 'coverage_stats' in run['kpis']:
                         all_coverage_stats.append(run['kpis']['coverage_stats'])
-                
+
                 if not all_coverage_stats:
                     return
-                
+
                 # Calculate statistics for each shift's coverage percentage
                 shift_coverage_stats = {}
                 first_run_stats = all_coverage_stats[0]  # Use first run for shift structure
-                
+
                 for shift_stat in first_run_stats:
                     shift_name = shift_stat['shift']['name']
                     coverage_values = []
-                    
+
                     # Collect coverage percentages for this shift across all runs
                     for run_stats in all_coverage_stats:
                         for stat in run_stats:
                             if stat['shift']['name'] == shift_name:
                                 coverage_values.append(stat['coverage_percentage'])
                                 break
-                    
+
                     if coverage_values:
                         # Calculate statistics for this shift's coverage
                         mean_coverage = np.mean(coverage_values)
                         std_coverage = np.std(coverage_values, ddof=1) if len(coverage_values) > 1 else 0.0
-                        
+
                         # Treat very small standard deviations as zero
                         if std_coverage < 1e-10:
                             std_coverage = 0.0
-                        
+
                         shift_coverage_stats[shift_name] = {
                             'mean': mean_coverage,
                             'std': std_coverage,
                             'shift_info': shift_stat['shift']
                         }
-                
+
                 # Create the graph with error bars
                 shift_names = list(shift_coverage_stats.keys())
                 coverage_means = [shift_coverage_stats[name]['mean'] for name in shift_names]
                 coverage_stds = [shift_coverage_stats[name]['std'] for name in shift_names]
-                
+
                 fig, ax = plt.subplots(figsize=(10, 6))
-                
+
                 # Use error bars if we have meaningful standard deviation
                 if any(std > 0 for std in coverage_stds):
                     bars = ax.bar(shift_names, coverage_means, color='lightblue', yerr=coverage_stds, capsize=5)
                 else:
                     bars = ax.bar(shift_names, coverage_means, color='lightblue')
-                
+
                 ax.set_title(f'Abdeckung - {algorithm_name}')
                 ax.set_ylabel('Abdeckung (%)')
                 ax.set_xticklabels(shift_names, rotation=45, ha='right')
@@ -555,7 +555,7 @@ class EnhancedAnalytics:
                 plt.tight_layout()
                 plt.savefig(os.path.join(test_dir, f'coverage_analysis_{algorithm_name}.png'), dpi=300)
                 plt.close()
-            
+
         else:
             # Fallback to single run calculation
             coverage_stats = []
@@ -601,10 +601,10 @@ class EnhancedAnalytics:
         test_dir = os.path.join(export_dir, test_name)
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
-        
+
         # Check if we have statistical data for this algorithm
         has_stats = results and algorithm_name in results and 'kpis_stats' in results[algorithm_name]
-        
+
         if has_stats:
             # Use statistical data from multiple runs
             stats_data = results[algorithm_name]['kpis_stats']
@@ -615,10 +615,10 @@ class EnhancedAnalytics:
             # Fallback to single run data
             rest_violations_mean = rest_violations
             rest_violations_std = 0
-        
+
         # Rest period violations graph
         fig, ax = plt.subplots(figsize=(8, 6))
-        
+
         # Use error bars if we have statistical data
         if rest_violations_std > 0:
             bars = ax.bar([algorithm_name], [rest_violations_mean],
@@ -627,7 +627,7 @@ class EnhancedAnalytics:
         else:
             bars = ax.bar([algorithm_name], [rest_violations_mean],
                          color=['green' if rest_violations_mean == 0 else 'orange'])
-        
+
         ax.set_title('Ruhezeit-Verletzungen')
         ax.set_ylabel('Anzahl Verletzungen')
         ax.set_xticklabels([algorithm_name], rotation=45, ha='right')
@@ -647,26 +647,26 @@ class EnhancedAnalytics:
 
         # Check if we have statistical data for this algorithm
         has_stats = results and algorithm_name in results and 'kpis_stats' in results[algorithm_name]
-        
+
         if has_stats:
             # Use statistical data from multiple runs
             stats_data = results[algorithm_name]['kpis_stats']
             runtime_stats = results[algorithm_name]['runtime_stats']
             runtime_mean = runtime_stats.get('mean', runtime)
             runtime_std = runtime_stats.get('std_dev', 0)
-            
+
             # Get hours statistics
             min_hours_stats = stats_data.get('fairness_metrics.min_hours', {})
             max_hours_stats = stats_data.get('fairness_metrics.max_hours', {})
             avg_hours_stats = stats_data.get('fairness_metrics.avg_hours', {})
-            
+
             min_hours_mean = min_hours_stats.get('mean', min_hours)
             max_hours_mean = max_hours_stats.get('mean', max_hours)
             avg_hours_mean = avg_hours_stats.get('mean', avg_hours)
-            
+
             min_hours_std = min_hours_stats.get('std_dev', 0)
             max_hours_std = max_hours_stats.get('std_dev', 0)
-            
+
             # Get violations statistics
             total_violations_stats = stats_data.get('constraint_violations.total_violations', {})
             total_violations_mean = total_violations_stats.get('mean', total_violations)
@@ -852,7 +852,7 @@ class EnhancedAnalytics:
                 # Old format (single run)
                 runtime_means.append(successful[alg]['runtime'])
                 runtime_errors.append([0, 0])
-        
+
         fig, ax = plt.subplots(figsize=(10, 6))
         bars = ax.bar(algorithms, runtime_means, color='purple', yerr=np.array(runtime_errors).T, capsize=5)
         ax.set_title('Laufzeitvergleich - Alle Algorithmen')
@@ -873,27 +873,27 @@ class EnhancedAnalytics:
         min_errors = []
         avg_errors = []
         max_errors = []
-        
+
         for alg in algorithms:
             if 'kpis_stats' in successful[alg]:
                 # New format with statistics
                 min_stats = successful[alg]['kpis_stats'].get('utilization.min', {})
                 avg_stats = successful[alg]['kpis_stats'].get('utilization.avg', {})
                 max_stats = successful[alg]['kpis_stats'].get('utilization.max', {})
-                
+
                 min_utils.append(min_stats.get('mean', 0) * 100)
                 avg_utils.append(avg_stats.get('mean', 0) * 100)
                 max_utils.append(max_stats.get('mean', 0) * 100)
-                
+
                 # Calculate error bars for confidence intervals
                 min_ci_lower = min_stats.get('mean', 0) * 100 - min_stats.get('confidence_interval', [0, 0])[0] * 100
                 min_ci_upper = min_stats.get('confidence_interval', [0, 0])[1] * 100 - min_stats.get('mean', 0) * 100
                 min_errors.append([min_ci_lower, min_ci_upper])
-                
+
                 avg_ci_lower = avg_stats.get('mean', 0) * 100 - avg_stats.get('confidence_interval', [0, 0])[0] * 100
                 avg_ci_upper = avg_stats.get('confidence_interval', [0, 0])[1] * 100 - avg_stats.get('mean', 0) * 100
                 avg_errors.append([avg_ci_lower, avg_ci_upper])
-                
+
                 max_ci_lower = max_stats.get('mean', 0) * 100 - max_stats.get('confidence_interval', [0, 0])[0] * 100
                 max_ci_upper = max_stats.get('confidence_interval', [0, 0])[1] * 100 - max_stats.get('mean', 0) * 100
                 max_errors.append([max_ci_lower, max_ci_upper])
@@ -909,7 +909,7 @@ class EnhancedAnalytics:
         fig, ax = plt.subplots(figsize=(12, 6))
         x_pos = np.arange(len(algorithms))
         width = 0.25
-        bars_min = ax.bar(x_pos - width, min_utils, width, label='Min', color='lightblue', 
+        bars_min = ax.bar(x_pos - width, min_utils, width, label='Min', color='lightblue',
                          yerr=np.array(min_errors).T, capsize=3)
         bars_avg = ax.bar(x_pos, avg_utils, width, label='Durchschnitt', color='cornflowerblue',
                          yerr=np.array(avg_errors).T, capsize=3)
@@ -949,7 +949,7 @@ class EnhancedAnalytics:
                 # Old format (single run)
                 shift_utils.append(successful[alg]['kpis']['average_shift_utilization'] * 100)
                 shift_errors.append([0, 0])
-        
+
         fig, ax = plt.subplots(figsize=(10, 6))
         bars = ax.bar(algorithms, shift_utils, color='teal', yerr=np.array(shift_errors).T, capsize=5)
         ax.set_title('Durchschnittliche Schichtauslastung - Algorithmenvergleich')
@@ -969,16 +969,16 @@ class EnhancedAnalytics:
         for alg in algorithms:
             if 'kpis_stats' in successful[alg]:
                 # New format with statistics
-                stats = successful[alg]['kpis_stats'].get('preference_satisfaction', {})
-                pref_rates.append(stats.get('mean', 0) * 100)
+                stats = successful[alg]['kpis_stats'].get('preference_satisfaction_percent', {}) or successful[alg]['kpis_stats'].get('preference_satisfaction', {})
+                pref_rates.append(stats.get('mean', 0))
                 # Use confidence interval for error bars
-                ci_lower = stats.get('mean', 0) * 100 - stats.get('confidence_interval', [0, 0])[0] * 100
-                ci_upper = stats.get('confidence_interval', [0, 0])[1] * 100 - stats.get('mean', 0) * 100
+                ci_lower = stats.get('mean', 0) - stats.get('confidence_interval', [0, 0])[0]
+                ci_upper = stats.get('confidence_interval', [0, 0])[1] - stats.get('mean', 0)
                 pref_errors.append([ci_lower, ci_upper])
             else:
                 # Old format (single run)
-                rate = successful[alg]['kpis'].get('preference_satisfaction', 0)
-                pref_rates.append(rate * 100)
+                rate = successful[alg]['kpis'].get('preference_satisfaction_percent', successful[alg]['kpis'].get('preference_satisfaction', 0))
+                pref_rates.append(rate)
                 pref_errors.append([0, 0])
 
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -1010,7 +1010,7 @@ class EnhancedAnalytics:
                 # Old format (single run)
                 robustness_vals.append(successful[alg]['kpis'].get('robustness_extra_under_pct', 0))
                 robustness_errors.append([0, 0])
-        
+
         fig, ax = plt.subplots(figsize=(10, 6))
         bars = ax.bar(algorithms, robustness_vals, color='seagreen', yerr=np.array(robustness_errors).T, capsize=5)
         ax.set_title('Robustheit (Extra Unterbesetzung %) - Algorithmenvergleich')
@@ -1040,7 +1040,7 @@ class EnhancedAnalytics:
                 # Old format (single run)
                 total_violations.append(successful[alg]['kpis']['constraint_violations']['total_violations'])
                 violation_errors.append([0, 0])
-        
+
         fig, ax = plt.subplots(figsize=(10, 6))
         bars = ax.bar(algorithms, total_violations, color=['green' if v == 0 else 'red' for v in total_violations],
                      yerr=np.array(violation_errors).T, capsize=5)
@@ -1072,24 +1072,24 @@ class EnhancedAnalytics:
             if 'kpis_stats' in successful[alg]:
                 # New format - use pre-calculated coverage statistics
                 stats_data = successful[alg]['kpis_stats']
-                
+
                 # Check if we have coverage statistics
                 if 'coverage_stats' in stats_data:
                     coverage_stats = stats_data['coverage_stats']
-                    
+
                     # Create the graph with error bars using pre-calculated statistics
                     shift_names = list(coverage_stats.keys())
                     coverage_means = [coverage_stats[name]['mean'] for name in shift_names]
                     coverage_stds = [coverage_stats[name]['std_dev'] for name in shift_names]
-                    
+
                     fig, ax = plt.subplots(figsize=(10, 6))
-                    
+
                     # Use error bars if we have meaningful standard deviation
                     if any(std > 0 for std in coverage_stds):
                         bars = ax.bar(shift_names, coverage_means, color='lightblue', yerr=coverage_stds, capsize=5)
                     else:
                         bars = ax.bar(shift_names, coverage_means, color='lightblue')
-                    
+
                     ax.set_title(f'Abdeckungsanalyse - {alg}')
                     ax.set_ylabel('Abdeckung (%)')
                     ax.set_xticklabels(shift_names, rotation=45, ha='right')
@@ -1107,59 +1107,59 @@ class EnhancedAnalytics:
                 else:
                     # Fallback: calculate from individual runs
                     individual_runs = successful[alg]['individual_runs']
-                    
+
                     # Get coverage stats from all successful runs
                     all_coverage_stats = []
                     for run in individual_runs:
                         if run['status'] == 'success' and run['kpis'] and 'coverage_stats' in run['kpis']:
                             all_coverage_stats.append(run['kpis']['coverage_stats'])
-                    
+
                     if not all_coverage_stats:
                         continue
-                    
+
                     # Calculate statistics for each shift's coverage percentage
                     shift_coverage_stats = {}
                     first_run_stats = all_coverage_stats[0]  # Use first run for shift structure
-                    
+
                     for shift_stat in first_run_stats:
                         shift_name = shift_stat['shift']['name']
                         coverage_values = []
-                        
+
                         # Collect coverage percentages for this shift across all runs
                         for run_stats in all_coverage_stats:
                             for stat in run_stats:
                                 if stat['shift']['name'] == shift_name:
                                     coverage_values.append(stat['coverage_percentage'])
                                     break
-                        
+
                         if coverage_values:
                             # Calculate statistics for this shift's coverage
                             mean_coverage = np.mean(coverage_values)
                             std_coverage = np.std(coverage_values, ddof=1) if len(coverage_values) > 1 else 0.0
-                            
+
                             # Treat very small standard deviations as zero
                             if std_coverage < 1e-10:
                                 std_coverage = 0.0
-                            
+
                             shift_coverage_stats[shift_name] = {
                                 'mean': mean_coverage,
                                 'std': std_coverage,
                                 'shift_info': shift_stat['shift']
                             }
-                    
+
                     # Create the graph with error bars
                     shift_names = list(shift_coverage_stats.keys())
                     coverage_means = [shift_coverage_stats[name]['mean'] for name in shift_names]
                     coverage_stds = [shift_coverage_stats[name]['std'] for name in shift_names]
-                    
+
                     fig, ax = plt.subplots(figsize=(10, 6))
-                    
+
                     # Use error bars if we have meaningful standard deviation
                     if any(std > 0 for std in coverage_stds):
                         bars = ax.bar(shift_names, coverage_means, color='lightblue', yerr=coverage_stds, capsize=5)
                     else:
                         bars = ax.bar(shift_names, coverage_means, color='lightblue')
-                    
+
                     ax.set_title(f'Abdeckungsanalyse - {alg}')
                     ax.set_ylabel('Abdeckung (%)')
                     ax.set_xticklabels(shift_names, rotation=45, ha='right')
@@ -1174,7 +1174,7 @@ class EnhancedAnalytics:
                     plt.tight_layout()
                     plt.savefig(os.path.join(test_dir, f'coverage_analysis_{alg}.png'), dpi=300)
                     plt.close()
-                
+
             else:
                 # Old format - single run
                 coverage_stats = successful[alg]['kpis']['coverage_stats']
@@ -1227,7 +1227,7 @@ class EnhancedAnalytics:
                 # Old format (single run)
                 rest_violations.append(successful[alg]['kpis']['constraint_violations']['rest_period_violations'])
                 rest_errors.append([0, 0])
-        
+
         fig, ax = plt.subplots(figsize=(10, 6))
         bars = ax.bar(algorithms, rest_violations, color=['green' if v == 0 else 'orange' for v in rest_violations],
                      yerr=np.array(rest_errors).T, capsize=5)
