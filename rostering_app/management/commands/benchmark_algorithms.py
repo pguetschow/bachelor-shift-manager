@@ -37,6 +37,9 @@ DEFAULT_TEST_CASES = [
     {"name": "small_company", "display_name": "Kleines Unternehmen (10 MA, 2 Schichten)",
      "employee_fixture": "rostering_app/fixtures/small_company/employees.json",
      "shift_fixture": "rostering_app/fixtures/small_company/shifts.json"},
+    {"name": "tight_company", "display_name": "Mittleres Unternehmen (eng) (18 MA, 3 Schichten)",
+     "employee_fixture": "rostering_app/fixtures/tight_company/employees.json",
+     "shift_fixture": "rostering_app/fixtures/tight_company/shifts.json"},
     {"name": "medium_company", "display_name": "Mittleres Unternehmen (30 MA, 3 Schichten)",
      "employee_fixture": "rostering_app/fixtures/medium_company/employees.json",
      "shift_fixture": "rostering_app/fixtures/medium_company/shifts.json"},
@@ -46,9 +49,6 @@ DEFAULT_TEST_CASES = [
     {"name": "large_company", "display_name": "Großes Unternehmen (100 MA, 5 Schichten)",
      "employee_fixture": "rostering_app/fixtures/large_company/employees.json",
      "shift_fixture": "rostering_app/fixtures/large_company/shifts.json"},
-    {"name": "tight_company", "display_name": "Mittleres Unternehmen (eng) (18 MA, 3 Schichten)",
-     "employee_fixture": "rostering_app/fixtures/tight_company/employees.json",
-     "shift_fixture": "rostering_app/fixtures/tight_company/shifts.json"},
 ]
 
 COMPANY_NAME_MAP = {
@@ -68,7 +68,7 @@ class Command(BaseCommand):
         parser.add_argument("--force", action="store_true")
         parser.add_argument("--algorithm", type=str, help="LinearProgramming, GeneticAlgorithm, CompactSA")
         parser.add_argument("--company", type=str, help="small_company, medium_company, bigger_company, large_company, tight_company")
-        parser.add_argument("--runs", type=int, default=5)
+        parser.add_argument("--runs", type=int, default=15)
         parser.add_argument("--base-seed", type=int, default=42)
         # enforce stochasticity through input shuffling
         parser.add_argument("--shuffle-inputs", action="store_true",

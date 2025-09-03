@@ -410,13 +410,19 @@ class EnhancedAnalytics:
             series_32[alg] = (means32, lo32, hi32)
             series_40[alg] = (means40, lo40, hi40)
 
+        from matplotlib.ticker import MultipleLocator
+
         # Plot with two subplots: 32h and 40h
         fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+
+        # y-Achsen in 8er-Schritten
+        for ax in axes:
+            ax.yaxis.set_major_locator(MultipleLocator(8))
 
         for alg in algorithms:
             means, lo, hi = series_32[alg]
             line, = axes[0].plot(months, means, label=alg)
-            col = line.get_color()  # Linienfarbe übernehmen
+            col = line.get_color()
             if any(e > 0 for e in lo + hi):
                 lower = np.array(means) - np.array(lo)
                 upper = np.array(means) + np.array(hi)
@@ -432,7 +438,7 @@ class EnhancedAnalytics:
         for alg in algorithms:
             means, lo, hi = series_40[alg]
             line, = axes[1].plot(months, means, label=alg)
-            col = line.get_color()  # Linienfarbe übernehmen
+            col = line.get_color()
             if any(e > 0 for e in lo + hi):
                 lower = np.array(means) - np.array(lo)
                 upper = np.array(means) + np.array(hi)

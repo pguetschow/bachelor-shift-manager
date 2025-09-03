@@ -348,7 +348,7 @@ class GeneticAlgorithmScheduler(SchedulingAlgorithm):
 
         diff_under = (self.min_staff - coverage).clip(min=0).sum()
         diff_over = (coverage - self.max_staff).clip(min=0).sum()
-        cov_pen = diff_under * 5_000_000 + diff_over * 500_000
+        cov_pen = diff_under * 500_000 + diff_over * 5_000_000
         if cov_pen > getattr(self, "_best", float("inf")) * 1.25:
             return cov_pen
 
